@@ -1,6 +1,7 @@
 """Tests for monotonic Workflow Progress Event contract and sequence."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,7 +18,7 @@ def test_workflow_progress_event_valid() -> None:
         run_number=1,
         phase=AssessmentRunPhase.COLLECTING_EVIDENCE,
         safe_message="Gathering vehicle intelligence facts",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
     assert event.sequence == 1
     assert event.phase == AssessmentRunPhase.COLLECTING_EVIDENCE
@@ -34,7 +35,7 @@ def test_workflow_progress_event_rejects_negative_or_zero_sequence() -> None:
             run_number=1,
             phase=AssessmentRunPhase.PENDING,
             safe_message="Initial intake",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
 
@@ -49,7 +50,7 @@ def test_workflow_progress_event_rejects_extra_fields() -> None:
                 "run_number": 1,
                 "phase": "PENDING",
                 "safe_message": "Intake",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "raw_observation_leak": {"internal": "secret"},
             }
         )
