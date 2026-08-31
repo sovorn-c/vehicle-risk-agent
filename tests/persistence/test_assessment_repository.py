@@ -1,11 +1,12 @@
 """Tests for transactional Assessment and Assessment Run persistence with idempotency."""
 
+from collections.abc import AsyncIterator
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.api.models import AssessmentContext, AssessmentCreateRequest, SaleType
-from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState, AssessmentRunPhase
 from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.persistence.models import Base
@@ -15,7 +16,7 @@ TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncSession:  # type: ignore[misc]
+async def session() -> AsyncIterator[AsyncSession]:
     """Provide a database session connected to local PostgreSQL with freshly created tables."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
