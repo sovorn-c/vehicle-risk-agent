@@ -1,0 +1,58 @@
+[project]
+name = "vehicle-risk-agent"
+version = "0.1.0"
+description = "Auditable vehicle risk assessment agent with typed LangGraph workflows"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.10.0,<3",
+    "pydantic-settings>=2.5.0",
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary,pool]>=3.2.0",
+    "sqlalchemy>=2.0.30,<2.1",
+    "alembic>=1.13.0,<2",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+vehicle-risk-agent = "vehicle_risk_agent.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vehicle_risk_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "PT", "SIM", "ARG"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
