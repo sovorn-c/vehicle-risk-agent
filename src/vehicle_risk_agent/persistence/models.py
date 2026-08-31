@@ -86,3 +86,24 @@ class IdempotencyRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class WorkflowEventRecord(Base):
+    """Persistent storage for sanitized workflow progress events."""
+
+    __tablename__ = "workflow_events"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "run_number", "sequence", name="uq_event_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    assessment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False)
+    safe_message: Mapped[str] = mapped_column(String(500), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
