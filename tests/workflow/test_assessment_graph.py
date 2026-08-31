@@ -1,6 +1,7 @@
 """Tests for typed LangGraph Assessment graph state, explicit phase transitions, and reducers."""
 
 import pytest
+
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
