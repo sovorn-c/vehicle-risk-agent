@@ -1,7 +1,6 @@
 """Tests for mapping domain and dependency failures to stable safe categories."""
 
 from vehicle_risk_agent.domain.errors import (
-    DomainError,
     IdempotencyConflictError,
 )
 from vehicle_risk_agent.observability.failures import (
