@@ -1,10 +1,11 @@
 """Tests for Assessment intake API routes, authorization, rate limiting, and safe errors."""
 
+from collections.abc import AsyncIterator
+
 import pytest
 import pytest_asyncio
-from collections.abc import AsyncIterator
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
