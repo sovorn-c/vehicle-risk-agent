@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
+from vehicle_risk_agent.auth import Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
 
 
