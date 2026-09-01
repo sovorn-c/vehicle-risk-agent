@@ -171,3 +171,52 @@ async def test_rate_limiting_intake(app_client: AsyncClient) -> None:
     assert 429 in status_codes
     rate_limited = [r for r in responses if r.status_code == 429][0]
     assert rate_limited.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_operator_and_maintainer_forbidden_from_reading_assessment(
+    app_client: AsyncClient,
+) -> None:
+    """Verify TECHNICAL_OPERATOR and POLICY_CORPUS_MAINTAINER are forbidden from reading assessments."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-read-auth"},
+    )
+    assert create_resp.status_code == 201
+    assessment_id = create_resp.json()["id"]
+
+    # Technical operator probe
+    op_resp = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}",
+        headers={"Authorization": "Bearer dev-operator-token"},
+    )
+    assert op_resp.status_code == 403
+    assert op_resp.json()["error"]["code"] == "FORBIDDEN"
+
+    # Maintainer probe
+    maint_resp = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}",
+        headers={"Authorization": "Bearer dev-maintainer-token"},
+    )
+    assert maint_resp.status_code == 403
+    assert maint_resp.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_reviewer_can_read_assessment(app_client: AsyncClient) -> None:
+    """Verify REVIEWER role can read assessments for review purposes."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-rev-read"},
+    )
+    assert create_resp.status_code == 201
+    assessment_id = create_resp.json()["id"]
+
+    rev_resp = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}",
+        headers={"Authorization": "Bearer dev-reviewer-token"},
+    )
+    assert rev_resp.status_code == 200
+    assert rev_resp.json()["id"] == assessment_id
