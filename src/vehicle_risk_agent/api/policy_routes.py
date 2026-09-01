@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from vehicle_risk_agent.api.deps import (
     get_current_principal,
     get_db_session,
+    get_embedding_adapter,
     require_role,
 )
 from vehicle_risk_agent.api.policy_schemas import (
@@ -31,6 +32,7 @@ from vehicle_risk_agent.policy.ingestion import (
     ingest_policy_source,
 )
 from vehicle_risk_agent.policy.models import PolicySource
+from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter
 
 router = APIRouter(prefix="/api/v1/policy", tags=["policy"])
 
@@ -138,6 +140,7 @@ async def ingest_snapshot(
     request: PolicySnapshotIngestRequest,
     _principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
     session: AsyncSession = Depends(get_db_session),
+    embedder: EmbeddingAdapter = Depends(get_embedding_adapter),
 ) -> PolicySnapshotResponse:
     """Ingest, validate, and parse a point-in-time snapshot for a policy source."""
     repo = PolicyRepository(session)
@@ -162,7 +165,7 @@ async def ingest_snapshot(
             detail={"code": "INVALID_POLICY_CONTENT", "message": str(err)},
         ) from err
 
-    saved = await repo.create_snapshot(snapshot)
+    saved = await PolicyRepository(session, embedder=embedder).create_snapshot(snapshot)
     return PolicySnapshotResponse(
         id=saved.id,
         source_id=saved.source_id,

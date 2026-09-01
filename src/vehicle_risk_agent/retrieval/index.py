@@ -3,6 +3,7 @@
 import math
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.policy.models import PolicyPassage
@@ -27,6 +28,22 @@ def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     if norm_a == 0.0 or norm_b == 0.0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+class PolicyIndex(Protocol):
+    """Common retrieval index contract for in-memory and PostgreSQL backends."""
+
+    async def search_dense(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
+        """Return dense candidates ordered by descending relevance."""
+        ...
+
+    async def search_keyword(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
+        """Return full-text candidates ordered by descending relevance."""
+        ...
+
+    async def get_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+        """Resolve authoritative source title and origin for citation grounding."""
+        ...
 
 
 class InMemoryPolicyIndex:
@@ -78,8 +95,8 @@ class InMemoryPolicyIndex:
             sim = _cosine_similarity(query_vec, doc_vec)
             scored.append((pid, sim))
 
-        # Sort descending by score
-        scored.sort(key=lambda item: item[1], reverse=True)
+        # Sort by score, then ID, so equal scores are load-order independent.
+        scored.sort(key=lambda item: (-item[1], item[0]))
 
         limit = min(top_k, self.config.dense_candidates)
         top_candidates = scored[:limit]
@@ -93,6 +110,10 @@ class InMemoryPolicyIndex:
             )
             for idx, (pid, score) in enumerate(top_candidates)
         ]
+
+    async def get_source_metadata(self, _source_id: str) -> tuple[str, str] | None:
+        """In-memory indexes have no authoritative source registry."""
+        return None
 
     async def search_keyword(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
         """Perform keyword search matching term frequencies and BM25-like overlap."""
@@ -119,7 +140,7 @@ class InMemoryPolicyIndex:
             score = overlap_score * doc_len_penalty
             scored.append((pid, score))
 
-        scored.sort(key=lambda item: item[1], reverse=True)
+        scored.sort(key=lambda item: (-item[1], item[0]))
 
         limit = min(top_k, self.config.keyword_candidates)
         top_candidates = scored[:limit]

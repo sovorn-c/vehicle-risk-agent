@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vehicle_risk_agent.persistence.models import PolicyPassageRecord
+from vehicle_risk_agent.persistence.models import PolicyPassageRecord, PolicySourceRecord
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.policy.models import PolicyPassage
 from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter
@@ -42,6 +42,17 @@ class PostgresPolicyIndex:
         self._snapshot_ids = list(snapshot_ids)
         self._config = config or RetrievalConfiguration()
 
+    async def get_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+        """Resolve citation metadata from the authoritative source table."""
+        stmt = select(PolicySourceRecord.title, PolicySourceRecord.canonical_origin).where(
+            PolicySourceRecord.id == source_id
+        )
+        result = await self._session.execute(stmt)
+        row = result.one_or_none()
+        if row is None:
+            return None
+        return str(row.title), str(row.canonical_origin)
+
     async def search_dense(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
         """Search passages by embedding cosine similarity using pgvector <=> operator."""
         if not self._snapshot_ids:
@@ -58,8 +69,8 @@ class PostgresPolicyIndex:
                 PolicyPassageRecord.snapshot_id.in_(self._snapshot_ids),
                 PolicyPassageRecord.embedding.is_not(None),
             )
-            .order_by("distance")
-            .limit(top_k)
+            .order_by(sa.asc(distance_expr), PolicyPassageRecord.id)
+            .limit(min(top_k, self._config.dense_candidates))
         )
 
         result = await self._session.execute(stmt)
@@ -104,8 +115,8 @@ class PostgresPolicyIndex:
                 PolicyPassageRecord.snapshot_id.in_(self._snapshot_ids),
                 doc_expr.bool_op("@@")(query_expr),
             )
-            .order_by(sa.desc("rank_score"))
-            .limit(top_k)
+            .order_by(sa.desc(rank_expr), PolicyPassageRecord.id)
+            .limit(min(top_k, self._config.keyword_candidates))
         )
 
         result = await self._session.execute(stmt)

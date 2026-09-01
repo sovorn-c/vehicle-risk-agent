@@ -34,6 +34,40 @@ class ValidationOutcome(StrEnum):
     INVALID = "INVALID"
 
 
+class FrozenDict(dict[str, Any]):
+    """JSON-compatible recursively immutable dictionary."""
+
+    def _raise_mutation(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("metadata is immutable")
+
+    __setitem__ = _raise_mutation
+    __delitem__ = _raise_mutation
+    clear = _raise_mutation
+    pop = _raise_mutation
+    popitem = _raise_mutation  # type: ignore[assignment]
+    setdefault = _raise_mutation
+    update = _raise_mutation
+    __ior__ = _raise_mutation  # type: ignore[assignment]
+
+
+def _freeze_value(value: Any) -> Any:
+    """Freeze standard mutable containers while preserving JSON serialization."""
+    if isinstance(value, dict):
+        return FrozenDict({key: _freeze_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_value(item) for item in value)
+    return value
+
+
+def _freeze_metadata(value: dict[str, Any]) -> FrozenDict:
+    """Freeze a metadata mapping recursively."""
+    frozen = _freeze_value(value)
+    assert isinstance(frozen, FrozenDict)
+    return frozen
+
+
 class PolicySource(BaseModel):
     """Official publication registered in the policy knowledge base."""
 
@@ -76,6 +110,17 @@ class PolicyPassage(BaseModel):
             raise ValueError("content_hash must be a valid hex sha256 string")
         return v.lower()
 
+    @model_validator(mode="after")
+    def verify_text_hash(self) -> "PolicyPassage":
+        """Verify that the declared content hash matches the passage text."""
+        computed = hashlib.sha256(self.text.encode("utf-8")).hexdigest()
+        if self.content_hash != computed:
+            raise ValueError(
+                f"content_hash does not match text sha256 "
+                f"(expected {computed}, got {self.content_hash})"
+            )
+        return self
+
 
 class PolicySnapshot(BaseModel):
     """Immutable point-in-time capture of a Policy Source with attributable passages."""
@@ -93,6 +138,10 @@ class PolicySnapshot(BaseModel):
     validation_outcome: ValidationOutcome = ValidationOutcome.VALID
     passages: tuple[PolicyPassage, ...] = Field(default_factory=tuple)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def model_post_init(self, _context: Any) -> None:
+        """Freeze metadata after Pydantic accepts the JSON-compatible mapping."""
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     @model_validator(mode="after")
     def verify_content_hash(self) -> "PolicySnapshot":

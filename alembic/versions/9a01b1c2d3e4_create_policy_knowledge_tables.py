@@ -51,12 +51,14 @@ def upgrade() -> None:
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("parser_version", sa.String(length=32), nullable=False),
         sa.Column("validation_outcome", sa.String(length=32), nullable=False),
+        sa.Column("metadata_json", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("effective_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("publication_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("retrieved_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["source_id"], ["policy_sources.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("source_id", "content_hash", name="uq_snapshot_source_hash"),
     )
     op.create_index(
         "ix_policy_snapshots_source_id", "policy_snapshots", ["source_id"], unique=False
@@ -82,6 +84,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["snapshot_id"], ["policy_snapshots.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["source_id"], ["policy_sources.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("snapshot_id", "sequence", name="uq_passage_snapshot_seq"),
     )
     op.create_index(
         "ix_policy_passages_snapshot_id", "policy_passages", ["snapshot_id"], unique=False

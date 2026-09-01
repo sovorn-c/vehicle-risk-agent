@@ -9,7 +9,7 @@ from vehicle_risk_agent.retrieval.adapters import (
     SentenceTransformersEmbeddingAdapter,
 )
 from vehicle_risk_agent.retrieval.fusion import reciprocal_rank_fusion
-from vehicle_risk_agent.retrieval.index import InMemoryPolicyIndex, RankedCandidate
+from vehicle_risk_agent.retrieval.index import InMemoryPolicyIndex, PolicyIndex, RankedCandidate
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
 from vehicle_risk_agent.retrieval.service import (
     HybridRetrievalService,
@@ -24,6 +24,7 @@ __all__ = [
     "FakeRerankerAdapter",
     "HybridRetrievalService",
     "InMemoryPolicyIndex",
+    "PolicyIndex",
     "PolicyRetrievalError",
     "PostgresPolicyIndex",
     "RankedCandidate",

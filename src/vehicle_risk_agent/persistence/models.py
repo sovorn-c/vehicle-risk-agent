@@ -184,7 +184,7 @@ class PolicySnapshotRecord(Base):
     corpora_associations: Mapped[list["PolicyCorpusSnapshotRecord"]] = relationship(
         "PolicyCorpusSnapshotRecord",
         back_populates="snapshot",
-        cascade="all, delete-orphan",
+        passive_deletes="all",
     )
 
 

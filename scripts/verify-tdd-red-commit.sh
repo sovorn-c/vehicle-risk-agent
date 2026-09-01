@@ -4,6 +4,8 @@
 # Usage:
 #   bash scripts/verify-tdd-red-commit.sh [--self-test]
 #   TDD_VERIFY_CMD='uv run pytest tests/test_config.py' bash scripts/verify-tdd-red-commit.sh
+# Test-only RED commits should use the conventional subject prefix:
+#   test(scope): red — describe the missing behavior
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,7 +45,14 @@ if [[ -z "$VERIFY_CMD" ]]; then
   fi
 fi
 
-RED_SHA=$(git rev-parse HEAD~1)
+# Check the latest explicitly named RED commit, not HEAD~1. After the paired
+# GREEN commit lands, HEAD~1 is necessarily GREEN and the old check was false-red.
+RED_SHA=$(git log --format='%H' --grep='^test.*red' --regexp-ignore-case -n 1)
+if [[ -z "$RED_SHA" ]]; then
+  echo "SKIP: no test-only RED commit found (use 'test(scope): red — ...')"
+  exit 0
+fi
+
 WORKTREE=$(mktemp -d)
 trap 'git worktree remove -f "$WORKTREE" 2>/dev/null || rm -rf "$WORKTREE"' EXIT
 

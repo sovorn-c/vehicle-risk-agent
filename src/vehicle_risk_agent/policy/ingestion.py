@@ -75,19 +75,12 @@ class PolicyParser:
                 doc_heading = first_h1.group(1).strip()
             section_spans.append(("Overview", doc_heading, 0, len(raw_content)))
         else:
-            first_start = heading_matches[0].start()
-            if first_start > 0:
-                preamble_raw = raw_content[:first_start]
-                # Strip leading H1 title if present
-                clean_preamble = re.sub(r"^#\s+[^\n]+\n*", "", preamble_raw).strip()
-                if clean_preamble:
-                    actual_start = raw_content.find(clean_preamble)
-                    section_spans.append(("Overview", "Preamble", actual_start, first_start))
-
+            # Attach the document prefix to the first section so every source
+            # character remains attributable without creating a title-only chunk.
             for idx, match in enumerate(heading_matches):
                 heading_text = match.group(2).strip()
                 sec_id = _extract_section_identifier(heading_text)
-                start_pos = match.start()
+                start_pos = 0 if idx == 0 else match.start()
                 end_pos = (
                     heading_matches[idx + 1].start()
                     if idx + 1 < len(heading_matches)

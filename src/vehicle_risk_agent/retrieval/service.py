@@ -6,7 +6,7 @@ from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.retrieval.adapters import RerankerAdapter
 from vehicle_risk_agent.retrieval.fusion import reciprocal_rank_fusion
-from vehicle_risk_agent.retrieval.index import InMemoryPolicyIndex, RankedCandidate
+from vehicle_risk_agent.retrieval.index import PolicyIndex, RankedCandidate
 
 
 class PolicyRetrievalError(Exception):
@@ -31,7 +31,7 @@ class HybridRetrievalService:
 
     def __init__(
         self,
-        index: InMemoryPolicyIndex,
+        index: PolicyIndex,
         reranker: RerankerAdapter,
         config: RetrievalConfiguration | None = None,
         source_metadata: dict[str, tuple[str, str]]
@@ -40,7 +40,13 @@ class HybridRetrievalService:
         self.index = index
         self.reranker = reranker
         self.config = config or RetrievalConfiguration()
-        self.source_metadata = source_metadata or {}
+        self.source_metadata = source_metadata
+
+    async def _resolve_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+        """Resolve citation metadata from explicit test data or the index's source table."""
+        if self.source_metadata is not None:
+            return self.source_metadata.get(source_id)
+        return await self.index.get_source_metadata(source_id)
 
     async def retrieve(self, query: str) -> RetrievalResult:
         """Execute hybrid search pipeline: dense + keyword -> RRF -> rerank -> citations."""
@@ -132,7 +138,7 @@ class HybridRetrievalService:
             citations: list[PolicyCitation] = []
             for c in top_passages:
                 p = c.passage
-                meta = self.source_metadata.get(p.source_id)
+                meta = await self._resolve_source_metadata(p.source_id)
                 if meta is None:
                     raise PolicyRetrievalError(
                         f"Missing authoritative source metadata for source {p.source_id}"

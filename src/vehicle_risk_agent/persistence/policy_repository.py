@@ -1,8 +1,12 @@
 """Transactional persistence repository for Policy Sources, Snapshots, and Passages."""
 
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +23,9 @@ from vehicle_risk_agent.policy.models import (
     SourceStatus,
     ValidationOutcome,
 )
+
+if TYPE_CHECKING:
+    from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter
 
 
 def _source_record_to_domain(record: PolicySourceRecord) -> PolicySource:
@@ -74,8 +81,13 @@ def _snapshot_record_to_domain(record: PolicySnapshotRecord) -> PolicySnapshot:
 class PolicyRepository:
     """Provides transactional persistence for policy knowledge entities."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        embedder: EmbeddingAdapter | None = None,
+    ) -> None:
         self._session = session
+        self._embedder = embedder
 
     async def get_source(self, source_id: str) -> PolicySource | None:
         """Retrieve a PolicySource by its ID."""
@@ -179,9 +191,19 @@ class PolicyRepository:
             metadata_json=json.dumps(snapshot.metadata),
             created_at=snapshot.retrieved_at,
         )
+        embeddings: list[list[float] | None] = [None] * len(snapshot.passages)
+        if self._embedder is not None and snapshot.passages:
+            vectors = await self._embedder.embed_texts(
+                [f"{passage.heading}\n{passage.text}" for passage in snapshot.passages]
+            )
+            if len(vectors) != len(snapshot.passages):
+                raise ValueError("Embedding adapter returned an incorrect vector count")
+            for index, vector in enumerate(vectors):
+                embeddings[index] = vector
+
         self._session.add(snapshot_record)
 
-        for p in snapshot.passages:
+        for p, embedding in zip(snapshot.passages, embeddings, strict=True):
             passage_record = PolicyPassageRecord(
                 id=p.id,
                 snapshot_id=p.snapshot_id,
@@ -193,10 +215,21 @@ class PolicyRepository:
                 char_offset_start=p.char_offset_start,
                 char_offset_end=p.char_offset_end,
                 content_hash=p.content_hash,
+                embedding=embedding,
             )
             self._session.add(passage_record)
 
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            # A concurrent identical ingestion may win the unique source/hash
+            # constraint. Recover that idempotent result instead of returning 500.
+            await self._session.rollback()
+            existing = await self.get_snapshot_by_hash(snapshot.source_id, snapshot.content_hash)
+            if existing is not None:
+                return existing
+            raise
+
         retrieved = await self.get_snapshot(snapshot.id)
         assert retrieved is not None
         return retrieved
