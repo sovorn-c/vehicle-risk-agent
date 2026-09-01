@@ -52,6 +52,7 @@ async def test_checkpoint_persistence_under_stable_run_identifier() -> None:
 async def test_runner_run_automatically_injects_thread_and_persists_events_to_event_store() -> None:
     """Verify AssessmentWorkflowRunner.run automatically manages thread_id and EventStore."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
     from vehicle_risk_agent.persistence.event_store import EventStore
 
@@ -64,11 +65,23 @@ async def test_runner_run_automatically_injects_thread_and_persists_events_to_ev
     broadcaster = ProgressEventBroadcaster()
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
+    from vehicle_risk_agent.api.models import AssessmentCreateRequest
+    from vehicle_risk_agent.persistence.repository import AssessmentRepository
+
+    async with session_factory() as sess:
+        repo = AssessmentRepository(sess)
+        req = AssessmentCreateRequest(
+            vin="1HGCR2F85HA000000",
+            context=AssessmentContext(sale_type=SaleType.DEALER),
+        )
+        asmt = await repo.create_assessment("req-01", "key-auto-01", req)
+        assessment_id = asmt.id
+
     async with AssessmentWorkflowRunner.create(
         settings, session_factory=session_factory, broadcaster=broadcaster
     ) as runner:
         initial_state: AssessmentGraphState = {
-            "assessment_id": "asmt-auto-001",
+            "assessment_id": assessment_id,
             "run_number": 1,
             "vin": "1HGCR2F85HA000000",
             "context": AssessmentContext(sale_type=SaleType.DEALER),
@@ -84,7 +97,7 @@ async def test_runner_run_automatically_injects_thread_and_persists_events_to_ev
         # Check that EventStore in PostgreSQL automatically received all 5 workflow events
         async with session_factory() as sess:
             store = EventStore(sess, broadcaster=broadcaster)
-            events = await store.get_events("asmt-auto-001")
+            events = await store.get_events(assessment_id)
             assert len(events) == 5
             assert events[0].phase == AssessmentRunPhase.COLLECTING_EVIDENCE
             assert events[-1].phase == AssessmentRunPhase.COMPLETED
