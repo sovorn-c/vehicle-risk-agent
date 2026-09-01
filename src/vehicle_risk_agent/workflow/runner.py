@@ -9,8 +9,12 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent.adapters.mcp import VehicleMcpClientAdapter
+from vehicle_risk_agent.api.models import AssessmentContext
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
+from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
@@ -24,10 +28,12 @@ class AssessmentWorkflowRunner:
         checkpointer: AsyncPostgresSaver,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         broadcaster: ProgressEventBroadcaster | None = None,
+        mcp_adapter: VehicleMcpClientAdapter | None = None,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
         self.broadcaster = broadcaster
+        self.mcp_adapter = mcp_adapter
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
 
@@ -38,6 +44,7 @@ class AssessmentWorkflowRunner:
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         broadcaster: ProgressEventBroadcaster | None = None,
+        mcp_adapter: VehicleMcpClientAdapter | None = None,
     ) -> AsyncIterator["AssessmentWorkflowRunner"]:
         """Create and initialize a runner with AsyncPostgresSaver and optional session factory."""
         conn_string = settings.database_url.replace("+psycopg", "")
@@ -55,6 +62,7 @@ class AssessmentWorkflowRunner:
                     checkpointer=checkpointer,
                     session_factory=session_factory,
                     broadcaster=broadcaster,
+                    mcp_adapter=mcp_adapter,
                 )
             finally:
                 if dispose_engine and engine is not None:
@@ -87,12 +95,17 @@ class AssessmentWorkflowRunner:
         run_config: dict[str, Any] = dict(config or {})
         configurable = dict(run_config.get("configurable", {}))
         configurable["thread_id"] = thread_id
+        if "mcp_adapter" not in configurable and self.mcp_adapter is not None:
+            configurable["mcp_adapter"] = self.mcp_adapter
 
         # If session_factory is available and event_store not explicitly passed in configurable
-        if "event_store" not in configurable and self.session_factory is not None:
+        if self.session_factory is not None:
             async with self.session_factory() as session:
-                store = EventStore(session, broadcaster=self.broadcaster)
-                configurable["event_store"] = store
+                if "event_store" not in configurable:
+                    store = EventStore(session, broadcaster=self.broadcaster)
+                    configurable["event_store"] = store
+                if "evidence_repo" not in configurable:
+                    configurable["evidence_repo"] = VehicleEvidenceRepository(session)
                 run_config["configurable"] = configurable
                 result: dict[str, Any] = await self._app.ainvoke(
                     initial_state, config=cast(RunnableConfig, run_config)
@@ -103,5 +116,47 @@ class AssessmentWorkflowRunner:
         run_config["configurable"] = configurable
         res: dict[str, Any] = await self._app.ainvoke(
             initial_state, config=cast(RunnableConfig, run_config)
+        )
+        return res
+
+
+class AssessmentRunner:
+    """Lightweight in-memory or integration runner for assessment graph execution."""
+
+    def __init__(
+        self,
+        mcp_adapter: VehicleMcpClientAdapter | None = None,
+        evidence_repo: VehicleEvidenceRepository | None = None,
+    ) -> None:
+        self.mcp_adapter = mcp_adapter
+        self.evidence_repo = evidence_repo
+        self._graph = build_assessment_graph()
+        self._app: CompiledStateGraph = self._graph.compile()  # type: ignore[type-arg]
+
+    async def run(
+        self,
+        assessment_id: str,
+        run_number: int,
+        vin: str,
+        context: AssessmentContext,
+    ) -> dict[str, Any]:
+        """Execute the assessment graph without checkpointer."""
+        initial_state: AssessmentGraphState = {
+            "assessment_id": assessment_id,
+            "run_number": run_number,
+            "vin": vin,
+            "context": context,
+            "phase": AssessmentRunPhase.PENDING,
+            "visited_phases": [AssessmentRunPhase.PENDING],
+            "events": [],
+        }
+        config: dict[str, Any] = {
+            "configurable": {
+                "mcp_adapter": self.mcp_adapter,
+                "evidence_repo": self.evidence_repo,
+            }
+        }
+        res: dict[str, Any] = await self._app.ainvoke(
+            initial_state, config=cast(RunnableConfig, config)
         )
         return res

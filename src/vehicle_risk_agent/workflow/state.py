@@ -7,6 +7,9 @@ from typing_extensions import TypedDict
 from vehicle_risk_agent.api.models import AssessmentContext
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.domain.events import WorkflowProgressEvent
+from vehicle_risk_agent.evidence.models import SafeError
+from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceSnapshot
+from vehicle_risk_agent.evidence.sufficiency import EvidenceSufficiencyResult
 
 
 def reduce_visited_phases(
@@ -33,7 +36,7 @@ def reduce_events(
     return result
 
 
-class AssessmentGraphState(TypedDict):
+class AssessmentGraphState(TypedDict, total=False):
     """Typed state dictionary for LangGraph assessment workflow."""
 
     assessment_id: str
@@ -43,3 +46,7 @@ class AssessmentGraphState(TypedDict):
     phase: AssessmentRunPhase
     visited_phases: Annotated[list[AssessmentRunPhase], reduce_visited_phases]
     events: Annotated[list[WorkflowProgressEvent], reduce_events]
+    evidence_snapshot: VehicleEvidenceSnapshot | None
+    sufficiency_result: EvidenceSufficiencyResult | None
+    mcp_error: SafeError | None
+

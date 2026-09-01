@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
-from vehicle_risk_agent.api.models import AssessmentContext
+from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
@@ -62,7 +62,7 @@ async def test_workflow_routes_complete_evidence_to_completed(
         assessment_id="asmt-complete",
         run_number=1,
         vin="7AT0BK00X00000001",
-        context=AssessmentContext(intent="purchase_risk"),
+        context=AssessmentContext(sale_type=SaleType.PRIVATE),
     )
 
     assert final_state["phase"] == AssessmentRunPhase.COMPLETED
@@ -88,7 +88,7 @@ async def test_workflow_routes_incomplete_evidence_to_incomplete_phase(
         assessment_id="asmt-incomplete",
         run_number=1,
         vin="7AT0BK00X00000001",
-        context=AssessmentContext(intent="purchase_risk"),
+        context=AssessmentContext(sale_type=SaleType.PRIVATE),
     )
 
     assert final_state["phase"] == AssessmentRunPhase.INCOMPLETE
@@ -108,7 +108,7 @@ async def test_workflow_routes_mcp_lookup_failure_to_failed_phase() -> None:
         assessment_id="asmt-not-found",
         run_number=1,
         vin="7AT0BK00X00000099",
-        context=AssessmentContext(intent="purchase_risk"),
+        context=AssessmentContext(sale_type=SaleType.PRIVATE),
     )
 
     assert final_state["phase"] == AssessmentRunPhase.FAILED
