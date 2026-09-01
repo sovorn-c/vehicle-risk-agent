@@ -107,3 +107,95 @@ class WorkflowEventRecord(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class PolicySourceRecord(Base):
+    """Authoritative persistent record for official Policy Source definitions."""
+
+    __tablename__ = "policy_sources"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    issuing_authority: Mapped[str] = mapped_column(String(256), nullable=False)
+    jurisdiction: Mapped[str] = mapped_column(String(2), nullable=False, default="NZ")
+    canonical_origin: Mapped[str] = mapped_column(String(1024), nullable=False)
+    authority_classification: Mapped[str] = mapped_column(String(64), nullable=False)
+    reuse_terms: Mapped[str] = mapped_column(String(512), nullable=False)
+    expected_update_cadence: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    snapshots: Mapped[list["PolicySnapshotRecord"]] = relationship(
+        "PolicySnapshotRecord",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        order_by="desc(PolicySnapshotRecord.retrieved_at)",
+    )
+
+
+class PolicySnapshotRecord(Base):
+    """Immutable captured point-in-time snapshot of a Policy Source."""
+
+    __tablename__ = "policy_snapshots"
+    __table_args__ = (
+        UniqueConstraint("source_id", "content_hash", name="uq_snapshot_source_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("policy_sources.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    retrieved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    effective_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    raw_content: Mapped[str] = mapped_column(Text, nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False, default="policy-parser-v1")
+    validation_outcome: Mapped[str] = mapped_column(String(32), nullable=False, default="VALID")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    source: Mapped["PolicySourceRecord"] = relationship("PolicySourceRecord", back_populates="snapshots")
+    passages: Mapped[list["PolicyPassageRecord"]] = relationship(
+        "PolicyPassageRecord",
+        back_populates="snapshot",
+        cascade="all, delete-orphan",
+        order_by="PolicyPassageRecord.sequence",
+    )
+
+
+class PolicyPassageRecord(Base):
+    """Immutable section passage extracted from a Policy Snapshot."""
+
+    __tablename__ = "policy_passages"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "sequence", name="uq_passage_snapshot_seq"),
+    )
+
+    id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(256), ForeignKey("policy_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    section_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
+    heading: Mapped[str] = mapped_column(String(256), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    char_offset_start: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    char_offset_end: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    snapshot: Mapped["PolicySnapshotRecord"] = relationship("PolicySnapshotRecord", back_populates="passages")
+
