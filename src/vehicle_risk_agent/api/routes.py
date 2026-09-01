@@ -119,6 +119,11 @@ async def get_assessment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "FORBIDDEN", "message": "Access to assessment is restricted to owner"},
         )
+    if principal.role not in (Role.REQUESTER, Role.REVIEWER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "FORBIDDEN", "message": "Role not authorized to read assessment"},
+        )
 
     return AssessmentResponse(
         id=assessment.id,

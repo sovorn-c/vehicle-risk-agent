@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
+from vehicle_risk_agent.api.deps import intake_rate_limiter
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.persistence.models import Base
 
@@ -17,6 +18,7 @@ TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 @pytest_asyncio.fixture
 async def app_client() -> AsyncIterator[AsyncClient]:
     """Provide an AsyncClient for FastAPI application with test settings."""
+    intake_rate_limiter.reset()
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -30,6 +32,7 @@ async def app_client() -> AsyncIterator[AsyncClient]:
         yield client
 
     await engine.dispose()
+    intake_rate_limiter.reset()
 
 
 @pytest.mark.asyncio

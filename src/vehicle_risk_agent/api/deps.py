@@ -33,6 +33,10 @@ class RateLimiter:
         self.requests[key].append(now)
         return True
 
+    def reset(self) -> None:
+        """Clear all recorded request timestamps."""
+        self.requests.clear()
+
 
 intake_rate_limiter = RateLimiter(max_requests=10, window_seconds=60.0)
 global_event_broadcaster = ProgressEventBroadcaster()
