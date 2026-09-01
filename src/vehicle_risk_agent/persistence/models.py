@@ -199,3 +199,24 @@ class PolicyPassageRecord(Base):
 
     snapshot: Mapped["PolicySnapshotRecord"] = relationship("PolicySnapshotRecord", back_populates="passages")
 
+
+class PolicyCorpusRecord(Base):
+    """Authoritative persistent record for versioned Policy Corpus manifests."""
+
+    __tablename__ = "policy_corpora"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(String(1024), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="DRAFT", index=True)
+    snapshot_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieval_config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
