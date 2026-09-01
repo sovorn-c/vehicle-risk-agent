@@ -154,6 +154,43 @@ def test_policy_snapshot_valid() -> None:
     assert isinstance(snapshot.passages, tuple)
 
 
+def test_policy_snapshot_metadata_is_deeply_immutable() -> None:
+    """PolicySnapshot metadata cannot be mutated at any nesting level."""
+    raw_content = "Policy text"
+    snapshot = PolicySnapshot(
+        id="snap1",
+        source_id="src1",
+        content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
+        raw_content=raw_content,
+        passages=(),
+        metadata={"nested": {"values": ["one"]}},
+    )
+
+    with pytest.raises(TypeError):
+        snapshot.metadata["new"] = "value"
+    with pytest.raises(TypeError):
+        snapshot.metadata["nested"]["new"] = "value"
+    with pytest.raises(TypeError):
+        snapshot.metadata["nested"]["values"][0] = "changed"
+
+
+def test_policy_passage_rejects_hash_mismatch() -> None:
+    """PolicyPassage rejects a content hash that does not match its text."""
+    with pytest.raises(ValidationError, match="content_hash does not match text"):
+        PolicyPassage(
+            id="p1",
+            snapshot_id="s1",
+            source_id="src1",
+            section_identifier="Sec 1",
+            heading="Head",
+            text="Real passage text",
+            sequence=1,
+            char_offset_start=0,
+            char_offset_end=17,
+            content_hash="a" * 64,
+        )
+
+
 def test_policy_snapshot_rejects_hash_mismatch() -> None:
     """PolicySnapshot rejects mismatched content_hash."""
     raw_content = "Real content"

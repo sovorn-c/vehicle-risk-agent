@@ -68,8 +68,26 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "policy_corpora" in table_names
         assert "policy_corpus_snapshots" in table_names
 
+        snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
+        assert "metadata_json" in snapshot_cols
+
         passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
         assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
+
+        def inspect_constraints(conn: sa.Connection, table_name: str) -> list[str]:
+            insp = inspect(conn)
+            assert insp is not None
+            return [str(item["name"]) for item in insp.get_unique_constraints(table_name)]
+
+        snapshot_constraints = await conn.run_sync(
+            lambda c: inspect_constraints(c, "policy_snapshots")
+        )
+        assert "uq_snapshot_source_hash" in snapshot_constraints
+
+        passage_constraints = await conn.run_sync(
+            lambda c: inspect_constraints(c, "policy_passages")
+        )
+        assert "uq_passage_snapshot_seq" in passage_constraints
 
         corpora_indexes = await conn.run_sync(lambda c: inspect_unique_indexes(c, "policy_corpora"))
         assert "uq_policy_corpora_single_active" in corpora_indexes

@@ -1,5 +1,6 @@
 """Integration tests for PostgreSQL pgvector dense search and tsvector full-text search."""
 
+import hashlib
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -14,10 +15,9 @@ from vehicle_risk_agent.persistence.models import (
     PolicySnapshotRecord,
     PolicySourceRecord,
 )
-from vehicle_risk_agent.retrieval.adapters import (
-    FakeEmbeddingAdapter,
-)
+from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter, FakeRerankerAdapter
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
+from vehicle_risk_agent.retrieval.service import HybridRetrievalService
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -107,7 +107,7 @@ async def seeded_postgres_passages(
             sequence=1,
             char_offset_start=0,
             char_offset_end=len(p1_text),
-            content_hash="c" * 64,
+            content_hash=hashlib.sha256(p1_text.encode()).hexdigest(),
             embedding=v1,
         )
         pass2 = PolicyPassageRecord(
@@ -120,7 +120,7 @@ async def seeded_postgres_passages(
             sequence=1,
             char_offset_start=0,
             char_offset_end=len(p2_text),
-            content_hash="d" * 64,
+            content_hash=hashlib.sha256(p2_text.encode()).hexdigest(),
             embedding=v2,
         )
         session.add_all([pass1, pass2])
@@ -147,6 +147,31 @@ async def test_postgres_dense_pgvector_search(
         assert len(results) >= 1
         assert results[0].passage_id == "snap-2:p001"
         assert results[0].score > 0.0
+
+
+@pytest.mark.asyncio
+async def test_postgres_index_resolves_authoritative_citation_metadata(
+    session_factory: async_sessionmaker[AsyncSession],
+    seeded_postgres_passages: list[str],
+) -> None:
+    """Postgres-backed retrieval resolves citations from the source registry."""
+    embedder = FakeEmbeddingAdapter(dimensions=384)
+    async with session_factory() as session:
+        index = PostgresPolicyIndex(
+            session=session,
+            embedder=embedder,
+            snapshot_ids=seeded_postgres_passages,
+        )
+        service = HybridRetrievalService(
+            index=index,
+            reranker=FakeRerankerAdapter(),
+        )
+        result = await service.retrieve(query="creditor repossess motor vehicle")
+
+    assert result.citations
+    assert result.citations[0].source_id == "ppsr-guide"
+    assert result.citations[0].source_title == "PPSR Guide"
+    assert result.citations[0].canonical_origin == "https://ppsr.govt.nz"
 
 
 @pytest.mark.asyncio

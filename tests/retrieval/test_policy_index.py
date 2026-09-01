@@ -1,5 +1,7 @@
 """Tests for policy passage indexing, dense candidate retrieval, and full-text keyword retrieval."""
 
+import hashlib
+
 import pytest
 
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
@@ -21,7 +23,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=1,
             char_offset_start=0,
             char_offset_end=78,
-            content_hash="a" * 64,
+            content_hash=hashlib.sha256(
+                b"No person shall, in trade, engage in conduct that is misleading or deceptive."
+            ).hexdigest(),
         ),
         PolicyPassage(
             id="snap1:p002",
@@ -33,7 +37,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=2,
             char_offset_start=0,
             char_offset_end=70,
-            content_hash="b" * 64,
+            content_hash=hashlib.sha256(
+                b"No person shall make false representations concerning vehicle history."
+            ).hexdigest(),
         ),
         PolicyPassage(
             id="snap2:p001",
@@ -45,7 +51,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=1,
             char_offset_start=0,
             char_offset_end=74,
-            content_hash="c" * 64,
+            content_hash=hashlib.sha256(
+                b"A registered security interest allows a creditor to repossess the vehicle."
+            ).hexdigest(),
         ),
     ]
 

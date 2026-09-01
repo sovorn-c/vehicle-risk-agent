@@ -5,11 +5,12 @@ from collections.abc import AsyncIterator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
-from vehicle_risk_agent.persistence.models import Base
+from vehicle_risk_agent.persistence.models import Base, PolicyPassageRecord
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -148,3 +149,16 @@ No person shall engage in misleading conduct in trade.
     )
     assert res_get.status_code == 200
     assert res_get.json()["id"] == snap1["id"]
+
+    # Development uses the deterministic adapter, but ingestion still persists vectors.
+    inspect_engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with inspect_engine.connect() as connection:
+        result = await connection.execute(
+            select(PolicyPassageRecord.embedding).where(
+                PolicyPassageRecord.snapshot_id == snap1["id"]
+            )
+        )
+        embeddings = result.scalars().all()
+    await inspect_engine.dispose()
+    assert embeddings
+    assert all(embedding is not None for embedding in embeddings)

@@ -1,5 +1,7 @@
 """Tests for explicit policy abstention below grounding threshold and fail-loud technical errors."""
 
+import hashlib
+
 import pytest
 
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
@@ -25,7 +27,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=1,
             char_offset_start=0,
             char_offset_end=76,
-            content_hash="a" * 64,
+            content_hash=hashlib.sha256(
+                b"Misleading and deceptive conduct regarding used vehicle sales is prohibited."
+            ).hexdigest(),
         ),
     ]
 

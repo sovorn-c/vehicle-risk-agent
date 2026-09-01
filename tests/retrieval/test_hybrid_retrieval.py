@@ -1,5 +1,7 @@
 """Tests for reciprocal rank fusion, cross-encoder reranking, and citation generation."""
 
+import hashlib
+
 import pytest
 
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
@@ -23,7 +25,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=1,
             char_offset_start=0,
             char_offset_end=74,
-            content_hash="a" * 64,
+            content_hash=hashlib.sha256(
+                b"No person shall engage in misleading or deceptive conduct in vehicle trade."
+            ).hexdigest(),
         ),
         PolicyPassage(
             id="snap1:p002",
@@ -35,7 +39,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=2,
             char_offset_start=0,
             char_offset_end=62,
-            content_hash="b" * 64,
+            content_hash=hashlib.sha256(
+                b"False representations concerning vehicle odometer are illegal."
+            ).hexdigest(),
         ),
         PolicyPassage(
             id="snap2:p001",
@@ -47,7 +53,9 @@ def sample_passages() -> list[PolicyPassage]:
             sequence=1,
             char_offset_start=0,
             char_offset_end=79,
-            content_hash="c" * 64,
+            content_hash=hashlib.sha256(
+                b"A registered security interest allows a creditor to repossess the motor vehicle."
+            ).hexdigest(),
         ),
     ]
 
@@ -127,7 +135,9 @@ async def test_hybrid_retrieval_caps_at_five_passages() -> None:
             sequence=i,
             char_offset_start=0,
             char_offset_end=35,
-            content_hash=f"{i:02d}" * 32,
+            content_hash=hashlib.sha256(
+                f"Content for vehicle trade clause {i}.".encode()
+            ).hexdigest(),
         )
         for i in range(1, 9)
     ]

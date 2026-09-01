@@ -73,6 +73,8 @@ are of a particular kind, standard, quality, grade, or have had a particular his
     assert len(snapshot.passages) == 2
 
     p1 = snapshot.passages[0]
+    assert p1.char_offset_start == 0
+    assert p1.text.startswith("# Fair Trading Act 1986")
     assert p1.section_identifier == "Section 9"
     assert "Misleading and deceptive conduct" in p1.heading
     assert "No person shall, in trade" in p1.text
