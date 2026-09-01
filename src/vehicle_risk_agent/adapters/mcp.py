@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from vehicle_risk_agent.evidence.models import (
     FieldExplanationResult,
+    FieldOutcome,
     SafeErrorCategory,
     SourceObservationResponse,
     VehicleRevisionResponse,
