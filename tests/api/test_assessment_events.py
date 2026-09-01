@@ -243,3 +243,150 @@ async def test_sse_heartbeat_emitted_during_idle() -> None:
         # Simulate idle timeout triggering heartbeat
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(queue.get(), timeout=0.02)
+
+
+@pytest.mark.asyncio
+async def test_sse_subscription_captures_concurrent_events_without_loss_or_duplicate(
+    app_client: AsyncClient,
+) -> None:
+    """Verify that events appended during stream connection are not lost due to subscription race."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-race-01"},
+    )
+    assert create_resp.status_code == 201
+    assessment_id = create_resp.json()["id"]
+
+    transport = app_client._transport
+    assert isinstance(transport, ASGITransport)
+    app = transport.app
+    assert isinstance(app, FastAPI)
+    session_factory = app.state.session_factory
+    broadcaster = app.state.event_broadcaster
+
+    # Pre-populate initial event
+    async with session_factory() as sess:
+        store = EventStore(sess, broadcaster=broadcaster)
+        evt1 = WorkflowProgressEvent(
+            event_id="evt-race-1",
+            sequence=1,
+            assessment_id=assessment_id,
+            run_number=1,
+            phase=AssessmentRunPhase.COLLECTING_EVIDENCE,
+            safe_message="Phase 1 initial evidence",
+            timestamp=datetime.now(UTC),
+        )
+        await store.append_event(evt1)
+
+    async def emit_concurrent() -> None:
+        await asyncio.sleep(0.01)
+        async with session_factory() as sess:
+            store = EventStore(sess, broadcaster=broadcaster)
+            evt2 = WorkflowProgressEvent(
+                event_id="evt-race-2",
+                sequence=2,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.RETRIEVING_POLICY,
+                safe_message="Phase 2 concurrent policy",
+                timestamp=datetime.now(UTC),
+            )
+            await store.append_event(evt2)
+            await asyncio.sleep(0.01)
+            evt3 = WorkflowProgressEvent(
+                event_id="evt-race-3",
+                sequence=3,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.COMPLETED,
+                safe_message="Phase 3 concurrent completion",
+                timestamp=datetime.now(UTC),
+            )
+            await store.append_event(evt3)
+
+    task = asyncio.create_task(emit_concurrent())
+
+    resp = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}/events",
+        headers={"Authorization": "Bearer dev-requester-token", "Last-Event-ID": "0"},
+    )
+    await task
+    assert resp.status_code == 200
+    assert "Phase 1 initial evidence" in resp.text
+    assert "Phase 2 concurrent policy" in resp.text
+    assert "Phase 3 concurrent completion" in resp.text
+    # Verify no duplicates
+    assert resp.text.count("id: 1") == 1
+    assert resp.text.count("id: 2") == 1
+    assert resp.text.count("id: 3") == 1
+
+
+@pytest.mark.asyncio
+async def test_sse_race_deterministic_gap_interception(app_client: AsyncClient) -> None:
+    """Prove that subscribing before get_events captures writes during DB fetch."""
+    import unittest.mock
+
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-det-race"},
+    )
+    assert create_resp.status_code == 201
+    assessment_id = create_resp.json()["id"]
+
+    transport = app_client._transport
+    assert isinstance(transport, ASGITransport)
+    app = transport.app
+    assert isinstance(app, FastAPI)
+    session_factory = app.state.session_factory
+    broadcaster = app.state.event_broadcaster
+
+    # Pre-populate event 1
+    async with session_factory() as sess:
+        store = EventStore(sess, broadcaster=broadcaster)
+        evt1 = WorkflowProgressEvent(
+            event_id="evt-det-1",
+            sequence=1,
+            assessment_id=assessment_id,
+            run_number=1,
+            phase=AssessmentRunPhase.COLLECTING_EVIDENCE,
+            safe_message="Deterministic Event 1",
+            timestamp=datetime.now(UTC),
+        )
+        await store.append_event(evt1)
+
+    # Intercept get_events: when get_events runs, append event 2 concurrently
+    original_get_events = EventStore.get_events
+
+    async def hooked_get_events(
+        self: EventStore, asmt_id: str, after_sequence: int = 0
+    ) -> list[WorkflowProgressEvent]:
+        res = await original_get_events(self, asmt_id, after_sequence)
+        async with session_factory() as sess2:
+            store2 = EventStore(sess2, broadcaster=broadcaster)
+            evt2 = WorkflowProgressEvent(
+                event_id="evt-det-2",
+                sequence=2,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.COMPLETED,
+                safe_message="Deterministic Event 2 Concurrent",
+                timestamp=datetime.now(UTC),
+            )
+            await store2.append_event(evt2)
+        return res
+
+    with unittest.mock.patch.object(
+        EventStore, "get_events", side_effect=hooked_get_events, autospec=True
+    ):
+        resp = await asyncio.wait_for(
+            app_client.get(
+                f"/api/v1/assessments/{assessment_id}/events",
+                headers={"Authorization": "Bearer dev-requester-token"},
+            ),
+            timeout=1.0,
+        )
+        assert resp.status_code == 200
+        assert "Deterministic Event 1" in resp.text
+        assert "Deterministic Event 2 Concurrent" in resp.text
