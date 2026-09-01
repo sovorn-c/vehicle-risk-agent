@@ -14,6 +14,11 @@ from vehicle_risk_agent.evidence.models import (
     SourceObservationResponse,
     VehicleRevisionResponse,
 )
+from vehicle_risk_agent.evidence.parallel import (
+    DuplicateEvidenceKeyError,
+    explain_fields_in_parallel,
+    merge_field_explanations,
+)
 from vehicle_risk_agent.evidence.snapshot import (
     VehicleEvidenceRepository,
     VehicleEvidenceSnapshot,
@@ -34,6 +39,7 @@ __all__ = [
     "ConfidenceAssessment",
     "ConfidenceBand",
     "ConflictState",
+    "DuplicateEvidenceKeyError",
     "EvidenceSufficiencyResult",
     "FieldConflict",
     "FieldExplanationResult",
@@ -52,4 +58,6 @@ __all__ = [
     "VehicleRevisionResponse",
     "create_evidence_snapshot",
     "evaluate_evidence_sufficiency",
+    "explain_fields_in_parallel",
+    "merge_field_explanations",
 ]
