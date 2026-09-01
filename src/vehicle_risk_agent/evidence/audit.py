@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,10 @@ class ObservationIdValidationError(Exception):
 
 class UnlinkedObservationError(Exception):
     """Raised when an observation ID is not explicitly linked in the snapshot provenance."""
+
+
+class CorruptedObservationError(Exception):
+    """Raised when a retrieved source observation payload hash does not match content."""
 
 
 class SourceObservationAuditService:
@@ -48,13 +53,33 @@ class SourceObservationAuditService:
 
         # Collect all observation IDs referenced in snapshot provenance
         linked_ids: set[str] = set()
+
+        # Current revision field provenance
         for prov_list in snapshot.field_provenance.values():
             for p in prov_list:
                 linked_ids.add(p.observation_id)
 
+        # Current revision conflicts
         for conflict in snapshot.conflicts:
             for cand in conflict.conflicting_candidates:
                 linked_ids.add(cand.provenance.observation_id)
+
+        # History revisions provenance and conflicts
+        for hist_rev in snapshot.history:
+            for hist_prov_list in hist_rev.field_provenance.values():
+                for p in hist_prov_list:
+                    linked_ids.add(p.observation_id)
+            for conflict in hist_rev.conflicts:
+                for cand in conflict.conflicting_candidates:
+                    linked_ids.add(cand.provenance.observation_id)
+
+        # Field explanations provenance and conflicts
+        for explanation in snapshot.field_explanations.values():
+            for p in explanation.provenance:
+                linked_ids.add(p.observation_id)
+            for conflict in explanation.conflicts:
+                for cand in conflict.conflicting_candidates:
+                    linked_ids.add(cand.provenance.observation_id)
 
         if valid_id not in linked_ids:
             raise UnlinkedObservationError(
@@ -62,4 +87,13 @@ class SourceObservationAuditService:
                 f"provenance for VIN {snapshot.vin}"
             )
 
-        return await adapter.get_source_observation(valid_id)
+        obs = await adapter.get_source_observation(valid_id)
+
+        # Verify cryptographic integrity
+        computed_hash = hashlib.sha256(obs.raw_payload.encode("utf-8")).hexdigest()
+        if obs.payload_hash_sha256.lower() != computed_hash.lower():
+            raise CorruptedObservationError(
+                f"Observation {valid_id} integrity failure: payload hash mismatch"
+            )
+
+        return obs

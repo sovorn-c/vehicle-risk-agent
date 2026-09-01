@@ -1,5 +1,6 @@
 """Tests for resolving only provenance-linked bounded observation identifiers for reviewer audit."""
 
+import hashlib
 from datetime import UTC, datetime
 
 import pytest
@@ -23,13 +24,14 @@ from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 @pytest.fixture
 def snapshot_with_provenance() -> tuple[VehicleRevisionResponse, SourceObservationResponse]:
     now = datetime.now(UTC)
+    raw_json = '{"make": "TOYOTA", "model": "VITZ", "year": 2015}'
     obs = SourceObservationResponse(
         observation_id="obs-nzta-001",
         source_system="NZTA_MVR",
         source_record_id="rec-001",
         ingestion_run_id="ingest-001",
-        raw_payload='{"make": "TOYOTA", "model": "VITZ", "year": 2015}',
-        payload_hash_sha256="4cf3bfa7a7ee6cf6ec7bbd6c5bbadfa1dc3c3c7e7ddae44fa2bc74c76b91176b",
+        raw_payload=raw_json,
+        payload_hash_sha256=hashlib.sha256(raw_json.encode("utf-8")).hexdigest(),
         retrieved_at=now,
         synthetic=True,
     )

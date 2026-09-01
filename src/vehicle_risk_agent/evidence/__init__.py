@@ -1,6 +1,7 @@
 """Vehicle evidence contracts, MCP adapter, sufficiency evaluation, and persistence."""
 
 from vehicle_risk_agent.evidence.audit import (
+    CorruptedObservationError,
     ObservationIdValidationError,
     SourceObservationAuditService,
     UnlinkedObservationError,
@@ -45,6 +46,7 @@ __all__ = [
     "ConfidenceAssessment",
     "ConfidenceBand",
     "ConflictState",
+    "CorruptedObservationError",
     "DuplicateEvidenceKeyError",
     "EvidenceSufficiencyResult",
     "FieldConflict",

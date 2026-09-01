@@ -1,5 +1,6 @@
 """Tests for strict local mirror Pydantic models for MCP vehicle intelligence evidence."""
 
+import hashlib
 from datetime import UTC, datetime
 
 import pytest
@@ -158,13 +159,14 @@ def test_field_conflict_and_candidate_values() -> None:
 def test_source_observation_response_and_safe_error() -> None:
     """SourceObservationResponse and SafeError enforce bounded contract types."""
     now = datetime.now(UTC)
+    raw_json = '{"raw": "payload"}'
     obs = SourceObservationResponse(
         observation_id="obs-nzta-001",
         source_system="NZTA",
         source_record_id="12345",
         ingestion_run_id="run-001",
-        raw_payload='{"raw": "payload"}',
-        payload_hash_sha256="b" * 64,
+        raw_payload=raw_json,
+        payload_hash_sha256=hashlib.sha256(raw_json.encode("utf-8")).hexdigest(),
         retrieved_at=now,
         synthetic=True,
     )

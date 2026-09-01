@@ -19,3 +19,6 @@ class Settings(BaseSettings):
     operator_token: str = "dev-operator-token"
     maintainer_token: str = "dev-maintainer-token"
     sse_heartbeat_interval_seconds: float = 15.0
+    mcp_timeout_seconds: float = 5.0
+    mcp_max_retries: int = 3
+    mcp_initial_backoff: float = 0.05

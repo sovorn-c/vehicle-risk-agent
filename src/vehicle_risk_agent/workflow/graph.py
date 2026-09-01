@@ -10,9 +10,17 @@ from langgraph.graph import END, START, StateGraph
 from vehicle_risk_agent.adapters.mcp import McpAdapterError
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.domain.events import WorkflowProgressEvent
-from vehicle_risk_agent.evidence.models import SafeError, SafeErrorCategory
+from vehicle_risk_agent.evidence.history import collect_vehicle_history
+from vehicle_risk_agent.evidence.models import (
+    FieldExplanationResult,
+    SafeError,
+    SafeErrorCategory,
+    VehicleRevisionResponse,
+)
+from vehicle_risk_agent.evidence.parallel import explain_fields_in_parallel
 from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 from vehicle_risk_agent.evidence.sufficiency import (
+    REQUIRED_EVIDENCE_FIELDS,
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
@@ -64,14 +72,43 @@ async def node_collecting_evidence(
     mcp_adapter = configurable.get("mcp_adapter")
 
     if mcp_adapter is None:
-        return progress
+        safe_err = SafeError(
+            category=SafeErrorCategory.PIPELINE_UNAVAILABLE,
+            message="Vehicle intelligence MCP adapter is not configured or unavailable",
+            retryable=True,
+            remediation=(
+                "Ensure MCP client adapter is initialized and provided in runner configuration."
+            ),
+        )
+        return {
+            **progress,
+            "phase": AssessmentRunPhase.FAILED,
+            "mcp_error": safe_err,
+        }
 
     try:
-        revision = await mcp_adapter.lookup_vehicle(state["vin"])
+        revision: VehicleRevisionResponse = await mcp_adapter.lookup_vehicle(state["vin"])
+
+        history: tuple[VehicleRevisionResponse, ...] = ()
+        if revision.revision_number > 1:
+            history_list = await collect_vehicle_history(mcp_adapter, current_revision=revision)
+            history = tuple(history_list)
+
+        field_explanations: dict[str, FieldExplanationResult] = {}
+        try:
+            field_explanations = await explain_fields_in_parallel(
+                mcp_adapter, state["vin"], REQUIRED_EVIDENCE_FIELDS
+            )
+        except Exception:
+            # Fallback if field explanation is partially unavailable
+            field_explanations = {}
+
         snapshot = create_evidence_snapshot(
             assessment_id=state["assessment_id"],
             run_number=state["run_number"],
             revision=revision,
+            history=history,
+            field_explanations=field_explanations,
         )
 
         evidence_repo = configurable.get("evidence_repo")
@@ -122,6 +159,13 @@ async def node_evaluating_sufficiency(
     mcp_error = state.get("mcp_error")
     sufficiency_result = evaluate_evidence_sufficiency(snapshot, failure_error=mcp_error)
 
+    configurable = config.get("configurable", {}) if config else {}
+    evidence_repo = configurable.get("evidence_repo")
+    if evidence_repo is not None and snapshot is not None:
+        await evidence_repo.save_sufficiency_result(
+            state["assessment_id"], state["run_number"], sufficiency_result
+        )
+
     return {
         **progress,
         "sufficiency_result": sufficiency_result,
@@ -145,7 +189,7 @@ async def node_incomplete(
 async def node_failed(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Handle failed assessment run."""
+    """Handle failed assessment run with safe, sanitized message."""
     err = state.get("mcp_error")
     msg = err.message if err else "Assessment run failed"
     return await _emit_progress(
@@ -215,12 +259,16 @@ def route_after_evidence(
 
 def route_after_sufficiency(
     state: AssessmentGraphState,
-) -> Literal["node_incomplete", "node_retrieving_policy"]:
-    """Route to incomplete node if evidence is incomplete, otherwise retrieve policy."""
+) -> Literal["node_incomplete", "node_failed", "node_retrieving_policy"]:
+    """Route strictly based on evidence sufficiency outcome."""
     result = state.get("sufficiency_result")
-    if result is not None and result.outcome == SufficiencyOutcome.INCOMPLETE:
+    if result is None or result.outcome == SufficiencyOutcome.UNAVAILABLE:
+        return "node_failed"
+    if result.outcome == SufficiencyOutcome.INCOMPLETE:
         return "node_incomplete"
-    return "node_retrieving_policy"
+    if result.outcome == SufficiencyOutcome.COMPLETE:
+        return "node_retrieving_policy"
+    return "node_failed"
 
 
 def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
@@ -250,6 +298,7 @@ def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
         route_after_sufficiency,
         {
             "node_incomplete": "incomplete",
+            "node_failed": "failed",
             "node_retrieving_policy": "retrieving_policy",
         },
     )

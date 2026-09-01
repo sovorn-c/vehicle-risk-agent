@@ -1,5 +1,6 @@
 """Security verification tests for prompt and workflow data minimization."""
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 
@@ -27,13 +28,14 @@ async def test_raw_payload_never_enters_graph_state_events_or_logs(
     secret_marker = "SECRET_RAW_SENSITIVE_SOURCE_PAYLOAD_XYZ"
 
     now = datetime.now(UTC)
+    raw_json = f'{{"sensitive": "{secret_marker}"}}'
     obs = SourceObservationResponse(
         observation_id="obs-1",
         source_system="PRIVATE_REGISTRY",
         source_record_id="rec-1",
         ingestion_run_id="run-1",
-        raw_payload=f'{{"sensitive": "{secret_marker}"}}',
-        payload_hash_sha256="e" * 64,
+        raw_payload=raw_json,
+        payload_hash_sha256=hashlib.sha256(raw_json.encode("utf-8")).hexdigest(),
         retrieved_at=now,
         synthetic=True,
     )

@@ -1,15 +1,59 @@
 """Tests for typed LangGraph Assessment graph state, explicit phase transitions, and reducers."""
 
+from datetime import UTC, datetime
+
 import pytest
 
+from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
+from vehicle_risk_agent.evidence.models import (
+    ConfidenceAssessment,
+    ConfidenceBand,
+    VehicleRevisionResponse,
+)
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
 
+@pytest.fixture
+def fake_mcp_adapter() -> FakeVehicleMcpAdapter:
+    adapter = FakeVehicleMcpAdapter()
+    now = datetime.now(UTC)
+    rev = VehicleRevisionResponse(
+        vin="1HGCR2F85HA000000",
+        revision_id="rev-001",
+        revision_number=1,
+        material_hash="a" * 64,
+        canonical_fields={
+            "make": "HONDA",
+            "model": "ACCORD",
+            "year": 2017,
+            "ppsr_result": "NO_FINANCE_REGISTERED",
+            "stolen_status": "NOT_STOLEN",
+            "writeoff_status": "NOT_WRITTEN_OFF",
+        },
+        field_provenance={},
+        conflicts=(),
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            field_scores={},
+            field_components={},
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=now,
+        published_at=now,
+    )
+    adapter.seed_vehicle(rev)
+    return adapter
+
+
 @pytest.mark.asyncio
-async def test_graph_phase_transitions_happy_path() -> None:
+async def test_graph_phase_transitions_happy_path(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify graph advances through the explicit phases sequentially."""
     graph = build_assessment_graph()
     app = graph.compile()
@@ -24,7 +68,10 @@ async def test_graph_phase_transitions_happy_path() -> None:
         "events": [],
     }
 
-    result = await app.ainvoke(initial_state)
+    result = await app.ainvoke(
+        initial_state,
+        config={"configurable": {"mcp_adapter": fake_mcp_adapter}},
+    )
 
     assert result["phase"] == AssessmentRunPhase.COMPLETED
     expected_sequence = [
@@ -40,7 +87,9 @@ async def test_graph_phase_transitions_happy_path() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deterministic_reducers_prevent_duplicate_phases() -> None:
+async def test_deterministic_reducers_prevent_duplicate_phases(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify reducer preserves phase progression without duplication."""
     graph = build_assessment_graph()
     app = graph.compile()
@@ -55,7 +104,10 @@ async def test_deterministic_reducers_prevent_duplicate_phases() -> None:
         "events": [],
     }
 
-    result = await app.ainvoke(initial_state)
+    result = await app.ainvoke(
+        initial_state,
+        config={"configurable": {"mcp_adapter": fake_mcp_adapter}},
+    )
     phases = result["visited_phases"]
     # Check that visited_phases contains no consecutive duplicate entries
     for i in range(len(phases) - 1):
@@ -63,7 +115,9 @@ async def test_deterministic_reducers_prevent_duplicate_phases() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_execution_emits_progress_events_to_state() -> None:
+async def test_graph_execution_emits_progress_events_to_state(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify graph execution emits sequential WorkflowProgressEvents into state."""
     graph = build_assessment_graph()
     app = graph.compile()
@@ -78,7 +132,10 @@ async def test_graph_execution_emits_progress_events_to_state() -> None:
         "events": [],
     }
 
-    result = await app.ainvoke(initial_state)
+    result = await app.ainvoke(
+        initial_state,
+        config={"configurable": {"mcp_adapter": fake_mcp_adapter}},
+    )
     events = result["events"]
     assert len(events) == 6
 
@@ -99,7 +156,9 @@ async def test_graph_execution_emits_progress_events_to_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_execution_persists_events_to_event_store_when_configured() -> None:
+async def test_graph_execution_persists_events_to_event_store_when_configured(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify graph execution automatically persists events to EventStore and broadcaster."""
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -144,8 +203,16 @@ async def test_graph_execution_persists_events_to_event_store_when_configured() 
             "events": [],
         }
 
-        # Run graph with EventStore in configurable
-        result = await app.ainvoke(initial_state, config={"configurable": {"event_store": store}})
+        # Run graph with EventStore and MCP adapter in configurable
+        result = await app.ainvoke(
+            initial_state,
+            config={
+                "configurable": {
+                    "event_store": store,
+                    "mcp_adapter": fake_mcp_adapter,
+                }
+            },
+        )
         assert result["phase"] == AssessmentRunPhase.COMPLETED
 
         # Check that EventStore in Postgres received all 6 events

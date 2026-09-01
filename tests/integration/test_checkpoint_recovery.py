@@ -1,14 +1,21 @@
 """Tests for crash recovery at foundation phases without duplicate effects."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
+from vehicle_risk_agent.evidence.models import (
+    ConfidenceAssessment,
+    ConfidenceBand,
+    VehicleRevisionResponse,
+)
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
@@ -17,8 +24,44 @@ from vehicle_risk_agent.workflow.state import AssessmentGraphState
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
+@pytest.fixture
+def fake_mcp_adapter() -> FakeVehicleMcpAdapter:
+    adapter = FakeVehicleMcpAdapter()
+    now = datetime.now(UTC)
+    rev = VehicleRevisionResponse(
+        vin="1HGCR2F85HA000000",
+        revision_id="rev-001",
+        revision_number=1,
+        material_hash="a" * 64,
+        canonical_fields={
+            "make": "HONDA",
+            "model": "ACCORD",
+            "year": 2017,
+            "ppsr_result": "NO_FINANCE_REGISTERED",
+            "stolen_status": "NOT_STOLEN",
+            "writeoff_status": "NOT_WRITTEN_OFF",
+        },
+        field_provenance={},
+        conflicts=(),
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            field_scores={},
+            field_components={},
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=now,
+        published_at=now,
+    )
+    adapter.seed_vehicle(rev)
+    return adapter
+
+
 @pytest.mark.asyncio
-async def test_recovery_from_intermediate_phase_without_backward_transition() -> None:
+async def test_recovery_from_intermediate_phase_without_backward_transition(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify resuming an interrupted run starts from its checkpoint and reaches COMPLETED."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
@@ -29,7 +72,12 @@ async def test_recovery_from_intermediate_phase_without_backward_transition() ->
     settings = Settings(database_url=TEST_DB_URL)
     assessment_id = f"asmt-recover-{uuid.uuid4().hex[:8]}"
     thread_id = f"{assessment_id}:1"
-    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    config: RunnableConfig = {
+        "configurable": {
+            "thread_id": thread_id,
+            "mcp_adapter": fake_mcp_adapter,
+        }
+    }
 
     initial_state: AssessmentGraphState = {
         "assessment_id": assessment_id,
@@ -42,7 +90,7 @@ async def test_recovery_from_intermediate_phase_without_backward_transition() ->
     }
 
     # Step 1: Run workflow with an interrupt before 'evaluating_risk' to simulate crash/interruption
-    async with AssessmentWorkflowRunner.create(settings) as runner:
+    async with AssessmentWorkflowRunner.create(settings, mcp_adapter=fake_mcp_adapter) as runner:
         interrupted_app = build_assessment_graph().compile(
             checkpointer=runner.checkpointer,
             interrupt_before=["evaluating_risk"],
@@ -56,7 +104,9 @@ async def test_recovery_from_intermediate_phase_without_backward_transition() ->
         assert saved.next == ("evaluating_risk",)
 
     # Step 2: "Process restart" - create fresh runner and resume execution from saved checkpoint
-    async with AssessmentWorkflowRunner.create(settings) as restarted_runner:
+    async with AssessmentWorkflowRunner.create(
+        settings, mcp_adapter=fake_mcp_adapter
+    ) as restarted_runner:
         # Resuming without supplying initial state (ainvoke(None, config=config))
         resumed_result = await restarted_runner.app.ainvoke(None, config=config)
 

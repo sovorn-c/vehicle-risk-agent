@@ -37,6 +37,10 @@ class VehicleMcpClientAdapter(Protocol):
         """Lookup canonical vehicle revision by VIN."""
         ...
 
+    async def get_vehicle_revision(self, vin: str, revision_number: int) -> VehicleRevisionResponse:
+        """Retrieve exact canonical revision of a vehicle."""
+        ...
+
     async def explain_vehicle_field(self, vin: str, field_name: str) -> FieldExplanationResult:
         """Explain one vehicle field outcome, value, and conflict status."""
         ...
@@ -65,6 +69,7 @@ class FakeVehicleMcpAdapter:
         self.timeout_seconds = timeout_seconds
         self.initial_backoff = initial_backoff
         self._vehicles: dict[str, VehicleRevisionResponse] = {}
+        self._revisions: dict[tuple[str, int], VehicleRevisionResponse] = {}
         self._explanations: dict[tuple[str, str], FieldExplanationResult] = {}
         self._observations: dict[str, SourceObservationResponse] = {}
         self._history: dict[str, list[VehicleRevisionResponse]] = {}
@@ -72,13 +77,20 @@ class FakeVehicleMcpAdapter:
 
     def seed_vehicle(self, revision: VehicleRevisionResponse) -> None:
         """Seed a vehicle revision in fake store."""
-        self._vehicles[revision.vin] = revision
-        if revision.vin not in self._history:
-            self._history[revision.vin] = [revision]
+        clean_vin = revision.vin.strip().upper()
+        self._vehicles[clean_vin] = revision
+        self._revisions[(clean_vin, revision.revision_number)] = revision
+        if clean_vin not in self._history:
+            self._history[clean_vin] = [revision]
+        elif revision not in self._history[clean_vin]:
+            self._history[clean_vin].append(revision)
+            self._history[clean_vin].sort(key=lambda r: r.revision_number, reverse=True)
 
     def seed_field_explanation(self, explanation: FieldExplanationResult) -> None:
         """Seed a field explanation in fake store."""
-        self._explanations[(explanation.vin, explanation.field_name)] = explanation
+        clean_vin = explanation.vin.strip().upper()
+        clean_field = explanation.field_name.strip().lower()
+        self._explanations[(clean_vin, clean_field)] = explanation
 
     def seed_source_observation(self, observation: SourceObservationResponse) -> None:
         """Seed a source observation in fake store."""
@@ -86,46 +98,66 @@ class FakeVehicleMcpAdapter:
 
     def simulate_transient_failures(self, vin: str, failure_count: int = 1) -> None:
         """Simulate transient failures before succeeding on a VIN."""
-        self._transient_failures[vin] = failure_count
+        clean_vin = vin.strip().upper()
+        self._transient_failures[clean_vin] = failure_count
 
     async def _execute_with_retry(self, operation: Any, vin: str) -> Any:
         """Execute operation with bounded retry and exponential backoff."""
+        clean_vin = vin.strip().upper()
         attempts = 0
         backoff = self.initial_backoff
 
         while True:
             attempts += 1
-            if vin in self._transient_failures and self._transient_failures[vin] > 0:
-                self._transient_failures[vin] -= 1
+            if clean_vin in self._transient_failures and self._transient_failures[clean_vin] > 0:
+                self._transient_failures[clean_vin] -= 1
                 if attempts <= self.max_retries:
-                    jitter = random.uniform(0.8, 1.2)
-                    await asyncio.sleep(backoff * jitter)
+                    jitter = random.uniform(0.005, 0.015)
+                    await asyncio.sleep(min(backoff + jitter, self.timeout_seconds))
                     backoff *= 2.0
                     continue
                 raise McpAdapterError(
                     category=SafeErrorCategory.PIPELINE_TIMEOUT,
-                    message="Exceeded retry attempts for vehicle lookup",
+                    message=(
+                        f"Vehicle intelligence pipeline timed out after {self.max_retries} attempts"
+                    ),
                     retryable=True,
-                    remediation="Retry when upstream pipeline recovers.",
+                    remediation="Retry assessment intake after upstream pipeline recovers.",
                 )
 
             return operation()
 
     async def lookup_vehicle(self, vin: str) -> VehicleRevisionResponse:
         """Lookup vehicle revision with simulated retry behavior."""
+        clean_vin = vin.strip().upper()
 
         def op() -> VehicleRevisionResponse:
-            clean_vin = vin.strip().upper()
             if clean_vin not in self._vehicles:
                 raise McpAdapterError(
                     category=SafeErrorCategory.VEHICLE_NOT_FOUND,
-                    message=f"Vehicle with VIN {clean_vin} not found in catalog",
+                    message=f"No vehicle intelligence record found for VIN: {clean_vin}",
                     retryable=False,
-                    remediation="Check VIN and verify vehicle exists.",
+                    remediation=(
+                        "Verify VIN format and ensure vehicle has been ingested by pipeline."
+                    ),
                 )
             return self._vehicles[clean_vin]
 
-        return await self._execute_with_retry(op, vin.strip().upper())  # type: ignore[no-any-return]
+        return await self._execute_with_retry(op, clean_vin)  # type: ignore[no-any-return]
+
+    async def get_vehicle_revision(self, vin: str, revision_number: int) -> VehicleRevisionResponse:
+        """Retrieve exact canonical revision of a vehicle."""
+        clean_vin = vin.strip().upper()
+        key = (clean_vin, revision_number)
+        if key in self._revisions:
+            return self._revisions[key]
+
+        raise McpAdapterError(
+            category=SafeErrorCategory.REVISION_NOT_FOUND,
+            message=f"Revision {revision_number} not found for VIN: {clean_vin}",
+            retryable=False,
+            remediation="Request valid revision number within known vehicle history range.",
+        )
 
     async def explain_vehicle_field(self, vin: str, field_name: str) -> FieldExplanationResult:
         """Explain field from fake store or synthesize default resolved/absent explanation."""
@@ -140,48 +172,54 @@ class FakeVehicleMcpAdapter:
             veh = self._vehicles[clean_vin]
             val = veh.canonical_fields.get(clean_field)
             outcome = FieldOutcome.RESOLVED if val is not None else FieldOutcome.ABSENT
+            prov = tuple(veh.field_provenance.get(clean_field, ()))
+            conflicts = tuple(c for c in veh.conflicts if c.field_name == clean_field)
             return FieldExplanationResult(
                 vin=clean_vin,
                 revision_number=veh.revision_number,
                 field_name=clean_field,
                 outcome=outcome,
                 value=val,
-                provenance=veh.field_provenance.get(clean_field, []),
-                conflicts=[c for c in veh.conflicts if c.field_name == clean_field],
+                provenance=prov,
+                conflicts=conflicts,
                 confidence_score=veh.confidence.score,
                 confidence_band=veh.confidence.band,
-                available_fields=sorted(veh.canonical_fields.keys()),
+                available_fields=tuple(sorted(veh.canonical_fields.keys())),
                 rationale="Resolved from canonical fields.",
                 synthetic_notice=veh.synthetic_notice,
             )
 
         raise McpAdapterError(
             category=SafeErrorCategory.VEHICLE_NOT_FOUND,
-            message=f"Vehicle with VIN {clean_vin} not found in catalog",
+            message=f"Cannot explain field '{clean_field}': vehicle {clean_vin} not found",
             retryable=False,
+            remediation="Verify VIN exists before requesting field explanation.",
         )
 
     async def get_vehicle_history(
         self, vin: str, limit: int = 20, before_revision: int | None = None
     ) -> list[VehicleRevisionResponse]:
-        """Retrieve revisions history."""
+        """Retrieve simulated newest-first vehicle revision history."""
         clean_vin = vin.strip().upper()
         if clean_vin not in self._history:
             return []
-        revisions = self._history[clean_vin]
+
+        revs = self._history[clean_vin]
         if before_revision is not None:
-            revisions = [r for r in revisions if r.revision_number < before_revision]
-        # Sort newest-first
-        sorted_revs = sorted(revisions, key=lambda r: r.revision_number, reverse=True)
-        return sorted_revs[:limit]
+            revs = [r for r in revs if r.revision_number < before_revision]
+
+        revs_sorted = sorted(revs, key=lambda r: r.revision_number, reverse=True)
+        return revs_sorted[:limit]
 
     async def get_source_observation(self, observation_id: str) -> SourceObservationResponse:
         """Retrieve source observation by identifier."""
         clean_id = observation_id.strip()
-        if clean_id not in self._observations:
-            raise McpAdapterError(
-                category=SafeErrorCategory.OBSERVATION_NOT_FOUND,
-                message=f"Source observation {clean_id} not found",
-                retryable=False,
-            )
-        return self._observations[clean_id]
+        if clean_id in self._observations:
+            return self._observations[clean_id]
+
+        raise McpAdapterError(
+            category=SafeErrorCategory.OBSERVATION_NOT_FOUND,
+            message=f"Source observation not found: {clean_id}",
+            retryable=False,
+            remediation="Ensure observation identifier matches an active provenance link.",
+        )

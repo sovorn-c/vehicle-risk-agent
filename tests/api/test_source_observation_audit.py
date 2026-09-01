@@ -1,5 +1,6 @@
 """API integration tests for reviewer-authorized exact source observation inspection."""
 
+import hashlib
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -45,13 +46,14 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 def fake_mcp_adapter() -> FakeVehicleMcpAdapter:
     adapter = FakeVehicleMcpAdapter()
     now = datetime.now(UTC)
+    raw = '{"make": "HONDA", "model": "FIT"}'
     obs = SourceObservationResponse(
         observation_id="obs-nzta-001",
         source_system="NZTA_MVR",
         source_record_id="rec-001",
         ingestion_run_id="ingest-001",
-        raw_payload='{"make": "HONDA", "model": "FIT"}',
-        payload_hash_sha256="c" * 64,
+        raw_payload=raw,
+        payload_hash_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         retrieved_at=now,
         synthetic=True,
     )
@@ -102,8 +104,8 @@ async def test_reviewer_can_inspect_linked_source_observation(
         revision_number=1,
         material_hash="d" * 64,
         canonical_fields={"make": "HONDA", "model": "FIT"},
-        field_provenance={"make": [p]},
-        conflicts=[],
+        field_provenance={"make": (p,)},
+        conflicts=(),
         confidence=ConfidenceAssessment(
             score=90,
             band=ConfidenceBand.HIGH,
@@ -130,7 +132,7 @@ async def test_reviewer_can_inspect_linked_source_observation(
         snap = create_evidence_snapshot("asmt-audit-01", 1, rev)
         await repo.save_snapshot(snap)
 
-    headers = {"X-User-Role": "reviewer", "X-User-Id": "reviewer-1"}
+    headers = {"Authorization": "Bearer dev-reviewer-token"}
     response = await client.get(
         "/api/v1/assessments/asmt-audit-01/runs/1/evidence/observations/obs-nzta-001",
         headers=headers,
@@ -142,7 +144,8 @@ async def test_reviewer_can_inspect_linked_source_observation(
     assert data["source_system"] == "NZTA_MVR"
     assert data["synthetic"] is True
     assert "HONDA" in data["raw_payload"]
-    assert data["payload_hash_sha256"] == "c" * 64
+    expected_hash = hashlib.sha256(b'{"make": "HONDA", "model": "FIT"}').hexdigest()
+    assert data["payload_hash_sha256"] == expected_hash
 
 
 @pytest.mark.asyncio
@@ -159,7 +162,7 @@ async def test_reviewer_inspecting_unlinked_observation_returns_404(
         material_hash="d" * 64,
         canonical_fields={"make": "HONDA"},
         field_provenance={},
-        conflicts=[],
+        conflicts=(),
         confidence=ConfidenceAssessment(
             score=90,
             band=ConfidenceBand.HIGH,
@@ -186,7 +189,7 @@ async def test_reviewer_inspecting_unlinked_observation_returns_404(
         snap = create_evidence_snapshot("asmt-audit-02", 1, rev)
         await repo.save_snapshot(snap)
 
-    headers = {"X-User-Role": "reviewer", "X-User-Id": "reviewer-1"}
+    headers = {"Authorization": "Bearer dev-reviewer-token"}
     response = await client.get(
         "/api/v1/assessments/asmt-audit-02/runs/1/evidence/observations/obs-unlinked-999",
         headers=headers,
@@ -200,7 +203,7 @@ async def test_non_reviewer_role_forbidden_from_observation_audit(
     client: AsyncClient,
 ) -> None:
     """Non-reviewer role (e.g. requester) is forbidden from raw observation inspection."""
-    headers = {"X-User-Role": "requester", "X-User-Id": "req-1"}
+    headers = {"Authorization": "Bearer dev-requester-token"}
     response = await client.get(
         "/api/v1/assessments/asmt-audit-01/runs/1/evidence/observations/obs-nzta-001",
         headers=headers,

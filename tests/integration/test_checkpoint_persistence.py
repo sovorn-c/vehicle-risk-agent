@@ -1,12 +1,20 @@
 """Integration tests for LangGraph PostgreSQL checkpoint persistence with runner."""
 
+from datetime import UTC, datetime
+
 import pytest
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
+from vehicle_risk_agent.evidence.models import (
+    ConfidenceAssessment,
+    ConfidenceBand,
+    VehicleRevisionResponse,
+)
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
@@ -14,8 +22,44 @@ from vehicle_risk_agent.workflow.state import AssessmentGraphState
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
+@pytest.fixture
+def fake_mcp_adapter() -> FakeVehicleMcpAdapter:
+    adapter = FakeVehicleMcpAdapter()
+    now = datetime.now(UTC)
+    rev = VehicleRevisionResponse(
+        vin="1HGCR2F85HA000000",
+        revision_id="rev-001",
+        revision_number=1,
+        material_hash="a" * 64,
+        canonical_fields={
+            "make": "HONDA",
+            "model": "ACCORD",
+            "year": 2017,
+            "ppsr_result": "NO_FINANCE_REGISTERED",
+            "stolen_status": "NOT_STOLEN",
+            "writeoff_status": "NOT_WRITTEN_OFF",
+        },
+        field_provenance={},
+        conflicts=(),
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            field_scores={},
+            field_components={},
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=now,
+        published_at=now,
+    )
+    adapter.seed_vehicle(rev)
+    return adapter
+
+
 @pytest.mark.asyncio
-async def test_checkpoint_persistence_under_stable_run_identifier() -> None:
+async def test_checkpoint_persistence_under_stable_run_identifier(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify workflow state is saved in PostgreSQL under thread_id = assessment_id:run_number."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
@@ -24,9 +68,14 @@ async def test_checkpoint_persistence_under_stable_run_identifier() -> None:
     await engine.dispose()
 
     settings = Settings(database_url=TEST_DB_URL)
-    async with AssessmentWorkflowRunner.create(settings) as runner:
+    async with AssessmentWorkflowRunner.create(settings, mcp_adapter=fake_mcp_adapter) as runner:
         thread_id = runner.get_thread_id("asmt-runner-001", 1)
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": thread_id,
+                "mcp_adapter": fake_mcp_adapter,
+            }
+        }
 
         initial_state: AssessmentGraphState = {
             "assessment_id": "asmt-runner-001",
@@ -49,7 +98,9 @@ async def test_checkpoint_persistence_under_stable_run_identifier() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_run_automatically_injects_thread_and_persists_events_to_event_store() -> None:
+async def test_runner_run_automatically_injects_thread_and_persists_events_to_event_store(
+    fake_mcp_adapter: FakeVehicleMcpAdapter,
+) -> None:
     """Verify AssessmentWorkflowRunner.run automatically manages thread_id and EventStore."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -78,7 +129,10 @@ async def test_runner_run_automatically_injects_thread_and_persists_events_to_ev
         assessment_id = asmt.id
 
     async with AssessmentWorkflowRunner.create(
-        settings, session_factory=session_factory, broadcaster=broadcaster
+        settings,
+        session_factory=session_factory,
+        broadcaster=broadcaster,
+        mcp_adapter=fake_mcp_adapter,
     ) as runner:
         initial_state: AssessmentGraphState = {
             "assessment_id": assessment_id,

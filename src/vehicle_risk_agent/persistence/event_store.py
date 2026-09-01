@@ -42,17 +42,23 @@ class EventStore:
         self,
         assessment_id: str,
         after_sequence: int = 0,
+        run_number: int | None = None,
     ) -> list[WorkflowProgressEvent]:
         """Retrieve events for an assessment ordered by sequence.
 
         Only includes events with sequence strictly greater than after_sequence.
+        Optionally partitions by run_number so cross-run events do not mix.
         """
+        conditions = [
+            WorkflowEventRecord.assessment_id == assessment_id,
+            WorkflowEventRecord.sequence > after_sequence,
+        ]
+        if run_number is not None:
+            conditions.append(WorkflowEventRecord.run_number == run_number)
+
         stmt = (
             select(WorkflowEventRecord)
-            .where(
-                WorkflowEventRecord.assessment_id == assessment_id,
-                WorkflowEventRecord.sequence > after_sequence,
-            )
+            .where(*conditions)
             .order_by(WorkflowEventRecord.sequence.asc())
         )
         result = await self._session.execute(stmt)
