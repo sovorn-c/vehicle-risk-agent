@@ -132,10 +132,12 @@ class HybridRetrievalService:
             citations: list[PolicyCitation] = []
             for c in top_passages:
                 p = c.passage
-                title, origin = self.source_metadata.get(
-                    p.source_id,
-                    (p.heading, "https://legislation.govt.nz"),
-                )
+                meta = self.source_metadata.get(p.source_id)
+                if meta is None:
+                    raise PolicyRetrievalError(
+                        f"Missing authoritative source metadata for source {p.source_id}"
+                    )
+                title, origin = meta
                 citations.append(
                     PolicyCitation(
                         passage_id=p.id,
