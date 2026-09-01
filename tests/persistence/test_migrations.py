@@ -8,10 +8,9 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
+import sqlalchemy as sa
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-
-from vehicle_risk_agent.persistence.models import Base
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -21,10 +20,10 @@ async def clean_engine() -> AsyncIterator[AsyncEngine]:
     """Provide a clean PostgreSQL database with all tables dropped."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(sa.text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(sa.text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     await engine.dispose()
 
 

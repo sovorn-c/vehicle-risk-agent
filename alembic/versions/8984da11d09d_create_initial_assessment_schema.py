@@ -70,8 +70,28 @@ def upgrade() -> None:
     )
 
 
+    op.create_table(
+        "workflow_events",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("assessment_id", sa.String(length=36), nullable=False),
+        sa.Column("run_number", sa.Integer(), nullable=False),
+        sa.Column("sequence", sa.Integer(), nullable=False),
+        sa.Column("phase", sa.String(length=32), nullable=False),
+        sa.Column("safe_message", sa.String(length=500), nullable=False),
+        sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["assessment_id"], ["assessments.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("assessment_id", "run_number", "sequence", name="uq_event_sequence"),
+    )
+    op.create_index(
+        "ix_workflow_events_assessment_id", "workflow_events", ["assessment_id"], unique=False
+    )
+
+
 def downgrade() -> None:
     """Drop domain tables."""
+    op.drop_index("ix_workflow_events_assessment_id", table_name="workflow_events")
+    op.drop_table("workflow_events")
     op.drop_table("idempotency_keys")
     op.drop_index("ix_assessment_runs_assessment_id", table_name="assessment_runs")
     op.drop_table("assessment_runs")
