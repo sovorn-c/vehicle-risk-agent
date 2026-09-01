@@ -28,6 +28,8 @@ TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
+        import sqlalchemy as sa
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -148,3 +150,45 @@ async def test_invalid_transitions_rejected(
         # Non-existent corpus fails
         with pytest.raises(CorpusLifecycleError, match="not found"):
             await manager.validate_and_mark_ready("missing-corpus")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_activation_enforces_single_active_invariant(
+    session_factory: async_sessionmaker[AsyncSession],
+    seeded_snapshots: list[str],
+) -> None:
+    """Concurrent activation across distinct sessions results in exactly one active corpus."""
+    import asyncio
+    from sqlalchemy import select
+    from vehicle_risk_agent.persistence.models import PolicyCorpusRecord
+
+    # Create 5 ready corpora
+    async with session_factory() as session:
+        mgr = CorpusLifecycleManager(session)
+        for i in range(1, 6):
+            cid = f"corpus-race-{i}"
+            await mgr.create_corpus(cid, f"Corpus {i}", "Desc", seeded_snapshots)
+            await mgr.validate_and_mark_ready(cid)
+
+    async def activate_in_session(cid: str) -> None:
+        async with session_factory() as s:
+            m = CorpusLifecycleManager(s)
+            await m.activate_corpus(cid, f"maintainer-{cid}")
+
+    # Fire 5 concurrent activations
+    tasks = [activate_in_session(f"corpus-race-{i}") for i in range(1, 6)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Verify at least one succeeded
+    succeeded = [r for r in results if not isinstance(r, Exception)]
+    assert len(succeeded) >= 1
+
+    # Verify strictly at most 1 active row exists in the database
+    async with session_factory() as session:
+        active_stmt = select(PolicyCorpusRecord).where(
+            PolicyCorpusRecord.lifecycle_state == CorpusLifecycleState.ACTIVE.value
+        )
+        active_res = await session.execute(active_stmt)
+        active_rows = active_res.scalars().all()
+        assert len(active_rows) == 1
+
