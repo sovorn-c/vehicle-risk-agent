@@ -1,9 +1,10 @@
-"""Embedding and Reranker adapter protocols and deterministic test implementations."""
+"""Embedding and Reranker adapter protocols and concrete implementations."""
 
+import asyncio
 import hashlib
 import math
 import re
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class EmbeddingAdapter(Protocol):
@@ -34,7 +35,6 @@ def _deterministic_token_vector(text: str, dimensions: int = 384) -> list[float]
         return vec
 
     for token in tokens:
-        # Hash token into 3 distinct dimension indices for rich representation
         h = int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16)
         idx1 = h % dimensions
         idx2 = (h >> 16) % dimensions
@@ -44,7 +44,6 @@ def _deterministic_token_vector(text: str, dimensions: int = 384) -> list[float]
         vec[idx2] += weight * 0.5
         vec[idx3] += weight * 0.25
 
-    # L2 normalize
     norm = math.sqrt(sum(x * x for x in vec))
     if norm > 0.0:
         vec = [x / norm for x in vec]
@@ -81,13 +80,72 @@ class FakeRerankerAdapter:
                 continue
 
             intersection = query_tokens.intersection(text_tokens)
-            # Jaccard + token ratio
             overlap_ratio = len(intersection) / len(query_tokens)
 
-            # Map to sigmoid-like score in range [0.1, 0.95]
-            # Higher overlap -> high score > 0.35 threshold
             raw_logit = (overlap_ratio * 6.0) - 2.0
             sigmoid_score = 1.0 / (1.0 + math.exp(-raw_logit))
+            scores.append(round(sigmoid_score, 4))
+
+        return scores
+
+
+class SentenceTransformersEmbeddingAdapter:
+    """Production SentenceTransformers embedding adapter with async thread pool execution."""
+
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
+        self.model_name = model_name
+        self._model: Any = None
+
+    def _get_model(self) -> Any:
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Compute dense vector embeddings in worker thread."""
+        model = self._get_model()
+        vectors = await asyncio.to_thread(
+            lambda: model.encode(texts, normalize_embeddings=True).tolist()
+        )
+        return vectors  # type: ignore[no-any-return]
+
+    async def embed_query(self, query: str) -> list[float]:
+        """Compute single dense query embedding in worker thread."""
+        texts = [query]
+        res = await self.embed_texts(texts)
+        return res[0]
+
+
+class CrossEncoderRerankerAdapter:
+    """Production CrossEncoder reranker adapter with sigmoid normalized scoring."""
+
+    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2") -> None:
+        self.model_name = model_name
+        self._model: Any = None
+
+    def _get_model(self) -> Any:
+        if self._model is None:
+            from sentence_transformers import CrossEncoder
+
+            self._model = CrossEncoder(self.model_name)
+        return self._model
+
+    async def rerank(self, query: str, texts: list[str]) -> list[float]:
+        """Compute cross-encoder relevance scores normalized via sigmoid."""
+        if not texts:
+            return []
+
+        model = self._get_model()
+        pairs = [[query, t] for t in texts]
+        raw_scores = await asyncio.to_thread(lambda: model.predict(pairs))
+
+        # Normalize with sigmoid
+        scores: list[float] = []
+        for s in raw_scores:
+            val = float(s)
+            sigmoid_score = 1.0 / (1.0 + math.exp(-val))
             scores.append(round(sigmoid_score, 4))
 
         return scores
