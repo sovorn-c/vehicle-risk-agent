@@ -180,7 +180,7 @@ async def test_rate_limiting_intake(app_client: AsyncClient) -> None:
 async def test_operator_and_maintainer_forbidden_from_reading_assessment(
     app_client: AsyncClient,
 ) -> None:
-    """Verify TECHNICAL_OPERATOR and POLICY_CORPUS_MAINTAINER are forbidden from reading assessments."""
+    """Verify operator and maintainer roles are forbidden from reading assessments."""
     create_resp = await app_client.post(
         "/api/v1/assessments",
         json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},

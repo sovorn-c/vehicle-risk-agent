@@ -100,6 +100,7 @@ async def test_graph_execution_emits_progress_events_to_state() -> None:
 async def test_graph_execution_persists_events_to_event_store_when_configured() -> None:
     """Verify graph execution automatically persists events to EventStore and broadcaster."""
     from sqlalchemy.ext.asyncio import create_async_engine
+
     from vehicle_risk_agent.api.models import AssessmentCreateRequest
     from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
     from vehicle_risk_agent.persistence.event_store import EventStore
@@ -142,9 +143,7 @@ async def test_graph_execution_persists_events_to_event_store_when_configured() 
         }
 
         # Run graph with EventStore in configurable
-        result = await app.ainvoke(
-            initial_state, config={"configurable": {"event_store": store}}
-        )
+        result = await app.ainvoke(initial_state, config={"configurable": {"event_store": store}})
         assert result["phase"] == AssessmentRunPhase.COMPLETED
 
         # Check that EventStore in Postgres received all 5 events

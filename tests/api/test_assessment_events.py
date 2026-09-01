@@ -249,7 +249,7 @@ async def test_sse_heartbeat_emitted_during_idle() -> None:
 async def test_sse_subscription_captures_concurrent_events_without_loss_or_duplicate(
     app_client: AsyncClient,
 ) -> None:
-    """Verify that events appended during stream connection are not lost due to subscription race."""
+    """Verify events appended during stream connection are not lost due to race."""
     create_resp = await app_client.post(
         "/api/v1/assessments",
         json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
