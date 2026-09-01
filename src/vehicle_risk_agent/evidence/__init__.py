@@ -1,5 +1,10 @@
 """Vehicle evidence contracts, MCP adapter, sufficiency evaluation, and persistence."""
 
+from vehicle_risk_agent.evidence.audit import (
+    ObservationIdValidationError,
+    SourceObservationAuditService,
+    UnlinkedObservationError,
+)
 from vehicle_risk_agent.evidence.history import collect_vehicle_history
 from vehicle_risk_agent.evidence.models import (
     CandidateValue,
@@ -48,12 +53,15 @@ __all__ = [
     "IncompleteAssessmentReport",
     "MissingEvidenceFinding",
     "MissingEvidenceReason",
+    "ObservationIdValidationError",
     "ProvenanceLink",
     "REQUIRED_EVIDENCE_FIELDS",
     "SafeError",
     "SafeErrorCategory",
+    "SourceObservationAuditService",
     "SourceObservationResponse",
     "SufficiencyOutcome",
+    "UnlinkedObservationError",
     "VehicleEvidenceRepository",
     "VehicleEvidenceSnapshot",
     "VehicleRevisionResponse",
