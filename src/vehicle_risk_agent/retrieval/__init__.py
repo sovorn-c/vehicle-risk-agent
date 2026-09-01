@@ -8,7 +8,11 @@ from vehicle_risk_agent.retrieval.adapters import (
 )
 from vehicle_risk_agent.retrieval.fusion import reciprocal_rank_fusion
 from vehicle_risk_agent.retrieval.index import InMemoryPolicyIndex, RankedCandidate
-from vehicle_risk_agent.retrieval.service import HybridRetrievalService, RetrievalResult
+from vehicle_risk_agent.retrieval.service import (
+    HybridRetrievalService,
+    PolicyRetrievalError,
+    RetrievalResult,
+)
 
 __all__ = [
     "EmbeddingAdapter",
@@ -16,6 +20,7 @@ __all__ = [
     "FakeRerankerAdapter",
     "HybridRetrievalService",
     "InMemoryPolicyIndex",
+    "PolicyRetrievalError",
     "RankedCandidate",
     "RerankerAdapter",
     "RetrievalResult",
