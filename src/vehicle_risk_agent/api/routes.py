@@ -196,29 +196,29 @@ async def stream_assessment_events(
         after_seq = int(last_event_id)
 
     event_store = EventStore(session, broadcaster=broadcaster)
-    events = await event_store.get_events(assessment_id, after_sequence=after_seq)
 
     async def event_generator() -> AsyncIterator[str]:
         last_seq = after_seq
-        # Yield replayed events
-        for evt in events:
-            payload = evt.model_dump_json()
-            yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
-            last_seq = max(last_seq, evt.sequence)
-
-        # Heartbeat comment to establish stream
-        yield ": heartbeat\n\n"
-
-        # If already terminal and past events cover terminal phase, terminate cleanly
-        if events and events[-1].phase in (
-            AssessmentRunPhase.COMPLETED,
-            AssessmentRunPhase.FAILED,
-        ):
-            return
-
         heartbeat_timeout = settings.sse_heartbeat_interval_seconds
 
         async with broadcaster.subscribe(assessment_id) as queue:
+            # Replay historical events within subscription context to eliminate race window
+            events = await event_store.get_events(assessment_id, after_sequence=after_seq)
+            for evt in events:
+                payload = evt.model_dump_json()
+                yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+                last_seq = max(last_seq, evt.sequence)
+
+            # Heartbeat comment to establish stream
+            yield ": heartbeat\n\n"
+
+            # If already terminal and past events cover terminal phase, terminate cleanly
+            if events and events[-1].phase in (
+                AssessmentRunPhase.COMPLETED,
+                AssessmentRunPhase.FAILED,
+            ):
+                return
+
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=heartbeat_timeout)
