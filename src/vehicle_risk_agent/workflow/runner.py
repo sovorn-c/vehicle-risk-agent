@@ -9,9 +9,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from vehicle_risk_agent.adapters.mcp import VehicleMcpClientAdapter
+from vehicle_risk_agent.adapters.mcp import VehicleMcpClientAdapter, create_mcp_adapter
 from vehicle_risk_agent.api.models import AssessmentContext
-from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
@@ -29,11 +29,13 @@ class AssessmentWorkflowRunner:
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         broadcaster: ProgressEventBroadcaster | None = None,
         mcp_adapter: VehicleMcpClientAdapter | None = None,
+        integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
         self.broadcaster = broadcaster
         self.mcp_adapter = mcp_adapter
+        self.integrity_secret = integrity_secret
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
 
@@ -55,6 +57,7 @@ class AssessmentWorkflowRunner:
             session_factory = async_sessionmaker(engine, expire_on_commit=False)
             dispose_engine = True
 
+        configured_mcp_adapter = mcp_adapter or create_mcp_adapter(settings)
         async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
             await checkpointer.setup()
             try:
@@ -62,7 +65,8 @@ class AssessmentWorkflowRunner:
                     checkpointer=checkpointer,
                     session_factory=session_factory,
                     broadcaster=broadcaster,
-                    mcp_adapter=mcp_adapter,
+                    mcp_adapter=configured_mcp_adapter,
+                    integrity_secret=settings.snapshot_integrity_secret.get_secret_value(),
                 )
             finally:
                 if dispose_engine and engine is not None:
@@ -105,7 +109,10 @@ class AssessmentWorkflowRunner:
                     store = EventStore(session, broadcaster=self.broadcaster)
                     configurable["event_store"] = store
                 if "evidence_repo" not in configurable:
-                    configurable["evidence_repo"] = VehicleEvidenceRepository(session)
+                    configurable["evidence_repo"] = VehicleEvidenceRepository(
+                        session,
+                        integrity_secret=self.integrity_secret,
+                    )
                 run_config["configurable"] = configurable
                 result: dict[str, Any] = await self._app.ainvoke(
                     initial_state, config=cast(RunnableConfig, run_config)

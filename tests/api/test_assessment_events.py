@@ -317,9 +317,9 @@ async def test_sse_subscription_captures_concurrent_events_without_loss_or_dupli
     assert "Phase 2 concurrent policy" in resp.text
     assert "Phase 3 concurrent completion" in resp.text
     # Verify no duplicates
-    assert resp.text.count("id: 1") == 1
-    assert resp.text.count("id: 2") == 1
-    assert resp.text.count("id: 3") == 1
+    assert resp.text.count("id: 1:1\n") == 1
+    assert resp.text.count("id: 1:2\n") == 1
+    assert resp.text.count("id: 1:3\n") == 1
 
 
 @pytest.mark.asyncio
@@ -360,9 +360,12 @@ async def test_sse_race_deterministic_gap_interception(app_client: AsyncClient) 
     original_get_events = EventStore.get_events
 
     async def hooked_get_events(
-        self: EventStore, asmt_id: str, after_sequence: int = 0
+        self: EventStore,
+        asmt_id: str,
+        after_sequence: int = 0,
+        run_number: int | None = None,
     ) -> list[WorkflowProgressEvent]:
-        res = await original_get_events(self, asmt_id, after_sequence)
+        res = await original_get_events(self, asmt_id, after_sequence, run_number)
         async with session_factory() as sess2:
             store2 = EventStore(sess2, broadcaster=broadcaster)
             evt2 = WorkflowProgressEvent(
@@ -390,3 +393,63 @@ async def test_sse_race_deterministic_gap_interception(app_client: AsyncClient) 
         assert resp.status_code == 200
         assert "Deterministic Event 1" in resp.text
         assert "Deterministic Event 2 Concurrent" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_sse_replay_is_partitioned_by_requested_run(app_client: AsyncClient) -> None:
+    """Replay for one run must not include same-sequence events from another run."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={
+            "Authorization": "Bearer dev-requester-token",
+            "Idempotency-Key": "req-run-partition-01",
+        },
+    )
+    assessment_id = create_resp.json()["id"]
+    transport = app_client._transport
+    assert isinstance(transport, ASGITransport)
+    app = transport.app
+    assert isinstance(app, FastAPI)
+    async with app.state.session_factory() as session:
+        store = EventStore(session, broadcaster=app.state.event_broadcaster)
+        await store.append_event(
+            WorkflowProgressEvent(
+                event_id="evt-run-1",
+                sequence=1,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.COMPLETED,
+                safe_message="run one event",
+                timestamp=datetime.now(UTC),
+            )
+        )
+        await store.append_event(
+            WorkflowProgressEvent(
+                event_id="evt-run-2",
+                sequence=1,
+                assessment_id=assessment_id,
+                run_number=2,
+                phase=AssessmentRunPhase.COMPLETED,
+                safe_message="run two event",
+                timestamp=datetime.now(UTC),
+            )
+        )
+
+    response = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}/events?run_number=1",
+        headers={"Authorization": "Bearer dev-requester-token"},
+    )
+    assert response.status_code == 200
+    assert "run one event" in response.text
+    assert "run two event" not in response.text
+
+    # A cursor from another run must not skip the selected run's sequence one.
+    response_with_other_run_cursor = await app_client.get(
+        f"/api/v1/assessments/{assessment_id}/events?run_number=1",
+        headers={
+            "Authorization": "Bearer dev-requester-token",
+            "Last-Event-ID": "2:1",
+        },
+    )
+    assert "run one event" in response_with_other_run_cursor.text

@@ -22,6 +22,7 @@ class MissingEvidenceReason(StrEnum):
     """Specific cause for an incomplete required evidence field."""
 
     UNKNOWN = "UNKNOWN"
+    UNRESOLVED = "UNRESOLVED"
     UNRESOLVED_CONFLICT = "UNRESOLVED_CONFLICT"
     ABSENT = "ABSENT"
     LOOKUP_FAILED = "LOOKUP_FAILED"
@@ -113,14 +114,24 @@ def evaluate_evidence_sufficiency(
             )
         else:
             val = snapshot.canonical_fields[field]
-            if val is None or val == "UNKNOWN":
+            normalized = val.strip().upper() if isinstance(val, str) else None
+            if val is None or normalized in (None, "", "UNKNOWN"):
                 findings.append(
                     MissingEvidenceFinding(
                         field_name=field,
                         reason=MissingEvidenceReason.UNKNOWN,
                         details=(
-                            f"Required field '{field}' is reported as UNKNOWN in upstream evidence."
+                            f"Required field '{field}' is absent, blank, or unknown "
+                            "in upstream evidence."
                         ),
+                    )
+                )
+            elif normalized == "UNRESOLVED":
+                findings.append(
+                    MissingEvidenceFinding(
+                        field_name=field,
+                        reason=MissingEvidenceReason.UNRESOLVED,
+                        details=(f"Required field '{field}' is unresolved in upstream evidence."),
                     )
                 )
 

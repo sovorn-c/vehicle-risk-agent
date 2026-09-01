@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     FieldConflict,
@@ -18,6 +22,46 @@ from vehicle_risk_agent.evidence.models import (
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.persistence.models import VehicleEvidenceSnapshotRecord
+
+
+class FrozenDict(dict[str, Any]):
+    """JSON-compatible dictionary that rejects all in-place mutation."""
+
+    def _raise_mutation(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("evidence snapshot is immutable")
+
+    __setitem__ = _raise_mutation
+    __delitem__ = _raise_mutation
+    clear = _raise_mutation
+    pop = _raise_mutation
+    popitem = _raise_mutation  # type: ignore[assignment]
+    setdefault = _raise_mutation
+    update = _raise_mutation
+    __ior__ = _raise_mutation  # type: ignore[assignment]
+
+
+def _freeze_copy(value: Any) -> Any:
+    """Clone and recursively freeze nested containers and Pydantic models."""
+    if isinstance(value, BaseModel):
+        copied = value.model_copy(deep=True)
+        for field_name in type(copied).model_fields:
+            object.__setattr__(
+                copied,
+                field_name,
+                _freeze_copy(getattr(copied, field_name)),
+            )
+        return copied
+    if isinstance(value, dict):
+        return FrozenDict({key: _freeze_copy(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_copy(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_copy(item) for item in value)
+    return value
+
+
+class SnapshotIntegrityError(ValueError):
+    """Raised when persisted evidence snapshot material or metadata is corrupted."""
 
 
 class VehicleEvidenceSnapshot(BaseModel):
@@ -57,6 +101,11 @@ class VehicleEvidenceSnapshot(BaseModel):
     )
     collected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    def model_post_init(self, __context: Any) -> None:
+        """Clone and freeze every nested value after Pydantic validation."""
+        for field_name in type(self).model_fields:
+            object.__setattr__(self, field_name, _freeze_copy(getattr(self, field_name)))
+
 
 def create_evidence_snapshot(
     assessment_id: str,
@@ -90,46 +139,88 @@ def create_evidence_snapshot(
 class VehicleEvidenceRepository:
     """Provides transactional persistence for vehicle evidence snapshots."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
+    ) -> None:
         self._session = session
+        self._integrity_secret = integrity_secret.encode("utf-8")
+
+    def _integrity_hash(self, snapshot_json: str) -> str:
+        return hmac.new(
+            self._integrity_secret,
+            snapshot_json.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
     async def save_snapshot(self, snapshot: VehicleEvidenceSnapshot) -> None:
-        """Persist or update an immutable evidence snapshot idempotently."""
+        """Persist one immutable snapshot, allowing only an identical retry."""
         snapshot_json = snapshot.model_dump_json()
-
-        stmt = select(VehicleEvidenceSnapshotRecord).where(
-            VehicleEvidenceSnapshotRecord.assessment_id == snapshot.assessment_id,
-            VehicleEvidenceSnapshotRecord.run_number == snapshot.run_number,
+        integrity_hash = self._integrity_hash(snapshot_json)
+        values = {
+            "assessment_id": snapshot.assessment_id,
+            "run_number": snapshot.run_number,
+            "vin": snapshot.vin,
+            "revision_id": snapshot.revision_id,
+            "revision_number": snapshot.revision_number,
+            "material_hash": snapshot.material_hash,
+            "snapshot_integrity_hash": integrity_hash,
+            "snapshot_data_json": snapshot_json,
+            "collected_at": snapshot.collected_at,
+        }
+        stmt = (
+            insert(VehicleEvidenceSnapshotRecord)
+            .values(values)
+            .on_conflict_do_nothing(index_elements=["assessment_id", "run_number"])
         )
-        result = await self._session.execute(stmt)
-        record = result.scalar_one_or_none()
+        await self._session.execute(stmt)
 
-        if record is not None:
-            record.vin = snapshot.vin
-            record.revision_id = snapshot.revision_id
-            record.revision_number = snapshot.revision_number
-            record.material_hash = snapshot.material_hash
-            record.snapshot_data_json = snapshot_json
-            record.collected_at = snapshot.collected_at
-        else:
-            record = VehicleEvidenceSnapshotRecord(
-                assessment_id=snapshot.assessment_id,
-                run_number=snapshot.run_number,
-                vin=snapshot.vin,
-                revision_id=snapshot.revision_id,
-                revision_number=snapshot.revision_number,
-                material_hash=snapshot.material_hash,
-                snapshot_data_json=snapshot_json,
-                collected_at=snapshot.collected_at,
+        result = await self._session.execute(
+            select(VehicleEvidenceSnapshotRecord).where(
+                VehicleEvidenceSnapshotRecord.assessment_id == snapshot.assessment_id,
+                VehicleEvidenceSnapshotRecord.run_number == snapshot.run_number,
             )
-            self._session.add(record)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            raise SnapshotIntegrityError("Evidence snapshot could not be persisted")
 
+        stored = self._verify_record(record)
+        if stored != snapshot:
+            raise ValueError(
+                f"Evidence snapshot {snapshot.assessment_id}:{snapshot.run_number} is immutable"
+            )
         await self._session.commit()
+
+    def _verify_record(self, record: VehicleEvidenceSnapshotRecord) -> VehicleEvidenceSnapshot:
+        """Verify serialized content, local integrity hash, and denormalized fields."""
+        try:
+            snapshot_json = record.snapshot_data_json
+            computed_hash = self._integrity_hash(snapshot_json)
+            if not hmac.compare_digest(record.snapshot_integrity_hash, computed_hash):
+                raise SnapshotIntegrityError("Persisted evidence snapshot integrity check failed")
+            snapshot = VehicleEvidenceSnapshot(**json.loads(snapshot_json))
+        except SnapshotIntegrityError:
+            raise
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise SnapshotIntegrityError("Persisted evidence snapshot is invalid") from exc
+
+        if (
+            snapshot.assessment_id != record.assessment_id
+            or snapshot.run_number != record.run_number
+            or snapshot.vin != record.vin
+            or snapshot.revision_id != record.revision_id
+            or snapshot.revision_number != record.revision_number
+            or snapshot.material_hash != record.material_hash
+        ):
+            raise SnapshotIntegrityError("Persisted evidence snapshot metadata check failed")
+        return snapshot
 
     async def get_snapshot(
         self, assessment_id: str, run_number: int
     ) -> VehicleEvidenceSnapshot | None:
-        """Retrieve evidence snapshot by assessment ID and run number with hash verification."""
+        """Retrieve and authenticate an immutable evidence snapshot."""
         stmt = select(VehicleEvidenceSnapshotRecord).where(
             VehicleEvidenceSnapshotRecord.assessment_id == assessment_id,
             VehicleEvidenceSnapshotRecord.run_number == run_number,
@@ -138,17 +229,7 @@ class VehicleEvidenceRepository:
         record = result.scalar_one_or_none()
         if record is None:
             return None
-
-        data = json.loads(record.snapshot_data_json)
-        snapshot = VehicleEvidenceSnapshot(**data)
-
-        # Authenticate that record database material_hash matches snapshot
-        if snapshot.material_hash != record.material_hash:
-            raise ValueError(
-                f"Persisted evidence snapshot hash mismatch for {assessment_id}:{run_number}"
-            )
-
-        return snapshot
+        return self._verify_record(record)
 
     async def save_sufficiency_result(
         self, assessment_id: str, run_number: int, sufficiency: Any

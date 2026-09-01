@@ -28,11 +28,12 @@ def reduce_events(
 ) -> list[WorkflowProgressEvent]:
     """Deterministically combine event lists without sequence collisions."""
     result = list(current)
-    seen_ids = {e.event_id for e in result}
+    seen_keys = {(e.assessment_id, e.run_number, e.sequence) for e in result}
     for e in new:
-        if e.event_id not in seen_ids:
+        key = (e.assessment_id, e.run_number, e.sequence)
+        if key not in seen_keys:
             result.append(e)
-            seen_ids.add(e.event_id)
+            seen_keys.add(key)
     return result
 
 

@@ -6,7 +6,10 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
+from vehicle_risk_agent.adapters.mcp import (
+    FakeVehicleMcpAdapter,
+    StreamableHttpVehicleMcpAdapter,
+)
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
@@ -157,3 +160,11 @@ async def test_runner_run_automatically_injects_thread_and_persists_events_to_ev
             assert events[-1].phase == AssessmentRunPhase.COMPLETED
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_workflow_runner_uses_configured_mcp_adapter() -> None:
+    """Runner construction wires the real MCP adapter when configured."""
+    settings = Settings(database_url=TEST_DB_URL, mcp_server_url="http://mcp:8000/mcp")
+    async with AssessmentWorkflowRunner.create(settings) as runner:
+        assert isinstance(runner.mcp_adapter, StreamableHttpVehicleMcpAdapter)

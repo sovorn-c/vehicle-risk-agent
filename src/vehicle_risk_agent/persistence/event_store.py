@@ -3,6 +3,7 @@
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
@@ -23,19 +24,25 @@ class EventStore:
         self._broadcaster = broadcaster
 
     async def append_event(self, event: WorkflowProgressEvent) -> None:
-        """Persist a sanitized workflow progress event and broadcast to active subscribers."""
-        record = WorkflowEventRecord(
-            id=str(uuid4()),
-            assessment_id=event.assessment_id,
-            run_number=event.run_number,
-            sequence=event.sequence,
-            phase=event.phase.value,
-            safe_message=event.safe_message,
-            timestamp=event.timestamp,
+        """Persist an event idempotently and broadcast only newly stored events."""
+        stmt = (
+            insert(WorkflowEventRecord)
+            .values(
+                id=str(uuid4()),
+                assessment_id=event.assessment_id,
+                run_number=event.run_number,
+                sequence=event.sequence,
+                phase=event.phase.value,
+                safe_message=event.safe_message,
+                timestamp=event.timestamp,
+            )
+            .on_conflict_do_nothing(index_elements=["assessment_id", "run_number", "sequence"])
+            .returning(WorkflowEventRecord.id)
         )
-        self._session.add(record)
+        result = await self._session.execute(stmt)
+        inserted_id = result.scalar_one_or_none()
         await self._session.commit()
-        if self._broadcaster is not None:
+        if inserted_id is not None and self._broadcaster is not None:
             self._broadcaster.publish(event)
 
     async def get_events(

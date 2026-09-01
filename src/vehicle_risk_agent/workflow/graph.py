@@ -94,14 +94,9 @@ async def node_collecting_evidence(
             history_list = await collect_vehicle_history(mcp_adapter, current_revision=revision)
             history = tuple(history_list)
 
-        field_explanations: dict[str, FieldExplanationResult] = {}
-        try:
-            field_explanations = await explain_fields_in_parallel(
-                mcp_adapter, state["vin"], REQUIRED_EVIDENCE_FIELDS
-            )
-        except Exception:
-            # Fallback if field explanation is partially unavailable
-            field_explanations = {}
+        field_explanations: dict[str, FieldExplanationResult] = await explain_fields_in_parallel(
+            mcp_adapter, state["vin"], REQUIRED_EVIDENCE_FIELDS
+        )
 
         snapshot = create_evidence_snapshot(
             assessment_id=state["assessment_id"],

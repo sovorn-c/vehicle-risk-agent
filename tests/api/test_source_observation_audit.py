@@ -28,6 +28,7 @@ from vehicle_risk_agent.evidence.snapshot import (
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+OBSERVATION_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest_asyncio.fixture
@@ -45,7 +46,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 @pytest.fixture
 def fake_mcp_adapter() -> FakeVehicleMcpAdapter:
     adapter = FakeVehicleMcpAdapter()
-    now = datetime.now(UTC)
+    now = OBSERVATION_TIME
     raw = '{"make": "HONDA", "model": "FIT"}'
     obs = SourceObservationResponse(
         observation_id="obs-nzta-001",
@@ -90,7 +91,7 @@ async def test_reviewer_can_inspect_linked_source_observation(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Authorized reviewer can inspect exact source observation linked to assessment evidence."""
-    now = datetime.now(UTC)
+    now = OBSERVATION_TIME
     p = ProvenanceLink(
         observation_id="obs-nzta-001",
         source_system="NZTA_MVR",

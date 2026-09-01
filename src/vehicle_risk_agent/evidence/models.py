@@ -259,6 +259,8 @@ class SourceObservationResponse(BaseModel):
 
     @model_validator(mode="after")
     def verify_hash_integrity(self) -> "SourceObservationResponse":
+        if len(self.raw_payload.encode("utf-8")) > 1_048_576:
+            raise ValueError("Source observation payload exceeds the 1MB limit")
         computed = hashlib.sha256(self.raw_payload.encode("utf-8")).hexdigest()
         if self.payload_hash_sha256.lower() != computed.lower():
             raise ValueError(

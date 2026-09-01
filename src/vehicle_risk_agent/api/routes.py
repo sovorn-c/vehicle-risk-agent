@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 
 import anyio
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import ClientDisconnect
@@ -165,6 +165,7 @@ class SSEStreamingResponse(StreamingResponse):
 @router.get("/{assessment_id}/events")
 async def stream_assessment_events(
     assessment_id: str,
+    run_number: int | None = Query(default=None, ge=1),
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
@@ -191,22 +192,35 @@ async def stream_assessment_events(
             detail={"code": "FORBIDDEN", "message": "Role not authorized for event stream"},
         )
 
-    after_seq = 0
-    if last_event_id and last_event_id.isdigit():
-        after_seq = int(last_event_id)
-
     event_store = EventStore(session, broadcaster=broadcaster)
+    stream_run_number = run_number or assessment.current_run_number
+    after_seq = 0
+    if last_event_id:
+        cursor_parts = last_event_id.split(":", maxsplit=1)
+        if len(cursor_parts) == 2 and all(part.isdigit() for part in cursor_parts):
+            cursor_run, cursor_sequence = (int(part) for part in cursor_parts)
+            if cursor_run == stream_run_number:
+                after_seq = cursor_sequence
+        elif last_event_id.isdigit():
+            # Accept legacy sequence-only cursors for the selected run.
+            after_seq = int(last_event_id)
 
     async def event_generator() -> AsyncIterator[str]:
         last_seq = after_seq
         heartbeat_timeout = settings.sse_heartbeat_interval_seconds
 
         async with broadcaster.subscribe(assessment_id) as queue:
-            # Replay historical events within subscription context to eliminate race window
-            events = await event_store.get_events(assessment_id, after_sequence=after_seq)
+            # Replay historical events within subscription context to eliminate race window.
+            events = await event_store.get_events(
+                assessment_id,
+                after_sequence=after_seq,
+                run_number=stream_run_number,
+            )
             for evt in events:
                 payload = evt.model_dump_json()
-                yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+                yield (
+                    f"id: {stream_run_number}:{evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+                )
                 last_seq = max(last_seq, evt.sequence)
 
             # Heartbeat comment to establish stream
@@ -222,9 +236,14 @@ async def stream_assessment_events(
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=heartbeat_timeout)
+                    if evt.run_number != stream_run_number:
+                        continue
                     if evt.sequence > last_seq:
                         payload = evt.model_dump_json()
-                        yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+                        yield (
+                            f"id: {stream_run_number}:{evt.sequence}\n"
+                            f"event: progress\ndata: {payload}\n\n"
+                        )
                         last_seq = evt.sequence
                         if evt.phase in (
                             AssessmentRunPhase.COMPLETED,

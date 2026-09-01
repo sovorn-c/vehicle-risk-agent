@@ -8,7 +8,10 @@ from typing import cast
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter, VehicleMcpClientAdapter
+from vehicle_risk_agent.adapters.mcp import (
+    VehicleMcpClientAdapter,
+    create_mcp_adapter,
+)
 from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
@@ -61,15 +64,10 @@ def get_reranker_adapter(request: Request) -> RerankerAdapter:
 
 
 def get_mcp_adapter(request: Request) -> VehicleMcpClientAdapter:
-    """Extract configured MCP client adapter from app state or initialize with settings."""
+    """Extract the configured real MCP client or a fail-closed unavailable adapter."""
     adapter = getattr(request.app.state, "mcp_adapter", None)
     if adapter is None:
-        settings = get_settings(request)
-        adapter = FakeVehicleMcpAdapter(
-            max_retries=settings.mcp_max_retries,
-            timeout_seconds=settings.mcp_timeout_seconds,
-            initial_backoff=settings.mcp_initial_backoff,
-        )
+        adapter = create_mcp_adapter(get_settings(request))
         request.app.state.mcp_adapter = adapter
     return cast(VehicleMcpClientAdapter, adapter)
 

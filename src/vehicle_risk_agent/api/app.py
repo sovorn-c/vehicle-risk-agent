@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
 from vehicle_risk_agent.api.evidence_routes import router as evidence_router
 from vehicle_risk_agent.api.policy_routes import router as policy_router
 from vehicle_risk_agent.api.routes import router as assessment_router
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.event_broadcaster = event_broadcaster
     app.state.embedding_adapter = embedding_adapter
     app.state.reranker_adapter = reranker_adapter
+    app.state.mcp_adapter = create_mcp_adapter(settings)
 
     @app.middleware("http")
     async def asgi_spec_version_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]

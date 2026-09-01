@@ -72,6 +72,11 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
         assert "metadata_json" in snapshot_cols
 
+        evidence_snapshot_cols = await conn.run_sync(
+            lambda c: inspect_columns(c, "vehicle_evidence_snapshots")
+        )
+        assert "snapshot_integrity_hash" in evidence_snapshot_cols
+
         passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
         assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
 
