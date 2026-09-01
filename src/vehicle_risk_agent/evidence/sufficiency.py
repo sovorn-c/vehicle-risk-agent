@@ -49,6 +49,21 @@ class EvidenceSufficiencyResult(BaseModel):
     )
 
 
+class IncompleteAssessmentReport(BaseModel):
+    """Prohibits score or band fields when evidence sufficiency outcome is INCOMPLETE."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    assessment_id: str = Field(description="Unique assessment identifier")
+    run_number: int = Field(ge=1, description="Assessment run sequence number")
+    vin: str = Field(description="Canonical 17-character VIN")
+    outcome: SufficiencyOutcome = Field(default=SufficiencyOutcome.INCOMPLETE)
+    missing_findings: tuple[MissingEvidenceFinding, ...] = Field(
+        description="Attributable ordered missing evidence findings"
+    )
+
+
+
 def evaluate_evidence_sufficiency(
     snapshot: VehicleEvidenceSnapshot | None,
     failure_error: SafeError | None = None,

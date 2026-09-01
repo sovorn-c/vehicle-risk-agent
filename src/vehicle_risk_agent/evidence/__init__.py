@@ -22,6 +22,7 @@ from vehicle_risk_agent.evidence.snapshot import (
 from vehicle_risk_agent.evidence.sufficiency import (
     REQUIRED_EVIDENCE_FIELDS,
     EvidenceSufficiencyResult,
+    IncompleteAssessmentReport,
     MissingEvidenceFinding,
     MissingEvidenceReason,
     SufficiencyOutcome,
@@ -37,6 +38,7 @@ __all__ = [
     "FieldConflict",
     "FieldExplanationResult",
     "FieldOutcome",
+    "IncompleteAssessmentReport",
     "MissingEvidenceFinding",
     "MissingEvidenceReason",
     "ProvenanceLink",

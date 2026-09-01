@@ -292,6 +292,7 @@ class VehicleEvidenceSnapshotRecord(Base):
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
     material_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     snapshot_data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    sufficiency_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

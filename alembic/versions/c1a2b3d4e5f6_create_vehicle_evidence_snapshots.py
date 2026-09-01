@@ -30,6 +30,7 @@ def upgrade() -> None:
         sa.Column("revision_number", sa.Integer(), nullable=False),
         sa.Column("material_hash", sa.String(length=64), nullable=False),
         sa.Column("snapshot_data_json", sa.Text(), nullable=False),
+        sa.Column("sufficiency_json", sa.Text(), nullable=True),
         sa.Column(
             "collected_at",
             sa.DateTime(timezone=True),

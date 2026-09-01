@@ -106,3 +106,36 @@ class VehicleEvidenceRepository:
 
         data = json.loads(record.snapshot_data_json)
         return VehicleEvidenceSnapshot(**data)
+
+    async def save_sufficiency_result(
+        self, assessment_id: str, run_number: int, sufficiency: Any
+    ) -> None:
+        """Persist or update sufficiency evaluation result for an assessment run."""
+        stmt = select(VehicleEvidenceSnapshotRecord).where(
+            VehicleEvidenceSnapshotRecord.assessment_id == assessment_id,
+            VehicleEvidenceSnapshotRecord.run_number == run_number,
+        )
+        result = await self._session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is not None:
+            record.sufficiency_json = sufficiency.model_dump_json()
+            await self._session.commit()
+
+    async def get_sufficiency_result(
+        self, assessment_id: str, run_number: int
+    ) -> Any:
+        """Retrieve sufficiency result for an assessment run."""
+        stmt = select(VehicleEvidenceSnapshotRecord).where(
+            VehicleEvidenceSnapshotRecord.assessment_id == assessment_id,
+            VehicleEvidenceSnapshotRecord.run_number == run_number,
+        )
+        result = await self._session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is None or record.sufficiency_json is None:
+            return None
+
+        from vehicle_risk_agent.evidence.sufficiency import EvidenceSufficiencyResult
+
+        data = json.loads(record.sufficiency_json)
+        return EvidenceSufficiencyResult(**data)
+
