@@ -79,3 +79,42 @@ class PolicySnapshotResponse(BaseModel):
     parser_version: str
     validation_outcome: str
     passages: list[PolicyPassageResponse]
+
+
+class PolicyCorpusCreateRequest(BaseModel):
+    """Schema for creating a new DRAFT Policy Corpus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=256)
+    description: str = Field(min_length=1, max_length=1024)
+    snapshot_ids: list[str] = Field(min_length=1)
+    retrieval_config: dict[str, object] | None = None
+
+
+class PolicyCorpusResponse(BaseModel):
+    """Schema for returning Policy Corpus manifest details."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    description: str
+    lifecycle_state: str
+    snapshot_ids: list[str]
+    retrieval_config: dict[str, object]
+    manifest_hash: str
+    created_at: datetime
+    activated_at: datetime | None = None
+    retired_at: datetime | None = None
+
+
+class PolicyCorpusActivationResponse(BaseModel):
+    """Schema for returning the outcome of activating a Policy Corpus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_corpus: PolicyCorpusResponse
+    retired_corpus: PolicyCorpusResponse | None = None
+
