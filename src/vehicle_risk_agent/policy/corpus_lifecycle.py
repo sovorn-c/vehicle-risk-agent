@@ -4,9 +4,15 @@ import json
 from datetime import UTC, datetime
 
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from vehicle_risk_agent.persistence.models import PolicyCorpusRecord, PolicySnapshotRecord
+from vehicle_risk_agent.persistence.models import (
+    PolicyCorpusRecord,
+    PolicyCorpusSnapshotRecord,
+    PolicySnapshotRecord,
+)
 from vehicle_risk_agent.policy.corpus_models import (
     CorpusLifecycleState,
     PolicyCorpusManifest,
@@ -19,9 +25,13 @@ class CorpusLifecycleError(Exception):
     """Raised when a corpus lifecycle transition or validation fails."""
 
 
-def _corpus_record_to_manifest(record: PolicyCorpusRecord) -> PolicyCorpusManifest:
+def _corpus_record_to_manifest(
+    record: PolicyCorpusRecord, snapshot_ids: list[str] | None = None
+) -> PolicyCorpusManifest:
     """Map PolicyCorpusRecord to PolicyCorpusManifest domain model."""
-    snapshot_ids = json.loads(record.snapshot_ids_json)
+    if snapshot_ids is None:
+        snapshot_ids = [assoc.snapshot_id for assoc in record.snapshot_associations]
+
     retrieval_data = json.loads(record.retrieval_config_json)
     retrieval_config = RetrievalConfiguration(**retrieval_data)
 
@@ -47,7 +57,11 @@ class CorpusLifecycleManager:
 
     async def get_corpus(self, corpus_id: str) -> PolicyCorpusManifest | None:
         """Retrieve a corpus manifest by ID."""
-        stmt = select(PolicyCorpusRecord).where(PolicyCorpusRecord.id == corpus_id)
+        stmt = (
+            select(PolicyCorpusRecord)
+            .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+            .where(PolicyCorpusRecord.id == corpus_id)
+        )
         result = await self._session.execute(stmt)
         record = result.scalar_one_or_none()
         if record is None:
@@ -56,8 +70,10 @@ class CorpusLifecycleManager:
 
     async def get_active_corpus(self) -> PolicyCorpusManifest | None:
         """Retrieve the single currently ACTIVE corpus manifest, if one exists."""
-        stmt = select(PolicyCorpusRecord).where(
-            PolicyCorpusRecord.lifecycle_state == CorpusLifecycleState.ACTIVE.value
+        stmt = (
+            select(PolicyCorpusRecord)
+            .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+            .where(PolicyCorpusRecord.lifecycle_state == CorpusLifecycleState.ACTIVE.value)
         )
         result = await self._session.execute(stmt)
         record = result.scalar_one_or_none()
@@ -67,7 +83,11 @@ class CorpusLifecycleManager:
 
     async def list_corpora(self) -> list[PolicyCorpusManifest]:
         """List all corpus manifests ordered by creation timestamp."""
-        stmt = select(PolicyCorpusRecord).order_by(desc(PolicyCorpusRecord.created_at))
+        stmt = (
+            select(PolicyCorpusRecord)
+            .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+            .order_by(desc(PolicyCorpusRecord.created_at))
+        )
         result = await self._session.execute(stmt)
         records = result.scalars().all()
         return [_corpus_record_to_manifest(r) for r in records]
@@ -80,7 +100,7 @@ class CorpusLifecycleManager:
         snapshot_ids: list[str],
         retrieval_config: RetrievalConfiguration | None = None,
     ) -> PolicyCorpusManifest:
-        """Create a new DRAFT corpus manifest."""
+        """Create a new DRAFT corpus manifest with snapshot associations."""
         manifest = build_corpus_manifest(
             corpus_id=corpus_id,
             name=name,
@@ -95,12 +115,20 @@ class CorpusLifecycleManager:
             name=manifest.name,
             description=manifest.description,
             lifecycle_state=manifest.lifecycle_state.value,
-            snapshot_ids_json=json.dumps(manifest.snapshot_ids),
             retrieval_config_json=manifest.retrieval_config.model_dump_json(),
             manifest_hash=manifest.manifest_hash,
             created_at=manifest.created_at,
         )
         self._session.add(record)
+        await self._session.flush()
+
+        for snap_id in manifest.snapshot_ids:
+            assoc = PolicyCorpusSnapshotRecord(
+                corpus_id=manifest.id,
+                snapshot_id=snap_id,
+            )
+            self._session.add(assoc)
+
         await self._session.commit()
 
         retrieved = await self.get_corpus(corpus_id)
@@ -109,7 +137,11 @@ class CorpusLifecycleManager:
 
     async def validate_and_mark_ready(self, corpus_id: str) -> PolicyCorpusManifest:
         """Validate referenced snapshots and advance DRAFT corpus to READY."""
-        stmt = select(PolicyCorpusRecord).where(PolicyCorpusRecord.id == corpus_id)
+        stmt = (
+            select(PolicyCorpusRecord)
+            .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+            .where(PolicyCorpusRecord.id == corpus_id)
+        )
         result = await self._session.execute(stmt)
         record = result.scalar_one_or_none()
 
@@ -122,7 +154,7 @@ class CorpusLifecycleManager:
                 "only DRAFT can become READY"
             )
 
-        snapshot_ids: list[str] = json.loads(record.snapshot_ids_json)
+        snapshot_ids = [assoc.snapshot_id for assoc in record.snapshot_associations]
         if not snapshot_ids:
             raise CorpusLifecycleError("Corpus must include at least one snapshot")
 
@@ -151,40 +183,53 @@ class CorpusLifecycleManager:
         corpus_id: str,
         principal_id: str,
     ) -> tuple[PolicyCorpusManifest, PolicyCorpusManifest | None]:
-        """Atomically activate a READY corpus and retire the previous ACTIVE corpus."""
-        stmt = select(PolicyCorpusRecord).where(PolicyCorpusRecord.id == corpus_id)
-        result = await self._session.execute(stmt)
-        target_record = result.scalar_one_or_none()
-
-        if target_record is None:
-            raise CorpusLifecycleError(f"Corpus {corpus_id} not found")
-
-        if target_record.lifecycle_state != CorpusLifecycleState.READY.value:
-            raise CorpusLifecycleError(
-                f"Corpus {corpus_id} is in {target_record.lifecycle_state} state; "
-                "must be in READY state to activate"
+        """Atomically activate a READY corpus and retire the previous ACTIVE corpus with row locks."""
+        try:
+            # Lock target corpus row
+            stmt = (
+                select(PolicyCorpusRecord)
+                .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+                .where(PolicyCorpusRecord.id == corpus_id)
+                .with_for_update()
             )
+            result = await self._session.execute(stmt)
+            target_record = result.scalar_one_or_none()
 
-        now = datetime.now(UTC)
+            if target_record is None:
+                raise CorpusLifecycleError(f"Corpus {corpus_id} not found")
 
-        # Find currently active corpus
-        active_stmt = select(PolicyCorpusRecord).where(
-            PolicyCorpusRecord.lifecycle_state == CorpusLifecycleState.ACTIVE.value
-        )
-        active_res = await self._session.execute(active_stmt)
-        current_active = active_res.scalar_one_or_none()
+            if target_record.lifecycle_state != CorpusLifecycleState.READY.value:
+                raise CorpusLifecycleError(
+                    f"Corpus {corpus_id} is in {target_record.lifecycle_state} state; "
+                    "must be in READY state to activate"
+                )
 
-        prior_manifest: PolicyCorpusManifest | None = None
-        if current_active is not None:
-            current_active.lifecycle_state = CorpusLifecycleState.RETIRED.value
-            current_active.retired_at = now
-            prior_manifest = _corpus_record_to_manifest(current_active)
+            now = datetime.now(UTC)
 
-        target_record.lifecycle_state = CorpusLifecycleState.ACTIVE.value
-        target_record.activated_at = now
-        target_record.activated_by = principal_id
+            # Find and lock currently active corpus
+            active_stmt = (
+                select(PolicyCorpusRecord)
+                .options(selectinload(PolicyCorpusRecord.snapshot_associations))
+                .where(PolicyCorpusRecord.lifecycle_state == CorpusLifecycleState.ACTIVE.value)
+                .with_for_update()
+            )
+            active_res = await self._session.execute(active_stmt)
+            current_active = active_res.scalar_one_or_none()
 
-        await self._session.commit()
+            prior_manifest: PolicyCorpusManifest | None = None
+            if current_active is not None:
+                current_active.lifecycle_state = CorpusLifecycleState.RETIRED.value
+                current_active.retired_at = now
+                prior_manifest = _corpus_record_to_manifest(current_active)
+
+            target_record.lifecycle_state = CorpusLifecycleState.ACTIVE.value
+            target_record.activated_at = now
+            target_record.activated_by = principal_id
+
+            await self._session.commit()
+        except IntegrityError as err:
+            await self._session.rollback()
+            raise CorpusLifecycleError(f"Concurrent active corpus conflict: {err}") from err
 
         active_manifest = await self.get_corpus(corpus_id)
         assert active_manifest is not None
