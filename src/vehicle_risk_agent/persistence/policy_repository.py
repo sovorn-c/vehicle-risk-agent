@@ -6,6 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from vehicle_risk_agent.persistence.models import (
+    PolicyPassageRecord,
+    PolicySnapshotRecord,
+    PolicySourceRecord,
+)
 from vehicle_risk_agent.policy.models import (
     AuthorityClassification,
     PolicyPassage,
@@ -13,11 +18,6 @@ from vehicle_risk_agent.policy.models import (
     PolicySource,
     SourceStatus,
     ValidationOutcome,
-)
-from vehicle_risk_agent.persistence.models import (
-    PolicyPassageRecord,
-    PolicySnapshotRecord,
-    PolicySourceRecord,
 )
 
 
@@ -142,7 +142,9 @@ class PolicyRepository:
             return None
         return _snapshot_record_to_domain(record)
 
-    async def get_snapshot_by_hash(self, source_id: str, content_hash: str) -> PolicySnapshot | None:
+    async def get_snapshot_by_hash(
+        self, source_id: str, content_hash: str
+    ) -> PolicySnapshot | None:
         """Retrieve an existing snapshot for a source by its content hash."""
         stmt = (
             select(PolicySnapshotRecord)

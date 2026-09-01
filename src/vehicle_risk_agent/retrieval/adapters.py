@@ -1,6 +1,5 @@
 """Embedding and Reranker adapter protocols and deterministic test implementations."""
 
-import asyncio
 import hashlib
 import math
 import re

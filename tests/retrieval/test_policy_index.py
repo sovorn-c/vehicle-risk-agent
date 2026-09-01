@@ -29,10 +29,10 @@ def sample_passages() -> list[PolicyPassage]:
             source_id="nz-legislation-fta-1986",
             section_identifier="Section 13",
             heading="False or misleading representations",
-            text="No person shall make false representations concerning vehicle history, odometer, or quality.",
+            text="No person shall make false representations concerning vehicle history.",
             sequence=2,
             char_offset_start=0,
-            char_offset_end=92,
+            char_offset_end=70,
             content_hash="b" * 64,
         ),
         PolicyPassage(
@@ -41,10 +41,10 @@ def sample_passages() -> list[PolicyPassage]:
             source_id="ppsr-guide",
             section_identifier="Section 1",
             heading="Security Interests on Motor Vehicles",
-            text="A registered security interest on the PPSR allows a creditor to repossess the motor vehicle.",
+            text="A registered security interest allows a creditor to repossess the vehicle.",
             sequence=1,
             char_offset_start=0,
-            char_offset_end=93,
+            char_offset_end=74,
             content_hash="c" * 64,
         ),
     ]
@@ -81,7 +81,9 @@ async def test_keyword_candidate_search(sample_passages: list[PolicyPassage]) ->
 async def test_index_candidate_bounds(sample_passages: list[PolicyPassage]) -> None:
     """Search limits results to configured top_k cap."""
     embedder = FakeEmbeddingAdapter(dimensions=384)
-    index = InMemoryPolicyIndex(embedder=embedder, config=RetrievalConfiguration(dense_candidates=1))
+    index = InMemoryPolicyIndex(
+        embedder=embedder, config=RetrievalConfiguration(dense_candidates=1)
+    )
     await index.build_index(sample_passages)
 
     results = await index.search_dense(query="vehicle", top_k=1)

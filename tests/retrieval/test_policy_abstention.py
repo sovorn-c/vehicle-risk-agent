@@ -54,17 +54,17 @@ async def test_explicit_abstention_when_no_passage_meets_threshold(
 async def test_technical_failure_raises_policy_retrieval_error(
     sample_passages: list[PolicyPassage],
 ) -> None:
-    """Technical failures in embedding or reranking fail loudly as PolicyRetrievalError, not false Abstention."""
+    """Technical failures in retrieval fail loudly as PolicyRetrievalError, not false Abstention."""
 
     class BrokenReranker:
-        async def rerank(self, query: str, texts: list[str]) -> list[float]:
+        async def rerank(self, _query: str, _texts: list[str]) -> list[float]:
             raise RuntimeError("Reranker model inference engine failure")
 
     config = RetrievalConfiguration()
     index = InMemoryPolicyIndex(embedder=FakeEmbeddingAdapter(), config=config)
     await index.build_index(sample_passages)
 
-    service = HybridRetrievalService(index=index, reranker=BrokenReranker(), config=config)  # type: ignore[arg-type]
+    service = HybridRetrievalService(index=index, reranker=BrokenReranker(), config=config)
 
     with pytest.raises(PolicyRetrievalError, match="Technical policy retrieval failure"):
         await service.retrieve(query="misleading vehicle sales")

@@ -100,7 +100,8 @@ class PolicySnapshot(BaseModel):
         computed = hashlib.sha256(self.raw_content.encode("utf-8")).hexdigest()
         if self.content_hash.lower() != computed.lower():
             raise ValueError(
-                f"content_hash does not match raw_content sha256 (expected {computed}, got {self.content_hash})"
+                f"content_hash does not match raw_content sha256 "
+                f"(expected {computed}, got {self.content_hash})"
             )
         return self
 

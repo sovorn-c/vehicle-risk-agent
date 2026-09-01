@@ -1,6 +1,6 @@
-"""Tests for Policy Corpus lifecycle state transitions, validation, and single-active-corpus transactional invariant."""
+"""Tests for Policy Corpus state transitions, validation, and single-active-corpus invariant."""
 
-from datetime import UTC, datetime
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -14,21 +14,18 @@ from vehicle_risk_agent.policy.corpus_lifecycle import (
 )
 from vehicle_risk_agent.policy.corpus_models import (
     CorpusLifecycleState,
-    RetrievalConfiguration,
-    build_corpus_manifest,
 )
 from vehicle_risk_agent.policy.ingestion import PolicyParser, ingest_policy_source
 from vehicle_risk_agent.policy.models import (
     AuthorityClassification,
     PolicySource,
-    SourceStatus,
 )
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture
-async def session_factory() -> async_sessionmaker[AsyncSession]:
+async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

@@ -19,10 +19,10 @@ def sample_passages() -> list[PolicyPassage]:
             source_id="nz-legislation-fta-1986",
             section_identifier="Section 9",
             heading="Misleading and deceptive conduct generally",
-            text="No person shall, in trade, engage in conduct that is misleading or deceptive regarding used vehicles.",
+            text="No person shall engage in misleading or deceptive conduct in vehicle trade.",
             sequence=1,
             char_offset_start=0,
-            char_offset_end=106,
+            char_offset_end=74,
             content_hash="a" * 64,
         ),
         PolicyPassage(
@@ -31,10 +31,10 @@ def sample_passages() -> list[PolicyPassage]:
             source_id="nz-legislation-fta-1986",
             section_identifier="Section 13",
             heading="False representations about vehicle history",
-            text="False representations concerning vehicle odometer, origin, or collision history are illegal.",
+            text="False representations concerning vehicle odometer are illegal.",
             sequence=2,
             char_offset_start=0,
-            char_offset_end=93,
+            char_offset_end=62,
             content_hash="b" * 64,
         ),
         PolicyPassage(
@@ -43,10 +43,10 @@ def sample_passages() -> list[PolicyPassage]:
             source_id="ppsr-guide",
             section_identifier="Section 1",
             heading="Security Interests on Motor Vehicles",
-            text="A registered security interest allows a creditor to repossess the motor vehicle from a buyer.",
+            text="A registered security interest allows a creditor to repossess the motor vehicle.",
             sequence=1,
             char_offset_start=0,
-            char_offset_end=94,
+            char_offset_end=79,
             content_hash="c" * 64,
         ),
     ]
@@ -63,7 +63,9 @@ def test_reciprocal_rank_fusion_logic(sample_passages: list[PolicyPassage]) -> N
         RankedCandidate(passage_id="p1", passage=sample_passages[0], score=0.7, rank=2),
     ]
 
-    fused = reciprocal_rank_fusion(dense_candidates=dense, keyword_candidates=keyword, rrf_k=60, cap=10)
+    fused = reciprocal_rank_fusion(
+        dense_candidates=dense, keyword_candidates=keyword, rrf_k=60, cap=10
+    )
 
     assert len(fused) == 2
     # p1 score: 1/(60+1) + 1/(60+2) = 1/61 + 1/62 = 0.01639 + 0.01613 = 0.03252
@@ -73,7 +75,9 @@ def test_reciprocal_rank_fusion_logic(sample_passages: list[PolicyPassage]) -> N
 
 
 @pytest.mark.asyncio
-async def test_hybrid_retrieval_returns_stable_citations(sample_passages: list[PolicyPassage]) -> None:
+async def test_hybrid_retrieval_returns_stable_citations(
+    sample_passages: list[PolicyPassage],
+) -> None:
     """Hybrid retrieval fuses, reranks, and returns policy citations."""
     config = RetrievalConfiguration(
         final_passage_cap=5,
@@ -96,7 +100,9 @@ async def test_hybrid_retrieval_returns_stable_citations(sample_passages: list[P
         source_metadata=source_metadata,
     )
 
-    result = await service.retrieve(query="What happens if a vehicle has an outstanding security interest?")
+    result = await service.retrieve(
+        query="What happens if a vehicle has an outstanding security interest?"
+    )
 
     assert not result.is_abstention
     assert len(result.citations) >= 1
@@ -107,7 +113,7 @@ async def test_hybrid_retrieval_returns_stable_citations(sample_passages: list[P
 
 
 @pytest.mark.asyncio
-async def test_hybrid_retrieval_caps_at_five_passages(sample_passages: list[PolicyPassage]) -> None:
+async def test_hybrid_retrieval_caps_at_five_passages() -> None:
     """Hybrid retrieval caps final returned citations to at most final_passage_cap (5)."""
     # Create 8 passages
     extra_passages = [

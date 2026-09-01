@@ -42,7 +42,7 @@ router = APIRouter(prefix="/api/v1/policy", tags=["policy"])
 )
 async def create_policy_source(
     request: PolicySourceCreateRequest,
-    principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
+    _principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicySourceResponse:
     """Register or update an official Policy Source definition."""
@@ -75,7 +75,7 @@ async def create_policy_source(
 
 @router.get("/sources", response_model=list[PolicySourceResponse])
 async def list_policy_sources(
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[PolicySourceResponse]:
     """List all registered Policy Sources."""
@@ -102,7 +102,7 @@ async def list_policy_sources(
 @router.get("/sources/{source_id}", response_model=PolicySourceResponse)
 async def get_policy_source(
     source_id: str,
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicySourceResponse:
     """Retrieve a specific Policy Source by its ID."""
@@ -136,7 +136,7 @@ async def get_policy_source(
 async def ingest_snapshot(
     source_id: str,
     request: PolicySnapshotIngestRequest,
-    principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
+    _principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicySnapshotResponse:
     """Ingest, validate, and parse a point-in-time snapshot for a policy source."""
@@ -191,7 +191,7 @@ async def ingest_snapshot(
 @router.get("/snapshots/{snapshot_id}", response_model=PolicySnapshotResponse)
 async def get_policy_snapshot(
     snapshot_id: str,
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicySnapshotResponse:
     """Retrieve a specific Policy Snapshot and its passages."""
@@ -234,7 +234,7 @@ async def get_policy_snapshot(
 )
 async def create_corpus(
     request: PolicyCorpusCreateRequest,
-    principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
+    _principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyCorpusResponse:
     """Create a new DRAFT Policy Corpus manifest."""
@@ -278,7 +278,7 @@ async def create_corpus(
 )
 async def validate_and_mark_corpus_ready(
     corpus_id: str,
-    principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
+    _principal: Principal = Depends(require_role(Role.POLICY_CORPUS_MAINTAINER)),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyCorpusResponse:
     """Validate snapshot references and advance DRAFT corpus to READY."""
@@ -357,7 +357,7 @@ async def activate_corpus(
 
 @router.get("/corpora/active", response_model=PolicyCorpusResponse)
 async def get_active_corpus(
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyCorpusResponse:
     """Retrieve the single active Policy Corpus."""
@@ -384,7 +384,7 @@ async def get_active_corpus(
 
 @router.get("/corpora", response_model=list[PolicyCorpusResponse])
 async def list_corpora(
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[PolicyCorpusResponse]:
     """List all Policy Corpora."""
@@ -410,7 +410,7 @@ async def list_corpora(
 @router.get("/corpora/{corpus_id}", response_model=PolicyCorpusResponse)
 async def get_corpus(
     corpus_id: str,
-    principal: Principal = Depends(get_current_principal),
+    _principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyCorpusResponse:
     """Retrieve a specific Policy Corpus by its version ID."""
@@ -433,4 +433,3 @@ async def get_corpus(
         activated_at=corpus.activated_at,
         retired_at=corpus.retired_at,
     )
-

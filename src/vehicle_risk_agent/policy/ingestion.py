@@ -32,7 +32,11 @@ def _check_unsafe_characters(content: str) -> None:
 
 def _extract_section_identifier(heading: str) -> str:
     """Extract canonical section identifier from a heading if present."""
-    match = re.search(r"((?:Section|Part|Clause|Rule|Schedule|Schedule\s+\d+|App)\s+[\w\d\-\.]+)", heading, re.IGNORECASE)
+    match = re.search(
+        r"((?:Section|Part|Clause|Rule|Schedule|Schedule\s+\d+|App)\s+[\w\d\-\.]+)",
+        heading,
+        re.IGNORECASE,
+    )
     if match:
         return match.group(1).strip()
     clean = re.sub(r"^[#\s]+", "", heading).strip()

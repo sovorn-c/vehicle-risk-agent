@@ -1,13 +1,10 @@
 """Tests for Policy Corpus Manifest creation, versioning, immutability, and hash pinning."""
 
-from datetime import UTC, datetime
-
 import pytest
 from pydantic import ValidationError
 
 from vehicle_risk_agent.policy.corpus_models import (
     CorpusLifecycleState,
-    PolicyCorpusManifest,
     RetrievalConfiguration,
     build_corpus_manifest,
 )
@@ -90,5 +87,6 @@ def test_corpus_manifest_immutability() -> None:
         retrieval_config=RetrievalConfiguration(),
     )
 
+    attr_name = "name"
     with pytest.raises(ValidationError):
-        manifest.name = "Modified Name"  # type: ignore[misc]
+        setattr(manifest, attr_name, "Modified Name")

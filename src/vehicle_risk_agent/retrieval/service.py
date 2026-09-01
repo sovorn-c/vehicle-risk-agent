@@ -1,4 +1,4 @@
-"""Hybrid Policy Retrieval Service combining dense search, keyword search, RRF fusion, and cross-encoder reranking."""
+"""Hybrid Policy Retrieval Service with dense search, keyword search, RRF, and reranking."""
 
 from dataclasses import dataclass
 
@@ -34,7 +34,8 @@ class HybridRetrievalService:
         index: InMemoryPolicyIndex,
         reranker: RerankerAdapter,
         config: RetrievalConfiguration | None = None,
-        source_metadata: dict[str, tuple[str, str]] | None = None,  # source_id -> (title, canonical_origin)
+        source_metadata: dict[str, tuple[str, str]]
+        | None = None,  # source_id -> (title, canonical_origin)
     ) -> None:
         self.index = index
         self.reranker = reranker
@@ -42,7 +43,7 @@ class HybridRetrievalService:
         self.source_metadata = source_metadata or {}
 
     async def retrieve(self, query: str) -> RetrievalResult:
-        """Execute hybrid search pipeline: dense + keyword -> RRF -> reranking -> citations/abstention."""
+        """Execute hybrid search pipeline: dense + keyword -> RRF -> rerank -> citations."""
         if not query or not query.strip():
             return RetrievalResult(
                 query=query,

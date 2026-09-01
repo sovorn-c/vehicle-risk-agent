@@ -117,4 +117,3 @@ class PolicyCorpusActivationResponse(BaseModel):
 
     active_corpus: PolicyCorpusResponse
     retired_corpus: PolicyCorpusResponse | None = None
-

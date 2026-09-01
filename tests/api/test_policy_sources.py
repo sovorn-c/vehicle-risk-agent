@@ -96,7 +96,7 @@ async def test_non_maintainer_cannot_create_policy_source(app_client: AsyncClien
 
 @pytest.mark.asyncio
 async def test_maintainer_ingests_snapshot_idempotently(app_client: AsyncClient) -> None:
-    """Ingesting the same content for a source returns the existing snapshot without duplicate error."""
+    """Ingesting same content for a source returns existing snapshot without duplicate error."""
     # 1. Register source
     await app_client.post(
         "/api/v1/policy/sources",

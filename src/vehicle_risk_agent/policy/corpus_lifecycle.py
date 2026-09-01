@@ -118,7 +118,8 @@ class CorpusLifecycleManager:
 
         if record.lifecycle_state != CorpusLifecycleState.DRAFT.value:
             raise CorpusLifecycleError(
-                f"Corpus {corpus_id} is in {record.lifecycle_state} state; only DRAFT can become READY"
+                f"Corpus {corpus_id} is in {record.lifecycle_state} state; "
+                "only DRAFT can become READY"
             )
 
         snapshot_ids: list[str] = json.loads(record.snapshot_ids_json)
@@ -134,7 +135,8 @@ class CorpusLifecycleManager:
                 raise CorpusLifecycleError(f"Referenced snapshot {snap_id} does not exist")
             if snap_rec.validation_outcome != "VALID":
                 raise CorpusLifecycleError(
-                    f"Referenced snapshot {snap_id} has invalid validation outcome: {snap_rec.validation_outcome}"
+                    f"Referenced snapshot {snap_id} has invalid validation outcome: "
+                    f"{snap_rec.validation_outcome}"
                 )
 
         record.lifecycle_state = CorpusLifecycleState.READY.value
@@ -159,7 +161,8 @@ class CorpusLifecycleManager:
 
         if target_record.lifecycle_state != CorpusLifecycleState.READY.value:
             raise CorpusLifecycleError(
-                f"Corpus {corpus_id} is in {target_record.lifecycle_state} state; must be in READY state to activate"
+                f"Corpus {corpus_id} is in {target_record.lifecycle_state} state; "
+                "must be in READY state to activate"
             )
 
         now = datetime.now(UTC)

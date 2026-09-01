@@ -37,8 +37,9 @@ def test_policy_source_creation_and_immutability() -> None:
     assert source.jurisdiction == "NZ"
 
     # Frozen/immutable check
+    attr_name = "title"
     with pytest.raises(ValidationError):
-        source.title = "Changed Title"  # type: ignore[misc]
+        setattr(source, attr_name, "Changed Title")
 
 
 def test_policy_source_rejects_extra_and_invalid_fields() -> None:
@@ -71,7 +72,9 @@ def test_policy_source_rejects_extra_and_invalid_fields() -> None:
 
 def test_policy_passage_attributes_and_bounds() -> None:
     """PolicyPassage captures section identity, heading, sequence, text, and hash."""
-    text = "Section 9: No person shall, in trade, engage in conduct that is misleading or deceptive."
+    text = (
+        "Section 9: No person shall, in trade, engage in conduct that is misleading or deceptive."
+    )
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     passage = PolicyPassage(

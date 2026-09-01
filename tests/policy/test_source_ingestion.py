@@ -53,10 +53,11 @@ def test_parser_extracts_sections_and_passages(sample_fta_source: PolicySource) 
     raw_markdown = """# Fair Trading Act 1986
 
 ## Section 9: Misleading and deceptive conduct generally
-No person shall, in trade, engage in conduct that is misleading or deceptive or is likely to mislead or deceive.
+No person shall, in trade, engage in conduct that is misleading or deceptive.
 
 ## Section 13: False or misleading representations
-No person shall, in trade, in connection with the supply or possible supply of goods or services or with the promotion by any means of the supply or use of goods or services make a false or misleading representation that goods are of a particular kind, standard, quality, grade, quantity, composition, style, or model, or have had a particular history or particular previous use.
+No person shall, in trade, make a false or misleading representation that goods
+are of a particular kind, standard, quality, grade, or have had a particular history.
 """
 
     snapshot = ingest_policy_source(
@@ -87,9 +88,15 @@ No person shall, in trade, in connection with the supply or possible supply of g
 
 def test_parser_splits_oversize_section_at_paragraphs(sample_ppsr_source: PolicySource) -> None:
     """Sections over 1200 characters are split at paragraph boundaries with bounded overlap."""
-    paragraph_1 = "Paragraph 1: " + ("A search on the PPSR shows if a motor vehicle has money owing on it. " * 15)
-    paragraph_2 = "Paragraph 2: " + ("If you buy a vehicle with a registered security interest, it could be repossessed. " * 15)
-    paragraph_3 = "Paragraph 3: " + ("Always search by VIN and chassis number before completing any vehicle purchase. " * 15)
+    paragraph_1 = "Paragraph 1: " + (
+        "A search on the PPSR shows if a motor vehicle has money owing on it. " * 15
+    )
+    paragraph_2 = "Paragraph 2: " + (
+        "If you buy a vehicle with a registered security interest, it could be repossessed. " * 15
+    )
+    paragraph_3 = "Paragraph 3: " + (
+        "Always search by VIN and chassis number before completing any vehicle purchase. " * 15
+    )
 
     raw_markdown = f"""# PPSR Buyer Guide
 
@@ -136,7 +143,9 @@ def test_parser_rejects_oversize_content(sample_fta_source: PolicySource) -> Non
         )
 
 
-def test_parser_rejects_null_bytes_and_unsafe_control_chars(sample_fta_source: PolicySource) -> None:
+def test_parser_rejects_null_bytes_and_unsafe_control_chars(
+    sample_fta_source: PolicySource,
+) -> None:
     """Ingestion rejects content with null bytes or unsafe control characters."""
     with pytest.raises(PolicyIngestionError, match="unsafe control characters"):
         ingest_policy_source(
