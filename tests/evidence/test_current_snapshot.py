@@ -98,6 +98,17 @@ async def test_create_and_persist_evidence_snapshot(
     assert snapshot.synthetic_notice == "SYNTHETIC PROVENANCE NOTICE"
 
     async with session_factory() as session:
+        from vehicle_risk_agent.persistence.models import AssessmentRecord
+
+        asmt = AssessmentRecord(
+            id="asmt-001",
+            requester_id="req-1",
+            vin="7AT0BK00X00000001",
+            context_json="{}",
+        )
+        session.add(asmt)
+        await session.flush()
+
         repo = VehicleEvidenceRepository(session)
         await repo.save_snapshot(snapshot)
 

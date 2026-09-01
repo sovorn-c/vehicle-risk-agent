@@ -14,6 +14,11 @@ from vehicle_risk_agent.evidence.models import (
     SourceObservationResponse,
     VehicleRevisionResponse,
 )
+from vehicle_risk_agent.evidence.snapshot import (
+    VehicleEvidenceRepository,
+    VehicleEvidenceSnapshot,
+    create_evidence_snapshot,
+)
 
 __all__ = [
     "CandidateValue",
@@ -27,5 +32,8 @@ __all__ = [
     "SafeError",
     "SafeErrorCategory",
     "SourceObservationResponse",
+    "VehicleEvidenceRepository",
+    "VehicleEvidenceSnapshot",
     "VehicleRevisionResponse",
+    "create_evidence_snapshot",
 ]

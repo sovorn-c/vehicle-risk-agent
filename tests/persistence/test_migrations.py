@@ -67,6 +67,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "policy_passages" in table_names
         assert "policy_corpora" in table_names
         assert "policy_corpus_snapshots" in table_names
+        assert "vehicle_evidence_snapshots" in table_names
 
         snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
         assert "metadata_json" in snapshot_cols

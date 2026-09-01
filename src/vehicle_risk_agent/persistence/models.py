@@ -272,3 +272,27 @@ class PolicyCorpusSnapshotRecord(Base):
     snapshot: Mapped["PolicySnapshotRecord"] = relationship(
         "PolicySnapshotRecord", back_populates="corpora_associations"
     )
+
+
+class VehicleEvidenceSnapshotRecord(Base):
+    """Authoritative persistent record for captured vehicle intelligence evidence snapshots."""
+
+    __tablename__ = "vehicle_evidence_snapshots"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "run_number", name="uq_evidence_snapshot_run"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    assessment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    vin: Mapped[str] = mapped_column(String(17), nullable=False, index=True)
+    revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    material_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
