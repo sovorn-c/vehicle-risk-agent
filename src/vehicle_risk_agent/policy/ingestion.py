@@ -62,100 +62,113 @@ class PolicyParser:
         snapshot_id: str,
         source_id: str,
     ) -> list[PolicyPassage]:
-        """Parse raw content into section-level passages, splitting oversized sections."""
-        lines = raw_content.splitlines()
-        sections: list[tuple[str, str, str]] = []  # (section_id, heading, text)
+        """Parse raw content into section-level passages with exact offsets and bounded overlap."""
+        # Find all markdown headings (## or ###) with their character positions
+        heading_matches = list(re.finditer(r"^(#{2,3})\s+(.+)$", raw_content, re.MULTILINE))
 
-        current_heading = "Preamble"
-        current_section_id = "Overview"
-        current_lines: list[str] = []
+        section_spans: list[tuple[str, str, int, int]] = []  # (sec_id, heading, start_idx, end_idx)
 
-        for line in lines:
-            if line.startswith("## ") or line.startswith("### "):
-                if current_lines:
-                    text = "\n".join(current_lines).strip()
-                    if text:
-                        sections.append((current_section_id, current_heading, text))
-                    current_lines = []
-                heading_text = line.lstrip("#").strip()
-                current_heading = heading_text
-                current_section_id = _extract_section_identifier(heading_text)
-            elif line.startswith("# ") and not current_lines:
-                # Document title heading
-                heading_text = line.lstrip("#").strip()
-                current_heading = heading_text
-            else:
-                current_lines.append(line)
+        if not heading_matches:
+            doc_heading = "Overview"
+            first_h1 = re.search(r"^#\s+(.+)$", raw_content, re.MULTILINE)
+            if first_h1:
+                doc_heading = first_h1.group(1).strip()
+            section_spans.append(("Overview", doc_heading, 0, len(raw_content)))
+        else:
+            first_start = heading_matches[0].start()
+            if first_start > 0:
+                preamble_raw = raw_content[:first_start]
+                # Strip leading H1 title if present
+                clean_preamble = re.sub(r"^#\s+[^\n]+\n*", "", preamble_raw).strip()
+                if clean_preamble:
+                    actual_start = raw_content.find(clean_preamble)
+                    section_spans.append(("Overview", "Preamble", actual_start, first_start))
 
-        if current_lines:
-            text = "\n".join(current_lines).strip()
-            if text:
-                sections.append((current_section_id, current_heading, text))
+            for idx, match in enumerate(heading_matches):
+                heading_text = match.group(2).strip()
+                sec_id = _extract_section_identifier(heading_text)
+                start_pos = match.start()
+                end_pos = (
+                    heading_matches[idx + 1].start()
+                    if idx + 1 < len(heading_matches)
+                    else len(raw_content)
+                )
+                section_spans.append((sec_id, heading_text, start_pos, end_pos))
 
         passages: list[PolicyPassage] = []
         sequence = 1
 
-        for sec_id, heading, text in sections:
-            chunks = self._chunk_section_text(text)
-            for chunk_text in chunks:
-                chunk_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
-                passage_id = f"{snapshot_id}:p{sequence:03d}"
+        for sec_id, heading, sec_start, sec_end in section_spans:
+            sec_len = sec_end - sec_start
+            if sec_len <= self.max_passage_chars:
+                passage_text = raw_content[sec_start:sec_end]
+                passage_hash = hashlib.sha256(passage_text.encode("utf-8")).hexdigest()
                 passages.append(
                     PolicyPassage(
-                        id=passage_id,
+                        id=f"{snapshot_id}:p{sequence:03d}",
                         snapshot_id=snapshot_id,
                         source_id=source_id,
                         section_identifier=sec_id,
                         heading=heading,
-                        text=chunk_text,
+                        text=passage_text,
                         sequence=sequence,
-                        char_offset_start=0,
-                        char_offset_end=len(chunk_text),
-                        content_hash=chunk_hash,
+                        char_offset_start=sec_start,
+                        char_offset_end=sec_end,
+                        content_hash=passage_hash,
                     )
                 )
                 sequence += 1
+            else:
+                curr_rel = 0
+                while curr_rel < sec_len:
+                    remaining = sec_len - curr_rel
+                    if remaining <= self.max_passage_chars:
+                        chunk_rel_end = sec_len
+                        next_rel = sec_len
+                    else:
+                        target_end = curr_rel + self.max_passage_chars
+                        window_start = max(curr_rel + 1, target_end - self.overlap_chars)
+                        window_text = raw_content[
+                            sec_start + window_start : sec_start + target_end
+                        ]
+
+                        best_cut_offset: int | None = None
+                        for delim in ("\n\n", "\n", ". ", "? ", "! ", " "):
+                            r_idx = window_text.rfind(delim)
+                            if r_idx != -1:
+                                best_cut_offset = window_start + r_idx + len(delim)
+                                break
+
+                        if best_cut_offset is not None and best_cut_offset > curr_rel:
+                            chunk_rel_end = best_cut_offset
+                        else:
+                            chunk_rel_end = target_end
+
+                        next_rel = max(curr_rel + 1, chunk_rel_end - self.overlap_chars)
+
+                    chunk_abs_start = sec_start + curr_rel
+                    chunk_abs_end = sec_start + chunk_rel_end
+                    chunk_text = raw_content[chunk_abs_start:chunk_abs_end]
+                    chunk_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
+
+                    passages.append(
+                        PolicyPassage(
+                            id=f"{snapshot_id}:p{sequence:03d}",
+                            snapshot_id=snapshot_id,
+                            source_id=source_id,
+                            section_identifier=sec_id,
+                            heading=heading,
+                            text=chunk_text,
+                            sequence=sequence,
+                            char_offset_start=chunk_abs_start,
+                            char_offset_end=chunk_abs_end,
+                            content_hash=chunk_hash,
+                        )
+                    )
+                    sequence += 1
+                    curr_rel = next_rel
 
         return passages
-
-    def _chunk_section_text(self, text: str) -> list[str]:
-        """Split section text into chunks <= max_passage_chars at paragraph boundaries."""
-        if len(text) <= self.max_passage_chars:
-            return [text]
-
-        paragraphs = text.split("\n\n")
-        chunks: list[str] = []
-        current_chunk = ""
-
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-
-            if len(para) > self.max_passage_chars:
-                # Paragraph itself is too large, split at sentence boundaries
-                sentences = re.split(r"(?<=[.!?])\s+", para)
-                for sentence in sentences:
-                    sentence = sentence.strip()
-                    if not sentence:
-                        continue
-                    if len(current_chunk) + len(sentence) + 1 <= self.max_passage_chars:
-                        current_chunk = f"{current_chunk} {sentence}".strip()
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = sentence[: self.max_passage_chars]
-            elif len(current_chunk) + len(para) + 2 <= self.max_passage_chars:
-                current_chunk = f"{current_chunk}\n\n{para}".strip()
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk)
-                current_chunk = para
-
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        return chunks if chunks else [text[: self.max_passage_chars]]
 
 
 def ingest_policy_source(
@@ -205,6 +218,6 @@ def ingest_policy_source(
         raw_content=raw_content,
         parser_version=parser.version,
         validation_outcome=ValidationOutcome.VALID,
-        passages=passages,
+        passages=tuple(passages),
         metadata=snapshot_metadata,
     )
