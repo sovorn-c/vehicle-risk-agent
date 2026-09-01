@@ -162,3 +162,73 @@ No person shall engage in misleading conduct in trade.
     await inspect_engine.dispose()
     assert embeddings
     assert all(embedding is not None for embedding in embeddings)
+
+
+@pytest.mark.asyncio
+async def test_requester_retrieves_from_active_postgres_policy_corpus(
+    app_client: AsyncClient,
+) -> None:
+    """Requester retrieval uses persisted vectors and DB-authoritative citations."""
+    headers = {"Authorization": "Bearer dev-maintainer-token"}
+    source_response = await app_client.post(
+        "/api/v1/policy/sources",
+        headers=headers,
+        json={
+            "id": "ppsr-guide",
+            "title": "PPSR Vehicle Guide",
+            "issuing_authority": "NZ Companies Office",
+            "jurisdiction": "NZ",
+            "canonical_origin": "https://ppsr.govt.nz/guide",
+            "authority_classification": "OFFICIAL_GUIDANCE",
+            "reuse_terms": "Open",
+            "expected_update_cadence": "ANNUAL",
+        },
+    )
+    assert source_response.status_code == 201, source_response.text
+
+    snapshot_response = await app_client.post(
+        "/api/v1/policy/sources/ppsr-guide/snapshots",
+        headers=headers,
+        json={
+            "raw_content": (
+                "# PPSR Guide\n## Security interests\n"
+                "A registered security interest allows a creditor to repossess the vehicle."
+            )
+        },
+    )
+    assert snapshot_response.status_code == 201, snapshot_response.text
+    snapshot_id = snapshot_response.json()["id"]
+
+    corpus_response = await app_client.post(
+        "/api/v1/policy/corpora",
+        headers=headers,
+        json={
+            "id": "corpus-retrieval-test",
+            "name": "Retrieval test corpus",
+            "description": "Corpus for API retrieval coverage",
+            "snapshot_ids": [snapshot_id],
+        },
+    )
+    assert corpus_response.status_code == 201, corpus_response.text
+    assert (
+        await app_client.post(
+            "/api/v1/policy/corpora/corpus-retrieval-test/ready", headers=headers
+        )
+    ).status_code == 200
+    assert (
+        await app_client.post(
+            "/api/v1/policy/corpora/corpus-retrieval-test/activate", headers=headers
+        )
+    ).status_code == 200
+
+    response = await app_client.post(
+        "/api/v1/policy/retrieve",
+        headers={"Authorization": "Bearer dev-requester-token"},
+        json={"query": "creditor repossess vehicle"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["is_abstention"] is False
+    assert data["citations"][0]["source_title"] == "PPSR Vehicle Guide"
+    assert data["citations"][0]["canonical_origin"] == "https://ppsr.govt.nz/guide"
