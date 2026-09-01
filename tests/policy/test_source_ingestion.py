@@ -167,3 +167,33 @@ Vehicle structure must be free from structural corrosion and damage.
     assert s1.id == s2.id
     assert s1.content_hash == s2.content_hash
     assert [p.id for p in s1.passages] == [p.id for p in s2.passages]
+
+
+def test_exact_character_offsets_and_lossless_overlap(sample_ppsr_source: PolicySource) -> None:
+    """Passages report exact character offsets within raw_content and bounded overlap without text loss."""
+    p1 = "Paragraph 1: " + ("First section text detailing PPSR registration rules. " * 20)
+    p2 = "Paragraph 2: " + ("Second section text explaining repossession priorities. " * 20)
+    raw_markdown = f"# Guide\n\n## Section 1: PPSR Rules\n{p1}\n\n{p2}\n"
+
+    snapshot = ingest_policy_source(
+        source=sample_ppsr_source,
+        raw_content=raw_markdown,
+        parser=PolicyParser(max_passage_chars=800, overlap_chars=100),
+    )
+
+    assert len(snapshot.passages) >= 2
+    for p in snapshot.passages:
+        # Offsets must be strictly within document bounds
+        assert 0 <= p.char_offset_start < p.char_offset_end <= len(raw_markdown)
+        # Slicing raw_content with offsets must match passage text exactly
+        assert raw_markdown[p.char_offset_start : p.char_offset_end] == p.text
+        assert len(p.text) <= 800
+
+    # Test overlap between consecutive passages in the same section
+    for i in range(len(snapshot.passages) - 1):
+        curr_p = snapshot.passages[i]
+        next_p = snapshot.passages[i + 1]
+        assert curr_p.char_offset_end > next_p.char_offset_start
+        overlap_len = curr_p.char_offset_end - next_p.char_offset_start
+        assert 0 < overlap_len <= 150
+
