@@ -7,6 +7,7 @@ from vehicle_risk_agent.api.deps import (
     get_current_principal,
     get_db_session,
     get_embedding_adapter,
+    get_reranker_adapter,
     require_role,
 )
 from vehicle_risk_agent.api.policy_schemas import (
@@ -14,6 +15,8 @@ from vehicle_risk_agent.api.policy_schemas import (
     PolicyCorpusCreateRequest,
     PolicyCorpusResponse,
     PolicyPassageResponse,
+    PolicyRetrievalRequest,
+    PolicyRetrievalResponse,
     PolicySnapshotIngestRequest,
     PolicySnapshotResponse,
     PolicySourceCreateRequest,
@@ -32,7 +35,9 @@ from vehicle_risk_agent.policy.ingestion import (
     ingest_policy_source,
 )
 from vehicle_risk_agent.policy.models import PolicySource
-from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter
+from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter, RerankerAdapter
+from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
+from vehicle_risk_agent.retrieval.service import HybridRetrievalService, PolicyRetrievalError
 
 router = APIRouter(prefix="/api/v1/policy", tags=["policy"])
 
@@ -227,6 +232,57 @@ async def get_policy_snapshot(
             )
             for p in snapshot.passages
         ],
+    )
+
+
+@router.post("/retrieve", response_model=PolicyRetrievalResponse)
+async def retrieve_active_policy(
+    request: PolicyRetrievalRequest,
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_db_session),
+    embedder: EmbeddingAdapter = Depends(get_embedding_adapter),
+    reranker: RerankerAdapter = Depends(get_reranker_adapter),
+) -> PolicyRetrievalResponse:
+    """Retrieve grounded policy citations from the single active corpus."""
+    if principal.role not in {Role.REQUESTER, Role.REVIEWER}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Operation requires REQUESTER or REVIEWER role",
+            },
+        )
+
+    corpus = await CorpusLifecycleManager(session).get_active_corpus()
+    if corpus is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "NO_ACTIVE_CORPUS", "message": "No active policy corpus is available"},
+        )
+
+    index = PostgresPolicyIndex(
+        session=session,
+        embedder=embedder,
+        snapshot_ids=corpus.snapshot_ids,
+        config=corpus.retrieval_config,
+    )
+    service = HybridRetrievalService(
+        index=index,
+        reranker=reranker,
+        config=corpus.retrieval_config,
+    )
+    try:
+        result = await service.retrieve(request.query)
+    except PolicyRetrievalError as err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "POLICY_RETRIEVAL_UNAVAILABLE", "message": "Policy retrieval failed"},
+        ) from err
+
+    return PolicyRetrievalResponse(
+        query=result.query,
+        is_abstention=result.is_abstention,
+        citations=result.citations,
     )
 
 

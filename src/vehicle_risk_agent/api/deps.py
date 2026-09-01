@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
-from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter
+from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter, RerankerAdapter
 
 
 class RateLimiter:
@@ -51,6 +51,11 @@ def get_settings(request: Request) -> Settings:
 def get_embedding_adapter(request: Request) -> EmbeddingAdapter:
     """Extract the configured policy embedding adapter."""
     return request.app.state.embedding_adapter  # type: ignore[no-any-return]
+
+
+def get_reranker_adapter(request: Request) -> RerankerAdapter:
+    """Extract the configured policy reranker adapter."""
+    return request.app.state.reranker_adapter  # type: ignore[no-any-return]
 
 
 def get_event_broadcaster(request: Request) -> ProgressEventBroadcaster:

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from vehicle_risk_agent.policy.models import AuthorityClassification
+from vehicle_risk_agent.policy.models import AuthorityClassification, PolicyCitation
 
 
 class PolicySourceCreateRequest(BaseModel):
@@ -79,6 +79,24 @@ class PolicySnapshotResponse(BaseModel):
     parser_version: str
     validation_outcome: str
     passages: list[PolicyPassageResponse]
+
+
+class PolicyRetrievalRequest(BaseModel):
+    """Schema for requesting grounded retrieval from the active corpus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=2000)
+
+
+class PolicyRetrievalResponse(BaseModel):
+    """Schema for a grounded retrieval result or explicit abstention."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    is_abstention: bool
+    citations: list[PolicyCitation]
 
 
 class PolicyCorpusCreateRequest(BaseModel):

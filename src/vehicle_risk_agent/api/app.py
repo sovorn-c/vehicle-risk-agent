@@ -12,8 +12,11 @@ from vehicle_risk_agent.api.routes import router as assessment_router
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.retrieval.adapters import (
+    CrossEncoderRerankerAdapter,
     EmbeddingAdapter,
     FakeEmbeddingAdapter,
+    FakeRerankerAdapter,
+    RerankerAdapter,
     SentenceTransformersEmbeddingAdapter,
 )
 
@@ -27,10 +30,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     event_broadcaster = ProgressEventBroadcaster()
     embedding_adapter: EmbeddingAdapter
+    reranker_adapter: RerankerAdapter
     if settings.environment.lower() == "production":
         embedding_adapter = SentenceTransformersEmbeddingAdapter()
+        reranker_adapter = CrossEncoderRerankerAdapter()
     else:
         embedding_adapter = FakeEmbeddingAdapter()
+        reranker_adapter = FakeRerankerAdapter()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -47,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.event_broadcaster = event_broadcaster
     app.state.embedding_adapter = embedding_adapter
+    app.state.reranker_adapter = reranker_adapter
 
     @app.middleware("http")
     async def asgi_spec_version_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]

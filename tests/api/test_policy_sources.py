@@ -211,9 +211,7 @@ async def test_requester_retrieves_from_active_postgres_policy_corpus(
     )
     assert corpus_response.status_code == 201, corpus_response.text
     assert (
-        await app_client.post(
-            "/api/v1/policy/corpora/corpus-retrieval-test/ready", headers=headers
-        )
+        await app_client.post("/api/v1/policy/corpora/corpus-retrieval-test/ready", headers=headers)
     ).status_code == 200
     assert (
         await app_client.post(
