@@ -1,5 +1,6 @@
 """Vehicle evidence contracts, MCP adapter, sufficiency evaluation, and persistence."""
 
+from vehicle_risk_agent.evidence.history import collect_vehicle_history
 from vehicle_risk_agent.evidence.models import (
     CandidateValue,
     ConfidenceAssessment,
@@ -56,6 +57,7 @@ __all__ = [
     "VehicleEvidenceRepository",
     "VehicleEvidenceSnapshot",
     "VehicleRevisionResponse",
+    "collect_vehicle_history",
     "create_evidence_snapshot",
     "evaluate_evidence_sufficiency",
     "explain_fields_in_parallel",
