@@ -1,6 +1,8 @@
 """Tests for SSE event streaming, replay, authorization, and heartbeats."""
 
+import asyncio
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -9,6 +11,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
+from vehicle_risk_agent.domain.events import WorkflowProgressEvent
+from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.models import Base
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
@@ -69,8 +74,7 @@ async def test_non_owner_forbidden_from_streaming_events(app_client: AsyncClient
     )
     assessment_id = create_resp.json()["id"]
 
-    # Request with another token that maps to a different requester or reviewer unauthorized
-    # We test with operator token which is not owner/reviewer for client stream
+    # Request with operator token which is not owner/reviewer for client stream
     resp = await app_client.get(
         f"/api/v1/assessments/{assessment_id}/events",
         headers={"Authorization": "Bearer dev-operator-token"},
@@ -94,3 +98,102 @@ async def test_event_replay_from_cursor(app_client: AsyncClient) -> None:
         headers={"Authorization": "Bearer dev-requester-token", "Last-Event-ID": "1"},
     )
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_live_events_streamed_to_connected_client(app_client: AsyncClient) -> None:
+    """Verify live events emitted during workflow execution are received by active SSE stream."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+        headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-live-01"},
+    )
+    assessment_id = create_resp.json()["id"]
+
+    async def publish_events_later() -> None:
+        await asyncio.sleep(0.05)
+        transport = app_client._transport  # type: ignore[attr-defined]
+        app = transport.app
+        session_factory = app.state.session_factory
+        broadcaster = app.state.event_broadcaster
+        async with session_factory() as sess:
+            store = EventStore(sess, broadcaster=broadcaster)
+            evt1 = WorkflowProgressEvent(
+                event_id="evt-live-1",
+                sequence=1,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.COLLECTING_EVIDENCE,
+                safe_message="Gathering vehicle facts",
+                timestamp=datetime.now(UTC),
+            )
+            await store.append_event(evt1)
+            await asyncio.sleep(0.05)
+            evt2 = WorkflowProgressEvent(
+                event_id="evt-live-2",
+                sequence=2,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.COMPLETED,
+                safe_message="Assessment completed",
+                timestamp=datetime.now(UTC),
+            )
+            await store.append_event(evt2)
+
+    task = asyncio.create_task(publish_events_later())
+
+    received_lines: list[str] = []
+    async with app_client.stream(
+        "GET",
+        f"/api/v1/assessments/{assessment_id}/events",
+        headers={"Authorization": "Bearer dev-requester-token"},
+    ) as response:
+        assert response.status_code == 200
+        async for line in response.aiter_lines():
+            received_lines.append(line)
+            if "Assessment completed" in line:
+                break
+
+    await task
+    combined = "\n".join(received_lines)
+    assert "event: progress" in combined
+    assert "Gathering vehicle facts" in combined
+    assert "Assessment completed" in combined
+
+
+@pytest.mark.asyncio
+async def test_sse_heartbeat_emitted_during_idle() -> None:
+    """Verify heartbeat comments are emitted periodically during idle stream."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+    settings = Settings(database_url=TEST_DB_URL, sse_heartbeat_interval_seconds=0.1)
+    app = create_app(settings=settings)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post(
+            "/api/v1/assessments",
+            json={"vin": "1HGCR2F85HA000000", "context": {"sale_type": "DEALER"}},
+            headers={"Authorization": "Bearer dev-requester-token", "Idempotency-Key": "req-hb-01"},
+        )
+        assessment_id = create_resp.json()["id"]
+
+        heartbeat_count = 0
+        async with client.stream(
+            "GET",
+            f"/api/v1/assessments/{assessment_id}/events",
+            headers={"Authorization": "Bearer dev-requester-token"},
+        ) as response:
+            assert response.status_code == 200
+            async for line in response.aiter_lines():
+                if ": heartbeat" in line:
+                    heartbeat_count += 1
+                if heartbeat_count >= 2:
+                    break
+
+        assert heartbeat_count >= 2
+
+    await engine.dispose()
