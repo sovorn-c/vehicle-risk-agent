@@ -16,6 +16,8 @@ dependencies = [
     "greenlet>=3.0.0",
     "alembic>=1.13.0,<2",
     "httpx>=0.27.0",
+    "pgvector>=0.3.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.scripts]

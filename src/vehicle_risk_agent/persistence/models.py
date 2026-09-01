@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -114,13 +116,13 @@ class PolicySourceRecord(Base):
 
     __tablename__ = "policy_sources"
 
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    title: Mapped[str] = mapped_column(String(256), nullable=False)
-    issuing_authority: Mapped[str] = mapped_column(String(256), nullable=False)
-    jurisdiction: Mapped[str] = mapped_column(String(2), nullable=False, default="NZ")
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    issuing_authority: Mapped[str] = mapped_column(String(255), nullable=False)
+    jurisdiction: Mapped[str] = mapped_column(String(10), nullable=False, default="NZ")
     canonical_origin: Mapped[str] = mapped_column(String(1024), nullable=False)
-    authority_classification: Mapped[str] = mapped_column(String(64), nullable=False)
-    reuse_terms: Mapped[str] = mapped_column(String(512), nullable=False)
+    authority_classification: Mapped[str] = mapped_column(String(32), nullable=False)
+    reuse_terms: Mapped[str] = mapped_column(String(255), nullable=False)
     expected_update_cadence: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(
@@ -149,9 +151,9 @@ class PolicySnapshotRecord(Base):
         UniqueConstraint("source_id", "content_hash", name="uq_snapshot_source_hash"),
     )
 
-    id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     source_id: Mapped[str] = mapped_column(
-        String(128), ForeignKey("policy_sources.id", ondelete="CASCADE"), nullable=False, index=True
+        String(64), ForeignKey("policy_sources.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     retrieved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -163,7 +165,7 @@ class PolicySnapshotRecord(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     parser_version: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="policy-parser-v1"
+        String(32), nullable=False, default="policy-parser-v1"
     )
     validation_outcome: Mapped[str] = mapped_column(String(32), nullable=False, default="VALID")
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -180,6 +182,11 @@ class PolicySnapshotRecord(Base):
         cascade="all, delete-orphan",
         order_by="PolicyPassageRecord.sequence",
     )
+    corpora_associations: Mapped[list["PolicyCorpusSnapshotRecord"]] = relationship(
+        "PolicyCorpusSnapshotRecord",
+        back_populates="snapshot",
+        cascade="all, delete-orphan",
+    )
 
 
 class PolicyPassageRecord(Base):
@@ -188,39 +195,50 @@ class PolicyPassageRecord(Base):
     __tablename__ = "policy_passages"
     __table_args__ = (UniqueConstraint("snapshot_id", "sequence", name="uq_passage_snapshot_seq"),)
 
-    id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     snapshot_id: Mapped[str] = mapped_column(
-        String(256),
+        String(64),
         ForeignKey("policy_snapshots.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    source_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    section_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
-    heading: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_sources.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    section_identifier: Mapped[str] = mapped_column(String(64), nullable=False)
+    heading: Mapped[str] = mapped_column(String(255), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     char_offset_start: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     char_offset_end: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
 
     snapshot: Mapped["PolicySnapshotRecord"] = relationship(
         "PolicySnapshotRecord", back_populates="passages"
     )
+    source: Mapped["PolicySourceRecord"] = relationship("PolicySourceRecord")
 
 
 class PolicyCorpusRecord(Base):
     """Authoritative persistent record for versioned Policy Corpus manifests."""
 
     __tablename__ = "policy_corpora"
+    __table_args__ = (
+        Index(
+            "uq_policy_corpora_single_active",
+            "lifecycle_state",
+            unique=True,
+            postgresql_where=sa.text("lifecycle_state = 'ACTIVE'"),
+        ),
+    )
 
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    name: Mapped[str] = mapped_column(String(256), nullable=False)
-    description: Mapped[str] = mapped_column(String(1024), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default="DRAFT", index=True
     )
-    snapshot_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
     retrieval_config_json: Mapped[str] = mapped_column(Text, nullable=False)
     manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -229,3 +247,29 @@ class PolicyCorpusRecord(Base):
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    snapshot_associations: Mapped[list["PolicyCorpusSnapshotRecord"]] = relationship(
+        "PolicyCorpusSnapshotRecord",
+        back_populates="corpus",
+        cascade="all, delete-orphan",
+    )
+
+
+class PolicyCorpusSnapshotRecord(Base):
+    """Association table linking Policy Corpus manifests to immutable Policy Snapshots."""
+
+    __tablename__ = "policy_corpus_snapshots"
+
+    corpus_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_corpora.id", ondelete="CASCADE"), primary_key=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_snapshots.id", ondelete="RESTRICT"), primary_key=True
+    )
+
+    corpus: Mapped["PolicyCorpusRecord"] = relationship(
+        "PolicyCorpusRecord", back_populates="snapshot_associations"
+    )
+    snapshot: Mapped["PolicySnapshotRecord"] = relationship(
+        "PolicySnapshotRecord", back_populates="corpora_associations"
+    )
