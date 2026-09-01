@@ -37,9 +37,7 @@ class VehicleMcpClientAdapter(Protocol):
         """Lookup canonical vehicle revision by VIN."""
         ...
 
-    async def explain_vehicle_field(
-        self, vin: str, field_name: str
-    ) -> FieldExplanationResult:
+    async def explain_vehicle_field(self, vin: str, field_name: str) -> FieldExplanationResult:
         """Explain one vehicle field outcome, value, and conflict status."""
         ...
 
@@ -49,9 +47,7 @@ class VehicleMcpClientAdapter(Protocol):
         """Retrieve revision history for a vehicle."""
         ...
 
-    async def get_source_observation(
-        self, observation_id: str
-    ) -> SourceObservationResponse:
+    async def get_source_observation(self, observation_id: str) -> SourceObservationResponse:
         """Retrieve exact source observation by identifier."""
         ...
 
@@ -117,6 +113,7 @@ class FakeVehicleMcpAdapter:
 
     async def lookup_vehicle(self, vin: str) -> VehicleRevisionResponse:
         """Lookup vehicle revision with simulated retry behavior."""
+
         def op() -> VehicleRevisionResponse:
             clean_vin = vin.strip().upper()
             if clean_vin not in self._vehicles:
@@ -130,9 +127,7 @@ class FakeVehicleMcpAdapter:
 
         return await self._execute_with_retry(op, vin.strip().upper())  # type: ignore[no-any-return]
 
-    async def explain_vehicle_field(
-        self, vin: str, field_name: str
-    ) -> FieldExplanationResult:
+    async def explain_vehicle_field(self, vin: str, field_name: str) -> FieldExplanationResult:
         """Explain field from fake store or synthesize default resolved/absent explanation."""
         clean_vin = vin.strip().upper()
         clean_field = field_name.strip().lower()
@@ -155,7 +150,7 @@ class FakeVehicleMcpAdapter:
                 conflicts=[c for c in veh.conflicts if c.field_name == clean_field],
                 confidence_score=veh.confidence.score,
                 confidence_band=veh.confidence.band,
-                available_fields=sorted(list(veh.canonical_fields.keys())),
+                available_fields=sorted(veh.canonical_fields.keys()),
                 rationale="Resolved from canonical fields.",
                 synthetic_notice=veh.synthetic_notice,
             )
@@ -180,9 +175,7 @@ class FakeVehicleMcpAdapter:
         sorted_revs = sorted(revisions, key=lambda r: r.revision_number, reverse=True)
         return sorted_revs[:limit]
 
-    async def get_source_observation(
-        self, observation_id: str
-    ) -> SourceObservationResponse:
+    async def get_source_observation(self, observation_id: str) -> SourceObservationResponse:
         """Retrieve source observation by identifier."""
         clean_id = observation_id.strip()
         if clean_id not in self._observations:

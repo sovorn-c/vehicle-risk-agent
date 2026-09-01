@@ -121,9 +121,7 @@ class VehicleEvidenceRepository:
             record.sufficiency_json = sufficiency.model_dump_json()
             await self._session.commit()
 
-    async def get_sufficiency_result(
-        self, assessment_id: str, run_number: int
-    ) -> Any:
+    async def get_sufficiency_result(self, assessment_id: str, run_number: int) -> Any:
         """Retrieve sufficiency result for an assessment run."""
         stmt = select(VehicleEvidenceSnapshotRecord).where(
             VehicleEvidenceSnapshotRecord.assessment_id == assessment_id,
@@ -138,4 +136,3 @@ class VehicleEvidenceRepository:
 
         data = json.loads(record.sufficiency_json)
         return EvidenceSufficiencyResult(**data)
-

@@ -66,6 +66,7 @@ async def test_recovery_from_intermediate_phase_without_backward_transition() ->
         assert visited == [
             AssessmentRunPhase.PENDING,
             AssessmentRunPhase.COLLECTING_EVIDENCE,
+            AssessmentRunPhase.EVALUATING_SUFFICIENCY,
             AssessmentRunPhase.RETRIEVING_POLICY,
             AssessmentRunPhase.EVALUATING_RISK,
             AssessmentRunPhase.DRAFTING_REPORT,

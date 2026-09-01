@@ -4,7 +4,6 @@ import pytest
 
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.evidence.models import (
-    ConfidenceBand,
     FieldExplanationResult,
     FieldOutcome,
 )

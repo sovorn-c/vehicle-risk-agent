@@ -63,7 +63,6 @@ class IncompleteAssessmentReport(BaseModel):
     )
 
 
-
 def evaluate_evidence_sufficiency(
     snapshot: VehicleEvidenceSnapshot | None,
     failure_error: SafeError | None = None,
@@ -71,9 +70,7 @@ def evaluate_evidence_sufficiency(
     """Deterministically evaluate if snapshot satisfies all Required Evidence fields."""
     if snapshot is None:
         details = (
-            failure_error.message
-            if failure_error
-            else "Vehicle lookup failed or was unavailable."
+            failure_error.message if failure_error else "Vehicle lookup failed or was unavailable."
         )
         finding = MissingEvidenceFinding(
             field_name="vehicle_lookup",
@@ -90,9 +87,7 @@ def evaluate_evidence_sufficiency(
 
     # Map unresolved conflicts by field
     unresolved_conflict_fields = {
-        c.field_name: c
-        for c in snapshot.conflicts
-        if c.state != ConflictState.RESOLVED
+        c.field_name: c for c in snapshot.conflicts if c.state != ConflictState.RESOLVED
     }
 
     for field in REQUIRED_EVIDENCE_FIELDS:

@@ -13,9 +13,7 @@ from vehicle_risk_agent.evidence.models import (
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.evidence.sufficiency import SufficiencyOutcome
-from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.runner import AssessmentRunner
-from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
 
 @pytest.fixture
@@ -75,7 +73,7 @@ async def test_workflow_routes_complete_evidence_to_completed(
 async def test_workflow_routes_incomplete_evidence_to_incomplete_phase(
     sample_complete_revision: VehicleRevisionResponse,
 ) -> None:
-    """When Required Evidence has missing fields (e.g. unknown stolen_status), route to INCOMPLETE."""
+    """When Required Evidence has missing fields, route to INCOMPLETE."""
     fields = dict(sample_complete_revision.canonical_fields)
     fields["stolen_status"] = "UNKNOWN"
     rev = sample_complete_revision.model_copy(update={"canonical_fields": fields})

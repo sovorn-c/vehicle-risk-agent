@@ -2,13 +2,11 @@
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
 
 import pytest
 
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
-from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     ConfidenceBand,
@@ -16,7 +14,6 @@ from vehicle_risk_agent.evidence.models import (
     SourceObservationResponse,
     VehicleRevisionResponse,
 )
-from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 from vehicle_risk_agent.security.minimization import assert_data_minimization
 from vehicle_risk_agent.workflow.runner import AssessmentRunner
 

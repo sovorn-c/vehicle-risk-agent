@@ -94,11 +94,11 @@ async def test_runner_run_automatically_injects_thread_and_persists_events_to_ev
         result = await runner.run(initial_state)
         assert result["phase"] == AssessmentRunPhase.COMPLETED
 
-        # Check that EventStore in PostgreSQL automatically received all 5 workflow events
+        # Check that EventStore in PostgreSQL automatically received all 6 workflow events
         async with session_factory() as sess:
             store = EventStore(sess, broadcaster=broadcaster)
             events = await store.get_events(assessment_id)
-            assert len(events) == 5
+            assert len(events) == 6
             assert events[0].phase == AssessmentRunPhase.COLLECTING_EVIDENCE
             assert events[-1].phase == AssessmentRunPhase.COMPLETED
 

@@ -58,7 +58,8 @@ class SourceObservationAuditService:
 
         if valid_id not in linked_ids:
             raise UnlinkedObservationError(
-                f"Observation ID '{valid_id}' is not linked in snapshot provenance for VIN {snapshot.vin}"
+                f"Observation ID '{valid_id}' is not linked in snapshot "
+                f"provenance for VIN {snapshot.vin}"
             )
 
         return await adapter.get_source_observation(valid_id)

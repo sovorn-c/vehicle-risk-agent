@@ -49,4 +49,3 @@ class AssessmentGraphState(TypedDict, total=False):
     evidence_snapshot: VehicleEvidenceSnapshot | None
     sufficiency_result: EvidenceSufficiencyResult | None
     mcp_error: SafeError | None
-

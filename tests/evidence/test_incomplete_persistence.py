@@ -1,4 +1,4 @@
-"""Tests for persisting ordered missing-evidence findings and enforcing score prohibition on INCOMPLETE outcomes."""
+"""Tests for persisting ordered missing findings and enforcing score prohibition on INCOMPLETE."""
 
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -19,7 +19,6 @@ from vehicle_risk_agent.evidence.snapshot import (
     create_evidence_snapshot,
 )
 from vehicle_risk_agent.evidence.sufficiency import (
-    EvidenceSufficiencyResult,
     IncompleteAssessmentReport,
     MissingEvidenceFinding,
     MissingEvidenceReason,
@@ -44,7 +43,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 
 
 def test_incomplete_assessment_report_prohibits_score_and_band() -> None:
-    """IncompleteAssessmentReport model strictly enforces that no score or band can exist for INCOMPLETE outcome."""
+    """IncompleteAssessmentReport strictly enforces that no score or band exists on INCOMPLETE."""
     finding = MissingEvidenceFinding(
         field_name="stolen_status",
         reason=MissingEvidenceReason.UNKNOWN,

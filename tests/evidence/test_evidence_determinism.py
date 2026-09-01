@@ -1,24 +1,20 @@
-"""Tests proving that parallel completion order cannot alter snapshot, sufficiency, or event determinism."""
+"""Tests proving parallel completion order cannot alter snapshot, sufficiency, or events."""
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
 
 import pytest
 
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
-from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     ConfidenceBand,
     FieldExplanationResult,
-    FieldOutcome,
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.evidence.parallel import explain_fields_in_parallel
 from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 from vehicle_risk_agent.evidence.sufficiency import evaluate_evidence_sufficiency
-from vehicle_risk_agent.workflow.runner import AssessmentRunner
 
 
 class DelayedVehicleMcpAdapter(FakeVehicleMcpAdapter):
@@ -28,9 +24,7 @@ class DelayedVehicleMcpAdapter(FakeVehicleMcpAdapter):
         super().__init__()
         self.field_delays = field_delays
 
-    async def explain_vehicle_field(
-        self, vin: str, field_name: str
-    ) -> FieldExplanationResult:
+    async def explain_vehicle_field(self, vin: str, field_name: str) -> FieldExplanationResult:
         delay = self.field_delays.get(field_name, 0.0)
         if delay > 0:
             await asyncio.sleep(delay)
@@ -39,7 +33,7 @@ class DelayedVehicleMcpAdapter(FakeVehicleMcpAdapter):
 
 @pytest.mark.asyncio
 async def test_parallel_field_explanations_ordering_invariance() -> None:
-    """Proves parallel completion order does not affect the resulting ordered map of field explanations."""
+    """Proves parallel completion order does not affect the resulting ordered map."""
     fields = ["writeoff_status", "ppsr_result", "stolen_status"]
 
     # Run 1: Delay ppsr_result longest
@@ -107,7 +101,7 @@ async def test_parallel_field_explanations_ordering_invariance() -> None:
 
 @pytest.mark.asyncio
 async def test_sufficiency_ordering_invariance_across_input_order() -> None:
-    """Sufficiency evaluation produces identically ordered findings regardless of input map order."""
+    """Sufficiency evaluation produces identically ordered findings regardless of input map."""
     now = datetime.now(UTC)
     rev1 = VehicleRevisionResponse(
         vin="7AT0BK00X00000001",

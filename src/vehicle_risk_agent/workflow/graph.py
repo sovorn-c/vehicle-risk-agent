@@ -94,7 +94,7 @@ async def node_collecting_evidence(
             "phase": AssessmentRunPhase.FAILED,
             "mcp_error": safe_err,
         }
-    except Exception as e:
+    except Exception:
         safe_err = SafeError(
             category=SafeErrorCategory.INTERNAL_ERROR,
             message="Unexpected error collecting vehicle evidence",

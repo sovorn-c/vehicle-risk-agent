@@ -7,7 +7,6 @@ import pytest
 from vehicle_risk_agent.adapters.mcp import (
     FakeVehicleMcpAdapter,
     McpAdapterError,
-    VehicleMcpClientAdapter,
 )
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,

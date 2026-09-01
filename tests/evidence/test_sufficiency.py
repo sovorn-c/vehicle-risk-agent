@@ -108,7 +108,7 @@ def test_sufficiency_incomplete_when_field_is_absent(
 def test_sufficiency_incomplete_when_field_has_unresolved_conflict(
     base_revision: VehicleRevisionResponse,
 ) -> None:
-    """When a required field has an unresolved conflict, finding records reason UNRESOLVED_CONFLICT."""
+    """When a required field has an unresolved conflict, finding records UNRESOLVED_CONFLICT."""
     now = datetime.now(UTC)
     p = ProvenanceLink(
         observation_id="obs-1",
@@ -132,8 +132,7 @@ def test_sufficiency_incomplete_when_field_has_unresolved_conflict(
     assert result.outcome == SufficiencyOutcome.INCOMPLETE
     assert result.is_sufficient is False
     assert any(
-        f.field_name == "writeoff_status"
-        and f.reason == MissingEvidenceReason.UNRESOLVED_CONFLICT
+        f.field_name == "writeoff_status" and f.reason == MissingEvidenceReason.UNRESOLVED_CONFLICT
         for f in result.missing_findings
     )
 

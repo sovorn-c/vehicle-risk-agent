@@ -30,6 +30,7 @@ async def test_graph_phase_transitions_happy_path() -> None:
     expected_sequence = [
         AssessmentRunPhase.PENDING,
         AssessmentRunPhase.COLLECTING_EVIDENCE,
+        AssessmentRunPhase.EVALUATING_SUFFICIENCY,
         AssessmentRunPhase.RETRIEVING_POLICY,
         AssessmentRunPhase.EVALUATING_RISK,
         AssessmentRunPhase.DRAFTING_REPORT,
@@ -79,10 +80,11 @@ async def test_graph_execution_emits_progress_events_to_state() -> None:
 
     result = await app.ainvoke(initial_state)
     events = result["events"]
-    assert len(events) == 5
+    assert len(events) == 6
 
     expected_phases = [
         AssessmentRunPhase.COLLECTING_EVIDENCE,
+        AssessmentRunPhase.EVALUATING_SUFFICIENCY,
         AssessmentRunPhase.RETRIEVING_POLICY,
         AssessmentRunPhase.EVALUATING_RISK,
         AssessmentRunPhase.DRAFTING_REPORT,
@@ -146,9 +148,9 @@ async def test_graph_execution_persists_events_to_event_store_when_configured() 
         result = await app.ainvoke(initial_state, config={"configurable": {"event_store": store}})
         assert result["phase"] == AssessmentRunPhase.COMPLETED
 
-        # Check that EventStore in Postgres received all 5 events
+        # Check that EventStore in Postgres received all 6 events
         stored_events = await store.get_events(assessment_id)
-        assert len(stored_events) == 5
+        assert len(stored_events) == 6
         assert stored_events[-1].phase == AssessmentRunPhase.COMPLETED
 
     await engine.dispose()

@@ -90,11 +90,11 @@ def get_current_principal(
                 principal_id=x_user_id or f"principal-{role.lower()}-1",
                 role=role,
             )
-        except ValueError:
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "FORBIDDEN", "message": f"Invalid role {x_user_role}"},
-            )
+            ) from e
 
     settings = get_settings(request)
     if not authorization or not authorization.startswith("Bearer "):

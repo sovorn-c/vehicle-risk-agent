@@ -1,6 +1,5 @@
 """Security and data minimization assertions ensuring unminimized payloads do not leak."""
 
-import json
 from typing import Any
 
 from pydantic import BaseModel
@@ -19,7 +18,9 @@ def assert_data_minimization(target: Any, forbidden_substring: str) -> None:
     elif isinstance(target, dict):
         for k, v in target.items():
             if k == "raw_payload":
-                raise AssertionError("Data minimization violation: 'raw_payload' key present in state")
+                raise AssertionError(
+                    "Data minimization violation: 'raw_payload' key present in state"
+                )
             assert_data_minimization(k, forbidden_substring)
             assert_data_minimization(v, forbidden_substring)
     elif isinstance(target, (list, tuple, set)):
