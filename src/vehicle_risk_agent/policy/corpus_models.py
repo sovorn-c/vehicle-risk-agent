@@ -38,13 +38,13 @@ class RetrievalConfiguration(BaseModel):
 
 def compute_manifest_hash(
     corpus_id: str,
-    snapshot_ids: list[str],
+    snapshot_ids: list[str] | tuple[str, ...],
     retrieval_config: RetrievalConfiguration,
 ) -> str:
     """Compute deterministic SHA-256 hash of corpus manifest contents."""
     canonical = {
         "corpus_id": corpus_id,
-        "snapshot_ids": snapshot_ids,
+        "snapshot_ids": list(snapshot_ids),
         "retrieval_config": retrieval_config.model_dump(mode="json"),
     }
     canonical_json = json.dumps(canonical, sort_keys=True)
@@ -60,32 +60,33 @@ class PolicyCorpusManifest(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     description: str = Field(min_length=1, max_length=1024)
     lifecycle_state: CorpusLifecycleState = CorpusLifecycleState.DRAFT
-    snapshot_ids: list[str] = Field(min_length=1)
+    snapshot_ids: tuple[str, ...] = Field(min_length=1)
     retrieval_config: RetrievalConfiguration = Field(default_factory=RetrievalConfiguration)
     manifest_hash: str = Field(min_length=64, max_length=64)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     activated_at: datetime | None = None
     retired_at: datetime | None = None
 
-    @field_validator("snapshot_ids")
+    @field_validator("snapshot_ids", mode="before")
     @classmethod
-    def validate_unique_snapshots(cls, v: list[str]) -> list[str]:
+    def validate_unique_snapshots(cls, v: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         """Ensure snapshot_ids list has no duplicates and contains non-empty strings."""
-        if not v:
+        tuple_val = tuple(v)
+        if not tuple_val:
             raise ValueError("snapshot_ids cannot be empty")
-        if len(v) != len(set(v)):
+        if len(tuple_val) != len(set(tuple_val)):
             raise ValueError("snapshot_ids cannot contain duplicates")
-        for s in v:
+        for s in tuple_val:
             if not s or not s.strip():
                 raise ValueError("snapshot_id cannot be empty")
-        return v
+        return tuple_val
 
 
 def build_corpus_manifest(
     corpus_id: str,
     name: str,
     description: str,
-    snapshot_ids: list[str],
+    snapshot_ids: list[str] | tuple[str, ...],
     retrieval_config: RetrievalConfiguration | None = None,
     lifecycle_state: CorpusLifecycleState = CorpusLifecycleState.DRAFT,
 ) -> PolicyCorpusManifest:
@@ -100,7 +101,7 @@ def build_corpus_manifest(
         name=name,
         description=description,
         lifecycle_state=lifecycle_state,
-        snapshot_ids=snapshot_ids,
+        snapshot_ids=tuple(snapshot_ids),
         retrieval_config=retrieval_config,
         manifest_hash=manifest_hash,
     )

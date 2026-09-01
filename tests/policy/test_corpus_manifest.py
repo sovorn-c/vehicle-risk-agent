@@ -41,7 +41,7 @@ def test_corpus_manifest_creation_and_hash() -> None:
 
     assert manifest.id == "corpus-v1"
     assert manifest.lifecycle_state == CorpusLifecycleState.DRAFT
-    assert manifest.snapshot_ids == snapshot_ids
+    assert manifest.snapshot_ids == tuple(snapshot_ids)
     assert manifest.manifest_hash is not None
     assert len(manifest.manifest_hash) == 64
 

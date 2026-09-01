@@ -138,7 +138,6 @@ class PolicySourceRecord(Base):
     snapshots: Mapped[list["PolicySnapshotRecord"]] = relationship(
         "PolicySnapshotRecord",
         back_populates="source",
-        cascade="all, delete-orphan",
         order_by="desc(PolicySnapshotRecord.retrieved_at)",
     )
 

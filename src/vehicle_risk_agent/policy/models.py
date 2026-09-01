@@ -91,7 +91,7 @@ class PolicySnapshot(BaseModel):
     raw_content: str = Field(min_length=1)
     parser_version: str = Field(default="policy-parser-v1", min_length=1, max_length=64)
     validation_outcome: ValidationOutcome = ValidationOutcome.VALID
-    passages: list[PolicyPassage] = Field(default_factory=list)
+    passages: tuple[PolicyPassage, ...] = Field(default_factory=tuple)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
