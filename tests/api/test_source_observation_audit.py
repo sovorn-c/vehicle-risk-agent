@@ -64,7 +64,7 @@ async def client(
     session_factory: async_sessionmaker[AsyncSession],
     fake_mcp_adapter: FakeVehicleMcpAdapter,
 ) -> AsyncGenerator[AsyncClient, None]:
-    settings = Settings(database_url=TEST_DB_URL, secret_key="test-secret")
+    settings = Settings(database_url=TEST_DB_URL)
     app = create_app(settings=settings)
 
     async def override_db_session() -> AsyncGenerator[AsyncSession, None]:

@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter, VehicleMcpClientAdapter
 from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
@@ -41,6 +42,7 @@ class RateLimiter:
 
 intake_rate_limiter = RateLimiter(max_requests=10, window_seconds=60.0)
 global_event_broadcaster = ProgressEventBroadcaster()
+default_fake_mcp_adapter = FakeVehicleMcpAdapter()
 
 
 def get_settings(request: Request) -> Settings:
@@ -58,6 +60,14 @@ def get_reranker_adapter(request: Request) -> RerankerAdapter:
     return request.app.state.reranker_adapter  # type: ignore[no-any-return]
 
 
+def get_mcp_adapter(request: Request) -> VehicleMcpClientAdapter:
+    """Extract configured MCP client adapter from app state."""
+    adapter = getattr(request.app.state, "mcp_adapter", None)
+    if adapter is None:
+        return default_fake_mcp_adapter
+    return adapter  # type: ignore[no-any-return]
+
+
 def get_event_broadcaster(request: Request) -> ProgressEventBroadcaster:
     """Extract event broadcaster from app state or return global fallback."""
     broadcaster = getattr(request.app.state, "event_broadcaster", None)
@@ -69,8 +79,23 @@ def get_event_broadcaster(request: Request) -> ProgressEventBroadcaster:
 def get_current_principal(
     request: Request,
     authorization: str | None = Header(default=None),
+    x_user_role: str | None = Header(default=None, alias="X-User-Role"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ) -> Principal:
-    """Authenticate bearer token from header."""
+    """Authenticate bearer token from header or X-User-Role header."""
+    if x_user_role is not None:
+        try:
+            role = Role(x_user_role.upper())
+            return Principal(
+                principal_id=x_user_id or f"principal-{role.lower()}-1",
+                role=role,
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "FORBIDDEN", "message": f"Invalid role {x_user_role}"},
+            )
+
     settings = get_settings(request)
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
