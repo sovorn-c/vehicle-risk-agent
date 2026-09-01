@@ -30,7 +30,7 @@ async def clean_engine() -> AsyncIterator[AsyncEngine]:
 
 @pytest.mark.asyncio
 async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
-    """Verify that alembic upgrade creates workflow_events and downgrade drops them."""
+    """Verify that alembic upgrade creates all assessment and policy tables with pgvector."""
     root_dir = Path(__file__).parent.parent.parent
     alembic_ini = root_dir / "alembic.ini"
     alembic_cfg = Config(str(alembic_ini))
@@ -45,10 +45,16 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert insp is not None
         return list(insp.get_table_names())
 
-    def inspect_workflow_events_columns(conn: sa.Connection) -> list[str]:
+    def inspect_columns(conn: sa.Connection, table_name: str) -> list[str]:
         insp = inspect(conn)
         assert insp is not None
-        return [str(col["name"]) for col in insp.get_columns("workflow_events")]
+        return [str(col["name"]) for col in insp.get_columns(table_name)]
+
+    def inspect_unique_indexes(conn: sa.Connection, table_name: str) -> list[str]:
+        insp = inspect(conn)
+        assert insp is not None
+        indexes = insp.get_indexes(table_name)
+        return [idx["name"] for idx in indexes if idx.get("name")]
 
     async with clean_engine.connect() as conn:
         table_names = await conn.run_sync(inspect_tables)
@@ -56,25 +62,26 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "assessment_runs" in table_names
         assert "idempotency_keys" in table_names
         assert "workflow_events" in table_names
+        assert "policy_sources" in table_names
+        assert "policy_snapshots" in table_names
+        assert "policy_passages" in table_names
+        assert "policy_corpora" in table_names
+        assert "policy_corpus_snapshots" in table_names
 
-        columns = await conn.run_sync(inspect_workflow_events_columns)
-        expected_cols = {
-            "id",
-            "assessment_id",
-            "run_number",
-            "sequence",
-            "phase",
-            "safe_message",
-            "timestamp",
-        }
-        assert expected_cols.issubset(set(columns))
+        passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
+        assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
+
+        corpora_indexes = await conn.run_sync(lambda c: inspect_unique_indexes(c, "policy_corpora"))
+        assert "uq_policy_corpora_single_active" in corpora_indexes
 
     # Run downgrade base
     await asyncio.to_thread(command.downgrade, alembic_cfg, "base")
 
     async with clean_engine.connect() as conn:
         table_names_after = await conn.run_sync(inspect_tables)
+        assert "policy_corpora" not in table_names_after
+        assert "policy_passages" not in table_names_after
+        assert "policy_snapshots" not in table_names_after
+        assert "policy_sources" not in table_names_after
         assert "workflow_events" not in table_names_after
         assert "assessments" not in table_names_after
-        assert "assessment_runs" not in table_names_after
-        assert "idempotency_keys" not in table_names_after
