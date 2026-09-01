@@ -5,19 +5,22 @@ echo "=================================================================="
 echo " Vehicle Risk Agent — Local Preflight Verification"
 echo "=================================================================="
 
-echo "==> [1/5] Running Ruff linter..."
+echo "==> [1/6] Running Ruff linter..."
 uv run ruff check .
 
-echo "==> [2/5] Checking code formatting..."
+echo "==> [2/6] Checking code formatting..."
 uv run ruff format --check .
 
-echo "==> [3/5] Running mypy strict type checker..."
+echo "==> [3/6] Running mypy strict type checker..."
 uv run mypy src tests
 
-echo "==> [4/5] Running pytest test suite..."
+echo "==> [4/6] Verifying Alembic database migrations..."
+uv run pytest tests/persistence/test_migrations.py -q
+
+echo "==> [5/6] Running full pytest test suite..."
 uv run pytest
 
-echo "==> [5/5] Verifying package build with uv build..."
+echo "==> [6/6] Verifying package build with uv build..."
 uv build
 
 echo "=================================================================="

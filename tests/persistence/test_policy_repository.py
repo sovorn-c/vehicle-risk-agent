@@ -38,7 +38,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 async def test_policy_repository_retention_blocks_deleting_referenced_snapshot(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Deleting a PolicySource or PolicySnapshot referenced by an active corpus fails with IntegrityError."""
+    """Deleting a PolicySource referenced by an active corpus fails with IntegrityError."""
     async with session_factory() as session:
         repo = PolicyRepository(session)
         source = PolicySource(
@@ -89,8 +89,8 @@ async def test_policy_repository_retention_blocks_deleting_referenced_snapshot(
 
     # Now attempt to delete the source
     async with session_factory() as session:
+        source_rec = await session.get(PolicySourceRecord, "nz-fta-1986")
+        assert source_rec is not None
+        await session.delete(source_rec)
         with pytest.raises(IntegrityError):
-            source_rec = await session.get(PolicySourceRecord, "nz-fta-1986")
-            assert source_rec is not None
-            await session.delete(source_rec)
             await session.commit()

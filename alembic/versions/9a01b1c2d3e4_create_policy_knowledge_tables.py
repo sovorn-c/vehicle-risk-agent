@@ -1,4 +1,4 @@
-"""Create policy_sources, policy_snapshots, policy_passages, policy_corpora, and policy_corpus_snapshots tables.
+"""Create policy knowledge and corpus tables with pgvector columns.
 
 Revision ID: 9a01b1c2d3e4
 Revises: 8984da11d09d
@@ -58,8 +58,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["source_id"], ["policy_sources.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_policy_snapshots_source_id", "policy_snapshots", ["source_id"], unique=False)
-    op.create_index("ix_policy_snapshots_content_hash", "policy_snapshots", ["content_hash"], unique=False)
+    op.create_index(
+        "ix_policy_snapshots_source_id", "policy_snapshots", ["source_id"], unique=False
+    )
+    op.create_index(
+        "ix_policy_snapshots_content_hash", "policy_snapshots", ["content_hash"], unique=False
+    )
 
     # 3. Policy Passages
     op.create_table(
@@ -79,7 +83,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["source_id"], ["policy_sources.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_policy_passages_snapshot_id", "policy_passages", ["snapshot_id"], unique=False)
+    op.create_index(
+        "ix_policy_passages_snapshot_id", "policy_passages", ["snapshot_id"], unique=False
+    )
     op.create_index("ix_policy_passages_source_id", "policy_passages", ["source_id"], unique=False)
 
     # 4. Policy Corpora
@@ -115,8 +121,18 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["snapshot_id"], ["policy_snapshots.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("corpus_id", "snapshot_id"),
     )
-    op.create_index("ix_policy_corpus_snapshots_corpus_id", "policy_corpus_snapshots", ["corpus_id"], unique=False)
-    op.create_index("ix_policy_corpus_snapshots_snapshot_id", "policy_corpus_snapshots", ["snapshot_id"], unique=False)
+    op.create_index(
+        "ix_policy_corpus_snapshots_corpus_id",
+        "policy_corpus_snapshots",
+        ["corpus_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_policy_corpus_snapshots_snapshot_id",
+        "policy_corpus_snapshots",
+        ["snapshot_id"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:

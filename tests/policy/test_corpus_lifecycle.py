@@ -29,6 +29,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         import sqlalchemy as sa
+
         await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -159,7 +160,9 @@ async def test_concurrent_activation_enforces_single_active_invariant(
 ) -> None:
     """Concurrent activation across distinct sessions results in exactly one active corpus."""
     import asyncio
+
     from sqlalchemy import select
+
     from vehicle_risk_agent.persistence.models import PolicyCorpusRecord
 
     # Create 5 ready corpora
@@ -191,4 +194,3 @@ async def test_concurrent_activation_enforces_single_active_invariant(
         active_res = await session.execute(active_stmt)
         active_rows = active_res.scalars().all()
         assert len(active_rows) == 1
-

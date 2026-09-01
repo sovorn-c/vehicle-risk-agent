@@ -105,4 +105,3 @@ def test_corpus_manifest_snapshot_ids_is_immutable_tuple() -> None:
     assert isinstance(manifest.snapshot_ids, tuple)
     with pytest.raises(AttributeError):
         manifest.snapshot_ids.append("snap3")  # type: ignore[attr-defined]
-

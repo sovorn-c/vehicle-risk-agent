@@ -170,7 +170,7 @@ Vehicle structure must be free from structural corrosion and damage.
 
 
 def test_exact_character_offsets_and_lossless_overlap(sample_ppsr_source: PolicySource) -> None:
-    """Passages report exact character offsets within raw_content and bounded overlap without text loss."""
+    """Passages report exact character offsets and bounded overlap without text loss."""
     p1 = "Paragraph 1: " + ("First section text detailing PPSR registration rules. " * 20)
     p2 = "Paragraph 2: " + ("Second section text explaining repossession priorities. " * 20)
     raw_markdown = f"# Guide\n\n## Section 1: PPSR Rules\n{p1}\n\n{p2}\n"
@@ -196,4 +196,3 @@ def test_exact_character_offsets_and_lossless_overlap(sample_ppsr_source: Policy
         assert curr_p.char_offset_end > next_p.char_offset_start
         overlap_len = curr_p.char_offset_end - next_p.char_offset_start
         assert 0 < overlap_len <= 150
-

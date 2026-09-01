@@ -128,9 +128,7 @@ class PolicyParser:
                     else:
                         target_end = curr_rel + self.max_passage_chars
                         window_start = max(curr_rel + 1, target_end - self.overlap_chars)
-                        window_text = raw_content[
-                            sec_start + window_start : sec_start + target_end
-                        ]
+                        window_text = raw_content[sec_start + window_start : sec_start + target_end]
 
                         best_cut_offset: int | None = None
                         for delim in ("\n\n", "\n", ". ", "? ", "! ", " "):

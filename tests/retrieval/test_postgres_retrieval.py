@@ -14,15 +14,10 @@ from vehicle_risk_agent.persistence.models import (
     PolicySnapshotRecord,
     PolicySourceRecord,
 )
-from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
-from vehicle_risk_agent.policy.models import PolicyPassage
 from vehicle_risk_agent.retrieval.adapters import (
     FakeEmbeddingAdapter,
-    FakeRerankerAdapter,
-    SentenceTransformersEmbeddingAdapter,
 )
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
-from vehicle_risk_agent.retrieval.service import HybridRetrievalService
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 

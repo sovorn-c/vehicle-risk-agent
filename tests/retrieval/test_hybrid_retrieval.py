@@ -150,7 +150,7 @@ async def test_hybrid_retrieval_caps_at_five_passages() -> None:
 async def test_hybrid_retrieval_strictly_fails_on_missing_source_metadata(
     sample_passages: list[PolicyPassage],
 ) -> None:
-    """Retrieval strictly raises PolicyRetrievalError if authoritative source metadata is missing."""
+    """Retrieval strictly raises PolicyRetrievalError if source metadata is missing."""
     config = RetrievalConfiguration(minimum_reranker_score=0.1)
     index = InMemoryPolicyIndex(embedder=FakeEmbeddingAdapter(), config=config)
     await index.build_index(sample_passages)
@@ -165,4 +165,3 @@ async def test_hybrid_retrieval_strictly_fails_on_missing_source_metadata(
 
     with pytest.raises(Exception, match="Missing authoritative source metadata"):
         await service.retrieve(query="repossessed motor vehicle")
-

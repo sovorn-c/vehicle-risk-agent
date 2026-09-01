@@ -54,7 +54,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         insp = inspect(conn)
         assert insp is not None
         indexes = insp.get_indexes(table_name)
-        return [idx["name"] for idx in indexes if idx.get("name")]
+        return [str(idx["name"]) for idx in indexes if idx.get("name") is not None]
 
     async with clean_engine.connect() as conn:
         table_names = await conn.run_sync(inspect_tables)

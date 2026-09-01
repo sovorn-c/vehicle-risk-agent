@@ -26,11 +26,13 @@ class CorpusLifecycleError(Exception):
 
 
 def _corpus_record_to_manifest(
-    record: PolicyCorpusRecord, snapshot_ids: list[str] | None = None
+    record: PolicyCorpusRecord, snapshot_ids: list[str] | tuple[str, ...] | None = None
 ) -> PolicyCorpusManifest:
     """Map PolicyCorpusRecord to PolicyCorpusManifest domain model."""
     if snapshot_ids is None:
-        snapshot_ids = [assoc.snapshot_id for assoc in record.snapshot_associations]
+        snaps = tuple(assoc.snapshot_id for assoc in record.snapshot_associations)
+    else:
+        snaps = tuple(snapshot_ids)
 
     retrieval_data = json.loads(record.retrieval_config_json)
     retrieval_config = RetrievalConfiguration(**retrieval_data)
@@ -40,7 +42,7 @@ def _corpus_record_to_manifest(
         name=record.name,
         description=record.description,
         lifecycle_state=CorpusLifecycleState(record.lifecycle_state),
-        snapshot_ids=snapshot_ids,
+        snapshot_ids=snaps,
         retrieval_config=retrieval_config,
         manifest_hash=record.manifest_hash,
         created_at=record.created_at,
@@ -183,7 +185,7 @@ class CorpusLifecycleManager:
         corpus_id: str,
         principal_id: str,
     ) -> tuple[PolicyCorpusManifest, PolicyCorpusManifest | None]:
-        """Atomically activate a READY corpus and retire the previous ACTIVE corpus with row locks."""
+        """Atomically activate a READY corpus and retire prior ACTIVE corpus with row locks."""
         try:
             # Lock target corpus row
             stmt = (

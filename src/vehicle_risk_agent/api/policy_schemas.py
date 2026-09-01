@@ -102,7 +102,7 @@ class PolicyCorpusResponse(BaseModel):
     name: str
     description: str
     lifecycle_state: str
-    snapshot_ids: list[str]
+    snapshot_ids: list[str] | tuple[str, ...]
     retrieval_config: dict[str, object]
     manifest_hash: str
     created_at: datetime

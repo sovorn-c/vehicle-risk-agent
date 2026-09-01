@@ -66,7 +66,7 @@ def _snapshot_record_to_domain(record: PolicySnapshotRecord) -> PolicySnapshot:
         raw_content=record.raw_content,
         parser_version=record.parser_version,
         validation_outcome=ValidationOutcome(record.validation_outcome),
-        passages=passages,
+        passages=tuple(passages),
         metadata=metadata,
     )
 

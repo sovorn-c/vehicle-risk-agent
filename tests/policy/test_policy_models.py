@@ -144,13 +144,14 @@ def test_policy_snapshot_valid() -> None:
         raw_content=raw_content,
         parser_version="policy-parser-v1",
         validation_outcome=ValidationOutcome.VALID,
-        passages=[],
+        passages=(),
         metadata={"source_title": "Fair Trading Act 1986"},
     )
 
     assert snapshot.source_id == "nz-legislation-fta-1986"
     assert snapshot.content_hash == content_hash
     assert snapshot.validation_outcome == ValidationOutcome.VALID
+    assert isinstance(snapshot.passages, tuple)
 
 
 def test_policy_snapshot_rejects_hash_mismatch() -> None:
@@ -167,5 +168,5 @@ def test_policy_snapshot_rejects_hash_mismatch() -> None:
             raw_content=raw_content,
             parser_version="policy-parser-v1",
             validation_outcome=ValidationOutcome.VALID,
-            passages=[],
+            passages=(),
         )
