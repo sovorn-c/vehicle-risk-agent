@@ -90,3 +90,19 @@ def test_corpus_manifest_immutability() -> None:
     attr_name = "name"
     with pytest.raises(ValidationError):
         setattr(manifest, attr_name, "Modified Name")
+
+
+def test_corpus_manifest_snapshot_ids_is_immutable_tuple() -> None:
+    """PolicyCorpusManifest snapshot_ids is an immutable sequence/tuple."""
+    manifest = build_corpus_manifest(
+        corpus_id="corpus-v1",
+        name="NZ Corpus",
+        description="Desc",
+        snapshot_ids=["snap1", "snap2"],
+        retrieval_config=RetrievalConfiguration(),
+    )
+
+    assert isinstance(manifest.snapshot_ids, tuple)
+    with pytest.raises(AttributeError):
+        manifest.snapshot_ids.append("snap3")  # type: ignore[attr-defined]
+
