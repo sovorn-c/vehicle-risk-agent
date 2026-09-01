@@ -19,21 +19,35 @@ from vehicle_risk_agent.evidence.snapshot import (
     VehicleEvidenceSnapshot,
     create_evidence_snapshot,
 )
+from vehicle_risk_agent.evidence.sufficiency import (
+    REQUIRED_EVIDENCE_FIELDS,
+    EvidenceSufficiencyResult,
+    MissingEvidenceFinding,
+    MissingEvidenceReason,
+    SufficiencyOutcome,
+    evaluate_evidence_sufficiency,
+)
 
 __all__ = [
     "CandidateValue",
     "ConfidenceAssessment",
     "ConfidenceBand",
     "ConflictState",
+    "EvidenceSufficiencyResult",
     "FieldConflict",
     "FieldExplanationResult",
     "FieldOutcome",
+    "MissingEvidenceFinding",
+    "MissingEvidenceReason",
     "ProvenanceLink",
+    "REQUIRED_EVIDENCE_FIELDS",
     "SafeError",
     "SafeErrorCategory",
     "SourceObservationResponse",
+    "SufficiencyOutcome",
     "VehicleEvidenceRepository",
     "VehicleEvidenceSnapshot",
     "VehicleRevisionResponse",
     "create_evidence_snapshot",
+    "evaluate_evidence_sufficiency",
 ]
