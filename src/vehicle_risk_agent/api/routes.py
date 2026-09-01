@@ -1,21 +1,29 @@
-"""API routes for Assessment intake and retrieval."""
-
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
+import anyio
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import ClientDisconnect
+from starlette.types import Receive, Scope, Send
 
 from vehicle_risk_agent.api.deps import (
     get_current_principal,
     get_db_session,
+    get_event_broadcaster,
+    get_settings,
     intake_rate_limiter,
     require_role,
 )
 from vehicle_risk_agent.api.models import AssessmentCreateRequest
 from vehicle_risk_agent.api.schemas import AssessmentResponse, AssessmentRunResponse
 from vehicle_risk_agent.auth import Principal, Role
+from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.domain.errors import IdempotencyConflictError
+from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 
@@ -134,14 +142,31 @@ async def get_assessment(
     )
 
 
+class SSEStreamingResponse(StreamingResponse):
+    """StreamingResponse that cleanly streams response and handles client disconnects."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG002
+        with suppress(
+            anyio.ClosedResourceError,
+            anyio.BrokenResourceError,
+            ClientDisconnect,
+            asyncio.CancelledError,
+        ):
+            await self.stream_response(send)
+        if self.background is not None:
+            await self.background()
+
+
 @router.get("/{assessment_id}/events")
 async def stream_assessment_events(
     assessment_id: str,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     principal: Principal = Depends(get_current_principal),
     session: AsyncSession = Depends(get_db_session),
-) -> StreamingResponse:
-    """Stream sanitized assessment progress events via SSE with replay and heartbeat."""
+    broadcaster: ProgressEventBroadcaster = Depends(get_event_broadcaster),
+    settings: Settings = Depends(get_settings),
+) -> SSEStreamingResponse:
+    """Stream sanitized assessment progress events via SSE."""
     repo = AssessmentRepository(session)
     assessment = await repo.get_assessment(assessment_id)
     if assessment is None:
@@ -165,16 +190,45 @@ async def stream_assessment_events(
     if last_event_id and last_event_id.isdigit():
         after_seq = int(last_event_id)
 
-    event_store = EventStore(session)
+    event_store = EventStore(session, broadcaster=broadcaster)
     events = await event_store.get_events(assessment_id, after_sequence=after_seq)
 
     async def event_generator() -> AsyncIterator[str]:
+        last_seq = after_seq
         # Yield replayed events
         for evt in events:
             payload = evt.model_dump_json()
             yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+            last_seq = max(last_seq, evt.sequence)
 
-        # Heartbeat comment to keep connection alive
+        # Heartbeat comment to establish stream
         yield ": heartbeat\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+        # If already terminal and past events cover terminal phase, terminate cleanly
+        if events and events[-1].phase in (
+            AssessmentRunPhase.COMPLETED,
+            AssessmentRunPhase.FAILED,
+        ):
+            return
+
+        heartbeat_timeout = settings.sse_heartbeat_interval_seconds
+
+        async with broadcaster.subscribe(assessment_id) as queue:
+            while True:
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=heartbeat_timeout)
+                    if evt.sequence > last_seq:
+                        payload = evt.model_dump_json()
+                        yield f"id: {evt.sequence}\nevent: progress\ndata: {payload}\n\n"
+                        last_seq = evt.sequence
+                        if evt.phase in (
+                            AssessmentRunPhase.COMPLETED,
+                            AssessmentRunPhase.FAILED,
+                        ):
+                            break
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    break
+
+    return SSEStreamingResponse(event_generator(), media_type="text/event-stream")

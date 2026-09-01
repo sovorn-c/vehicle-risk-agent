@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 
 
 class RateLimiter:
@@ -34,11 +35,20 @@ class RateLimiter:
 
 
 intake_rate_limiter = RateLimiter(max_requests=10, window_seconds=60.0)
+global_event_broadcaster = ProgressEventBroadcaster()
 
 
 def get_settings(request: Request) -> Settings:
     """Extract settings from app state."""
     return request.app.state.settings  # type: ignore[no-any-return]
+
+
+def get_event_broadcaster(request: Request) -> ProgressEventBroadcaster:
+    """Extract event broadcaster from app state or return global fallback."""
+    broadcaster = getattr(request.app.state, "event_broadcaster", None)
+    if broadcaster is None:
+        return global_event_broadcaster
+    return broadcaster  # type: ignore[no-any-return]
 
 
 def get_current_principal(

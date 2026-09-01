@@ -69,7 +69,6 @@ def upgrade() -> None:
         ),
     )
 
-
     op.create_table(
         "workflow_events",
         sa.Column("id", sa.String(length=36), nullable=False),

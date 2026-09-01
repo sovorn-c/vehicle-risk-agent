@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.api.routes import router as assessment_router
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -18,6 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    event_broadcaster = ProgressEventBroadcaster()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -32,6 +34,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
+    app.state.event_broadcaster = event_broadcaster
+
+    @app.middleware("http")
+    async def asgi_spec_version_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if "asgi" in request.scope:
+            request.scope["asgi"]["spec_version"] = "3.0"
+        return await call_next(request)
 
     # Safe structured HTTPException handler
     @app.exception_handler(HTTPException)
@@ -46,6 +55,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # General unexpected exception handler (fails closed, no internal stack leak)
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        if exc.__class__.__name__ in (
+            "ClientDisconnect",
+            "ClosedResourceError",
+            "BrokenResourceError",
+            "CancelledError",
+        ):
+            return JSONResponse(status_code=status.HTTP_200_OK, content={})
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

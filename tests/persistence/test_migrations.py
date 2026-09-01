@@ -6,11 +6,12 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from alembic import command
-from alembic.config import Config
 import sqlalchemy as sa
+from alembic.config import Config
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from alembic import command
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -29,7 +30,7 @@ async def clean_engine() -> AsyncIterator[AsyncEngine]:
 
 @pytest.mark.asyncio
 async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
-    """Verify that alembic upgrade creates all tables including workflow_events and downgrade drops them."""
+    """Verify that alembic upgrade creates workflow_events and downgrade drops them."""
     root_dir = Path(__file__).parent.parent.parent
     alembic_ini = root_dir / "alembic.ini"
     alembic_cfg = Config(str(alembic_ini))
@@ -39,13 +40,15 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
     await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
 
     # Inspect tables
-    def inspect_tables(conn: object) -> list[str]:
+    def inspect_tables(conn: sa.Connection) -> list[str]:
         insp = inspect(conn)
-        return insp.get_table_names()
+        assert insp is not None
+        return list(insp.get_table_names())
 
-    def inspect_workflow_events_columns(conn: object) -> list[str]:
+    def inspect_workflow_events_columns(conn: sa.Connection) -> list[str]:
         insp = inspect(conn)
-        return [col["name"] for col in insp.get_columns("workflow_events")]
+        assert insp is not None
+        return [str(col["name"]) for col in insp.get_columns("workflow_events")]
 
     async with clean_engine.connect() as conn:
         table_names = await conn.run_sync(inspect_tables)

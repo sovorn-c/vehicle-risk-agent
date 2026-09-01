@@ -7,17 +7,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.domain.events import WorkflowProgressEvent
+from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.models import WorkflowEventRecord
 
 
 class EventStore:
     """Provides transactional appending and retrieval for progress events."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        broadcaster: ProgressEventBroadcaster | None = None,
+    ) -> None:
         self._session = session
+        self._broadcaster = broadcaster
 
     async def append_event(self, event: WorkflowProgressEvent) -> None:
-        """Persist a sanitized workflow progress event."""
+        """Persist a sanitized workflow progress event and broadcast to active subscribers."""
         record = WorkflowEventRecord(
             id=str(uuid4()),
             assessment_id=event.assessment_id,
@@ -29,6 +35,8 @@ class EventStore:
         )
         self._session.add(record)
         await self._session.commit()
+        if self._broadcaster is not None:
+            self._broadcaster.publish(event)
 
     async def get_events(
         self,

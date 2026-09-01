@@ -18,3 +18,4 @@ class Settings(BaseSettings):
     reviewer_token: str = "dev-reviewer-token"
     operator_token: str = "dev-operator-token"
     maintainer_token: str = "dev-maintainer-token"
+    sse_heartbeat_interval_seconds: float = 15.0
