@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
 from vehicle_risk_agent.api.evidence_routes import router as evidence_router
 from vehicle_risk_agent.api.policy_routes import router as policy_router
+from vehicle_risk_agent.api.risk_policy_routes import router as risk_policy_router
 from vehicle_risk_agent.api.routes import router as assessment_router
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
@@ -97,5 +98,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(assessment_router)
     app.include_router(policy_router)
     app.include_router(evidence_router)
+    app.include_router(risk_policy_router)
 
     return app

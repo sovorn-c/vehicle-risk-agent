@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from vehicle_risk_agent.adapters.mcp import McpAdapterError
-from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
+from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState, AssessmentRunPhase
 from vehicle_risk_agent.domain.events import WorkflowProgressEvent
 from vehicle_risk_agent.evidence.history import collect_vehicle_history
 from vehicle_risk_agent.evidence.models import (
@@ -24,6 +24,12 @@ from vehicle_risk_agent.evidence.sufficiency import (
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
+from vehicle_risk_agent.policy.models import PolicyCitation
+from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
+from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
+from vehicle_risk_agent.risk.calculator import calculate_risk_result
+from vehicle_risk_agent.risk.models import RiskPolicy, build_risk_policy_v1
+from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
 
@@ -167,18 +173,80 @@ async def node_evaluating_sufficiency(
     }
 
 
+async def _resolve_policy(configurable: dict[str, Any]) -> RiskPolicy:
+    """Retrieve active RiskPolicy from repository, or ensure default v1 exists in database."""
+    policy_repo: RiskPolicyRepository | None = configurable.get("policy_repo")
+    if policy_repo is None:
+        return build_risk_policy_v1()
+
+    active = await policy_repo.get_active_policy()
+    if active is not None:
+        return active
+
+    existing = await policy_repo.get_policy("risk-policy-v1")
+    if existing is not None:
+        return existing
+
+    default_policy = build_risk_policy_v1("risk-policy-v1")
+    return await policy_repo.create_policy(default_policy)
+
+
 async def node_incomplete(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Handle incomplete evidence outcome without generating risk scores."""
     result = state.get("sufficiency_result")
     missing_count = len(result.missing_findings) if result else 0
-    return await _emit_progress(
+    progress = await _emit_progress(
         state,
         AssessmentRunPhase.INCOMPLETE,
         f"Assessment withheld scoring due to {missing_count} incomplete required evidence fields",
         config,
     )
+
+    configurable = config.get("configurable", {}) if config else {}
+    policy = await _resolve_policy(configurable)
+
+    snapshot = state.get("evidence_snapshot")
+    policy_citations = state.get("policy_citations") or ()
+
+    risk_result = calculate_risk_result(
+        policy=policy,
+        snapshot=snapshot,
+        sufficiency=result,
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        policy_citations=policy_citations,
+    )
+
+    risk_repo = configurable.get("risk_repo")
+    if risk_repo is not None:
+        await risk_repo.save_result(risk_result)
+
+    draft_context = ReportDraftingContext(
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        vehicle_id=state.get("vin", ""),
+        vin=state.get("vin", ""),
+        risk_result=risk_result,
+        evidence_snapshot=snapshot,
+        policy_citations=tuple(policy_citations),
+    )
+    drafter = OfflineReportDraftingAdapter()
+    draft = await drafter.draft_report(draft_context)
+
+    draft_repo = configurable.get("draft_repo")
+    if draft_repo is not None:
+        await draft_repo.save_draft_and_transition_assessment(
+            draft, AssessmentLifecycleState.AWAITING_REVIEW
+        )
+
+    return {
+        **progress,
+        "phase": AssessmentRunPhase.INCOMPLETE,
+        "risk_result": risk_result,
+        "report_draft": draft,
+    }
 
 
 async def node_failed(
@@ -199,36 +267,97 @@ async def node_retrieving_policy(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Execute policy retrieval phase."""
-    return await _emit_progress(
+    progress = await _emit_progress(
         state,
         AssessmentRunPhase.RETRIEVING_POLICY,
         "Retrieving policy citations and rules",
         config,
     )
+    citations: tuple[PolicyCitation, ...] = ()
+    return {
+        **progress,
+        "policy_citations": citations,
+    }
 
 
 async def node_evaluating_risk(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Execute deterministic risk evaluation phase."""
-    return await _emit_progress(
+    progress = await _emit_progress(
         state,
         AssessmentRunPhase.EVALUATING_RISK,
         "Evaluating deterministic risk factors",
         config,
     )
 
+    configurable = config.get("configurable", {}) if config else {}
+    policy = await _resolve_policy(configurable)
+
+    snapshot = state.get("evidence_snapshot")
+    sufficiency = state.get("sufficiency_result")
+    policy_citations = state.get("policy_citations") or ()
+
+    risk_result = calculate_risk_result(
+        policy=policy,
+        snapshot=snapshot,
+        sufficiency=sufficiency,
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        policy_citations=policy_citations,
+    )
+
+    risk_repo = configurable.get("risk_repo")
+    if risk_repo is not None:
+        await risk_repo.save_result(risk_result)
+
+    return {
+        **progress,
+        "risk_result": risk_result,
+    }
+
 
 async def node_drafting_report(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Execute report drafting phase."""
-    return await _emit_progress(
+    progress = await _emit_progress(
         state,
         AssessmentRunPhase.DRAFTING_REPORT,
         "Drafting risk assessment report",
         config,
     )
+
+    snapshot = state.get("evidence_snapshot")
+    risk_result = state.get("risk_result")
+    policy_citations = state.get("policy_citations") or ()
+
+    if risk_result is None:
+        raise ValueError("Cannot draft report without risk_result")
+
+    draft_context = ReportDraftingContext(
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        vehicle_id=state.get("vin", ""),
+        vin=state.get("vin", ""),
+        risk_result=risk_result,
+        evidence_snapshot=snapshot,
+        policy_citations=tuple(policy_citations),
+    )
+    drafter = OfflineReportDraftingAdapter()
+    draft = await drafter.draft_report(draft_context)
+
+    configurable = config.get("configurable", {}) if config else {}
+    draft_repo = configurable.get("draft_repo")
+    if draft_repo is not None:
+        await draft_repo.save_draft_and_transition_assessment(
+            draft, AssessmentLifecycleState.AWAITING_REVIEW
+        )
+
+    return {
+        **progress,
+        "report_draft": draft,
+    }
 
 
 async def node_complete(

@@ -68,6 +68,9 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "policy_corpora" in table_names
         assert "policy_corpus_snapshots" in table_names
         assert "vehicle_evidence_snapshots" in table_names
+        assert "risk_policies" in table_names
+        assert "risk_results" in table_names
+        assert "report_drafts" in table_names
 
         snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
         assert "metadata_json" in snapshot_cols
@@ -76,6 +79,44 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
             lambda c: inspect_columns(c, "vehicle_evidence_snapshots")
         )
         assert "snapshot_integrity_hash" in evidence_snapshot_cols
+
+        risk_policy_cols = await conn.run_sync(lambda c: inspect_columns(c, "risk_policies"))
+        assert {
+            "id",
+            "version",
+            "name",
+            "lifecycle_state",
+            "factor_weights_json",
+            "score_cap",
+            "risk_bands_json",
+        }.issubset(set(risk_policy_cols))
+
+        risk_result_cols = await conn.run_sync(lambda c: inspect_columns(c, "risk_results"))
+        assert {
+            "id",
+            "assessment_id",
+            "run_number",
+            "policy_id",
+            "score",
+            "band",
+            "result_data_json",
+        }.issubset(set(risk_result_cols))
+
+        report_draft_cols = await conn.run_sync(lambda c: inspect_columns(c, "report_drafts"))
+        assert {
+            "id",
+            "assessment_id",
+            "run_number",
+            "vehicle_id",
+            "policy_id",
+            "policy_version",
+            "outcome",
+            "score",
+            "band",
+            "draft_hash",
+            "draft_data_json",
+            "created_at",
+        }.issubset(set(report_draft_cols))
 
         passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
         assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
@@ -95,14 +136,32 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         )
         assert "uq_passage_snapshot_seq" in passage_constraints
 
+        risk_result_constraints = await conn.run_sync(
+            lambda c: inspect_constraints(c, "risk_results")
+        )
+        assert "uq_risk_results_run_id" in risk_result_constraints
+
+        report_draft_constraints = await conn.run_sync(
+            lambda c: inspect_constraints(c, "report_drafts")
+        )
+        assert "uq_report_draft_run" in report_draft_constraints
+
         corpora_indexes = await conn.run_sync(lambda c: inspect_unique_indexes(c, "policy_corpora"))
         assert "uq_policy_corpora_single_active" in corpora_indexes
+
+        risk_policy_indexes = await conn.run_sync(
+            lambda c: inspect_unique_indexes(c, "risk_policies")
+        )
+        assert "uq_risk_policies_single_active" in risk_policy_indexes
 
     # Run downgrade base
     await asyncio.to_thread(command.downgrade, alembic_cfg, "base")
 
     async with clean_engine.connect() as conn:
         table_names_after = await conn.run_sync(inspect_tables)
+        assert "report_drafts" not in table_names_after
+        assert "risk_results" not in table_names_after
+        assert "risk_policies" not in table_names_after
         assert "policy_corpora" not in table_names_after
         assert "policy_passages" not in table_names_after
         assert "policy_snapshots" not in table_names_after
