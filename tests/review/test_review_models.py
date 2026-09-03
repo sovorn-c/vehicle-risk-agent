@@ -251,6 +251,17 @@ class TestApproveReportCommand:
                 idempotency_key="",
             )
 
+    def test_approve_command_rejects_action_type_override(self) -> None:
+        """ApproveReportCommand must not allow action_type override."""
+        with pytest.raises(ValidationError):
+            ApproveReportCommand(
+                assessment_id="asmt-001",
+                run_number=1,
+                reviewer_id="rev-001",
+                idempotency_key="idemp-app-01",
+                action_type=ReviewActionType.REJECT_REPORT,  # type: ignore[arg-type]
+            )
+
 
 class TestRejectReportCommand:
     """Test suite for REJECT_REPORT command validation contracts."""
@@ -307,6 +318,18 @@ class TestRejectReportCommand:
                 idempotency_key="idemp-rej-01",
                 rationale="Valid rationale",
                 extra_data=123,  # type: ignore[call-arg]
+            )
+
+    def test_reject_command_rejects_action_type_override(self) -> None:
+        """RejectReportCommand must not allow action_type override."""
+        with pytest.raises(ValidationError):
+            RejectReportCommand(
+                assessment_id="asmt-001",
+                run_number=1,
+                reviewer_id="rev-001",
+                idempotency_key="idemp-rej-01",
+                rationale="Valid rationale",
+                action_type=ReviewActionType.APPROVE_REPORT,  # type: ignore[arg-type]
             )
 
 

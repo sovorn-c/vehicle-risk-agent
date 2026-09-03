@@ -368,3 +368,44 @@ async def test_idempotent_command_replay(session: AsyncSession) -> None:
     )
     with pytest.raises(IdempotencyConflictError):
         await service.record_review_action(conflicting_cmd)
+
+
+@pytest.mark.asyncio
+async def test_cross_type_command_action_type_mismatch_fails_closed(
+    session: AsyncSession,
+) -> None:
+    """Service fails closed if command action_type does not match its class."""
+    assessment_id, run_number = await _setup_assessment_with_draft(session, incomplete=False)
+    service = ReviewDecisionService(session)
+
+    cmd = RejectReportCommand(
+        assessment_id=assessment_id,
+        run_number=run_number,
+        reviewer_id="reviewer-mallory",
+        idempotency_key="idemp-mallory-01",
+        rationale="Trying to act like an approval",
+    )
+    # Even if action_type was somehow set to APPROVE_REPORT on RejectReportCommand:
+    object.__setattr__(cmd, "action_type", ReviewActionType.APPROVE_REPORT)
+    with pytest.raises(ValueError, match="action_type"):
+        await service.record_review_action(cmd)
+
+
+@pytest.mark.asyncio
+async def test_cross_type_reject_cannot_bypass_incomplete_draft_validation(
+    session: AsyncSession,
+) -> None:
+    """A RejectReportCommand with APPROVE_REPORT cannot bypass incomplete-draft acknowledgement."""
+    assessment_id, run_number = await _setup_assessment_with_draft(session, incomplete=True)
+    service = ReviewDecisionService(session)
+
+    cmd = RejectReportCommand(
+        assessment_id=assessment_id,
+        run_number=run_number,
+        reviewer_id="reviewer-mallory",
+        idempotency_key="idemp-mallory-02",
+        rationale="Bypass attempt",
+    )
+    object.__setattr__(cmd, "action_type", ReviewActionType.APPROVE_REPORT)
+    with pytest.raises(ValueError):
+        await service.record_review_action(cmd)
