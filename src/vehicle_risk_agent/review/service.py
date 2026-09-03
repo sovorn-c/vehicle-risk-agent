@@ -1,5 +1,7 @@
 """Transactional service for human review decisions, row locking, and report release."""
 
+# story: e05s01
+
 from __future__ import annotations
 
 from dataclasses import dataclass

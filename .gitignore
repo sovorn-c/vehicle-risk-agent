@@ -12,6 +12,8 @@ agents.md
 graphify-out/
 .agents/
 .agents
+.bigpowers/
+.bigpowers
 
 # Secrets and local environments
 .env

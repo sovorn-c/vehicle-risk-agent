@@ -1,5 +1,7 @@
 """Human review and report decision contracts, models, and idempotency hashing."""
 
+# story: e05s01
+
 from __future__ import annotations
 
 import hashlib
