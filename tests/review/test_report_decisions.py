@@ -1,7 +1,6 @@
-"""Integration tests for transactional Review Decisions, row locking, immutability, and disposition."""
+"""Integration tests for transactional Review Decisions, row locking, and disposition."""
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -14,7 +13,6 @@ from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.reporting.models import (
-    AssessmentOutcome,
     ContributingFactorsSection,
     EvidenceSummarySection,
     ExecutiveSummarySection,
@@ -25,7 +23,6 @@ from vehicle_risk_agent.reporting.models import (
     ReportDraft,
     ReportDraftStatus,
     ReportSections,
-    RiskBand,
     RiskScoreSection,
     SyntheticNoticeSection,
     VehicleIdentitySection,
@@ -44,7 +41,7 @@ from vehicle_risk_agent.review.models import (
     ReviewActionType,
 )
 from vehicle_risk_agent.review.service import ReviewDecisionService
-from vehicle_risk_agent.risk.models import build_risk_policy_v1
+from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand, build_risk_policy_v1
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
@@ -114,7 +111,7 @@ async def _setup_assessment_with_draft(
     """Helper to seed an active policy, assessment, and report draft."""
     policy_repo = RiskPolicyRepository(session)
     policy = build_risk_policy_v1()
-    await policy_repo.save_policy(policy)
+    await policy_repo.create_policy(policy)
 
     asmt_repo = AssessmentRepository(session)
     asmt = await asmt_repo.create_assessment(

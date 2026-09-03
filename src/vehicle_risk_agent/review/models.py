@@ -191,7 +191,7 @@ class ReviewAction(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str = Field(default_factory=lambda: f"action-{uuid4()}")
+    id: str = Field(default_factory=lambda: str(uuid4()))
     assessment_id: str = Field(description="Target Assessment identifier")
     run_number: int = Field(ge=1, description="Target Assessment run sequence number")
     reviewer_id: str = Field(description="Principal ID of the Reviewer")
