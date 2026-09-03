@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -77,7 +78,10 @@ class ApproveReportCommand(BaseModel):
     idempotency_key: str = Field(
         min_length=1, max_length=128, description="Reviewer-scoped idempotency key"
     )
-    action_type: ReviewActionType = Field(default=ReviewActionType.APPROVE_REPORT)
+    action_type: Literal[ReviewActionType.APPROVE_REPORT] = Field(
+        default=ReviewActionType.APPROVE_REPORT,
+        description="Fixed action type for approve commands",
+    )
     notes: str | None = Field(
         default=None, max_length=1000, description="Optional reviewer notes for SCORED draft"
     )
@@ -93,6 +97,13 @@ class ApproveReportCommand(BaseModel):
         default=AssessmentOutcome.SCORED,
         description="Declared draft outcome being approved",
     )
+
+    @field_validator("action_type")
+    @classmethod
+    def validate_action_type(cls, v: ReviewActionType) -> ReviewActionType:
+        if v != ReviewActionType.APPROVE_REPORT:
+            raise ValueError("ApproveReportCommand action_type must be APPROVE_REPORT")
+        return v
 
     @model_validator(mode="after")
     def validate_conditional_rationale(self) -> ApproveReportCommand:
@@ -146,10 +157,20 @@ class RejectReportCommand(BaseModel):
     idempotency_key: str = Field(
         min_length=1, max_length=128, description="Reviewer-scoped idempotency key"
     )
-    action_type: ReviewActionType = Field(default=ReviewActionType.REJECT_REPORT)
+    action_type: Literal[ReviewActionType.REJECT_REPORT] = Field(
+        default=ReviewActionType.REJECT_REPORT,
+        description="Fixed action type for reject commands",
+    )
     rationale: str = Field(
         min_length=1, max_length=1000, description="Mandatory rejection rationale"
     )
+
+    @field_validator("action_type")
+    @classmethod
+    def validate_action_type(cls, v: ReviewActionType) -> ReviewActionType:
+        if v != ReviewActionType.REJECT_REPORT:
+            raise ValueError("RejectReportCommand action_type must be REJECT_REPORT")
+        return v
 
     @field_validator("rationale")
     @classmethod

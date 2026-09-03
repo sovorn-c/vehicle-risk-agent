@@ -255,9 +255,20 @@ class ReviewDecisionService:
 
         draft = ReportDraft.model_validate_json(draft_record.draft_data_json)
 
-        # 6. Validate command against draft
+        # 6. Validate command against draft and enforce action_type consistency
         if isinstance(command, ApproveReportCommand):
+            if command.action_type != ReviewActionType.APPROVE_REPORT:
+                raise ValueError(
+                    "ApproveReportCommand action_type must match ReviewActionType.APPROVE_REPORT"
+                )
             command.validate_for_draft(draft)
+        elif isinstance(command, RejectReportCommand):
+            if command.action_type != ReviewActionType.REJECT_REPORT:
+                raise ValueError(
+                    "RejectReportCommand action_type must match ReviewActionType.REJECT_REPORT"
+                )
+        else:
+            raise TypeError(f"Unsupported review command type: {type(command)}")
 
         # 7. Derive disposition and new assessment lifecycle state
         disposition = derive_report_disposition(command.action_type)
@@ -314,7 +325,10 @@ class ReviewDecisionService:
 
         # 11. Build ReleasedReport projection if approved
         released_report = None
-        if command.action_type == ReviewActionType.APPROVE_REPORT:
+        if (
+            isinstance(command, ApproveReportCommand)
+            and command.action_type == ReviewActionType.APPROVE_REPORT
+        ):
             released_report = ReleasedReport(
                 report_draft=draft,
                 review_action=action,

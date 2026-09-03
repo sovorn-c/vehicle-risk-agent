@@ -407,5 +407,5 @@ async def test_cross_type_reject_cannot_bypass_incomplete_draft_validation(
         rationale="Bypass attempt",
     )
     object.__setattr__(cmd, "action_type", ReviewActionType.APPROVE_REPORT)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="action_type"):
         await service.record_review_action(cmd)
