@@ -9,6 +9,8 @@ agents.md
 .codex
 .pi/
 .pi
+.agents/
+.agents
 
 # Secrets and local environments
 .env
