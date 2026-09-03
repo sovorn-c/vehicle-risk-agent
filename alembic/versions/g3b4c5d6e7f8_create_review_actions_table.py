@@ -29,7 +29,12 @@ def upgrade() -> None:
         sa.Column("idempotency_key", sa.String(length=128), nullable=False),
         sa.Column("rationale", sa.Text(), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("acknowledge_missing_evidence", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "acknowledge_missing_evidence",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
         sa.Column("action_hash", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["assessment_id"], ["assessments.id"], ondelete="CASCADE"),

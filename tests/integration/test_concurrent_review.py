@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.api.deps import intake_rate_limiter
@@ -17,7 +17,6 @@ from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.reporting.models import (
-    AssessmentOutcome,
     ContributingFactorsSection,
     EvidenceSummarySection,
     ExecutiveSummarySection,
@@ -28,14 +27,12 @@ from vehicle_risk_agent.reporting.models import (
     ReportDraft,
     ReportDraftStatus,
     ReportSections,
-    RiskBand,
     RiskScoreSection,
     SyntheticNoticeSection,
     VehicleIdentitySection,
 )
 from vehicle_risk_agent.reporting.repository import ReportDraftRepository
-from vehicle_risk_agent.review.models import ReportDisposition, ReviewActionType
-from vehicle_risk_agent.risk.models import build_risk_policy_v1
+from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand, build_risk_policy_v1
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
@@ -220,10 +217,10 @@ async def test_reviewer_reject_requires_rationale(app_client: AsyncClient) -> No
 
 @pytest.mark.asyncio
 async def test_concurrent_review_actions_yield_one_winner(app_client: AsyncClient) -> None:
-    """Prove that simultaneous concurrent review decisions produce exactly one winner and safe conflicts."""
+    """Prove that simultaneous review decisions produce one winner and safe conflicts."""
     assessment_id = await _seed_reviewable_assessment(incomplete=False)
 
-    # Prepare 10 concurrent requests: 5 approvals and 5 rejections, each with unique idempotency keys
+    # 10 concurrent requests: 5 approvals and 5 rejections with unique idempotency keys
     headers_base = {"Authorization": "Bearer dev-reviewer-token"}
 
     async def _send_approve(idx: int) -> int:

@@ -197,6 +197,29 @@ class ReviewDecisionService:
         if asmt_record is None:
             raise AssessmentNotFoundError(f"Assessment {command.assessment_id} not found")
 
+        # Re-check idempotency under row lock in case a concurrent request just committed
+        idemp_res = await self._session.execute(idemp_stmt)
+        existing_idemp = idemp_res.scalar_one_or_none()
+        if existing_idemp is not None:
+            if existing_idemp.payload_hash != payload_hash:
+                raise IdempotencyConflictError(
+                    key=command.idempotency_key,
+                    message="Idempotency key reused with different request payload",
+                )
+            action = await self.get_review_action(command.assessment_id, command.run_number)
+            if action is not None:
+                released_report = None
+                if action.action_type == ReviewActionType.APPROVE_REPORT:
+                    released_report = await self.get_released_report(command.assessment_id)
+                current_state = AssessmentLifecycleState(asmt_record.lifecycle_state)
+                return ReviewDecisionResult(
+                    action=action,
+                    assessment_id=command.assessment_id,
+                    assessment_state=current_state,
+                    disposition=action.disposition,
+                    released_report=released_report,
+                )
+
         # 3. Check if ReviewAction already exists for this draft
         existing_action_stmt = select(ReviewActionRecord).where(
             ReviewActionRecord.assessment_id == command.assessment_id,
