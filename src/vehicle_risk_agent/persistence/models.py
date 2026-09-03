@@ -5,7 +5,16 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -295,5 +304,102 @@ class VehicleEvidenceSnapshotRecord(Base):
     snapshot_data_json: Mapped[str] = mapped_column(Text, nullable=False)
     sufficiency_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class RiskPolicyRecord(Base):
+    """Authoritative persistent record for versioned Risk Policy definitions."""
+
+    __tablename__ = "risk_policies"
+    __table_args__ = (
+        Index(
+            "uq_risk_policies_single_active",
+            "lifecycle_state",
+            unique=True,
+            postgresql_where=sa.text("lifecycle_state = 'ACTIVE'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="DRAFT", index=True
+    )
+    factor_weights_json: Mapped[str] = mapped_column(Text, nullable=False)
+    score_cap: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    risk_bands_json: Mapped[str] = mapped_column(Text, nullable=False)
+    mandatory_review_rules_json: Mapped[str] = mapped_column(Text, nullable=False)
+    required_evidence_fields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    activated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RiskResultRecord(Base):
+    """Immutable persistent record for a calculated Risk Result per Assessment Run."""
+
+    __tablename__ = "risk_results"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "run_number", name="uq_risk_results_run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    assessment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("risk_policies.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    band: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_incomplete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    calculation_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    result_data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class ReportDraftRecord(Base):
+    """Authoritative persistent record for generated Report Drafts per Assessment Run."""
+
+    __tablename__ = "report_drafts"
+    __table_args__ = (UniqueConstraint("assessment_id", "run_number", name="uq_report_draft_run"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    assessment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    vehicle_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    policy_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("risk_policies.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    band: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    draft_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    draft_data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

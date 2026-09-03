@@ -10,6 +10,9 @@ from vehicle_risk_agent.domain.events import WorkflowProgressEvent
 from vehicle_risk_agent.evidence.models import SafeError
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceSnapshot
 from vehicle_risk_agent.evidence.sufficiency import EvidenceSufficiencyResult
+from vehicle_risk_agent.policy.models import PolicyCitation
+from vehicle_risk_agent.reporting.models import ReportDraft
+from vehicle_risk_agent.risk.models import RiskResult
 
 
 def reduce_visited_phases(
@@ -50,3 +53,6 @@ class AssessmentGraphState(TypedDict, total=False):
     evidence_snapshot: VehicleEvidenceSnapshot | None
     sufficiency_result: EvidenceSufficiencyResult | None
     mcp_error: SafeError | None
+    risk_result: RiskResult | None
+    policy_citations: tuple[PolicyCitation, ...] | None
+    report_draft: ReportDraft | None

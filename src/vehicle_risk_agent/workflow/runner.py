@@ -16,6 +16,9 @@ from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
 from vehicle_risk_agent.persistence.event_store import EventStore
+from vehicle_risk_agent.persistence.repository import AssessmentRepository
+from vehicle_risk_agent.reporting.repository import ReportDraftRepository
+from vehicle_risk_agent.risk.repository import RiskPolicyRepository, RiskResultRepository
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
@@ -113,6 +116,14 @@ class AssessmentWorkflowRunner:
                         session,
                         integrity_secret=self.integrity_secret,
                     )
+                if "policy_repo" not in configurable:
+                    configurable["policy_repo"] = RiskPolicyRepository(session)
+                if "risk_repo" not in configurable:
+                    configurable["risk_repo"] = RiskResultRepository(session)
+                if "draft_repo" not in configurable:
+                    configurable["draft_repo"] = ReportDraftRepository(session)
+                if "assessment_repo" not in configurable:
+                    configurable["assessment_repo"] = AssessmentRepository(session)
                 run_config["configurable"] = configurable
                 result: dict[str, Any] = await self._app.ainvoke(
                     initial_state, config=cast(RunnableConfig, run_config)
