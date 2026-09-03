@@ -71,6 +71,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "risk_policies" in table_names
         assert "risk_results" in table_names
         assert "report_drafts" in table_names
+        assert "review_actions" in table_names
 
         snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
         assert "metadata_json" in snapshot_cols
@@ -118,6 +119,22 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
             "created_at",
         }.issubset(set(report_draft_cols))
 
+        review_action_cols = await conn.run_sync(lambda c: inspect_columns(c, "review_actions"))
+        assert {
+            "id",
+            "assessment_id",
+            "run_number",
+            "reviewer_id",
+            "action_type",
+            "disposition",
+            "idempotency_key",
+            "rationale",
+            "notes",
+            "acknowledge_missing_evidence",
+            "action_hash",
+            "created_at",
+        }.issubset(set(review_action_cols))
+
         passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
         assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
 
@@ -146,6 +163,11 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         )
         assert "uq_report_draft_run" in report_draft_constraints
 
+        review_action_constraints = await conn.run_sync(
+            lambda c: inspect_constraints(c, "review_actions")
+        )
+        assert "uq_review_action_draft_run" in review_action_constraints
+
         corpora_indexes = await conn.run_sync(lambda c: inspect_unique_indexes(c, "policy_corpora"))
         assert "uq_policy_corpora_single_active" in corpora_indexes
 
@@ -159,6 +181,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
 
     async with clean_engine.connect() as conn:
         table_names_after = await conn.run_sync(inspect_tables)
+        assert "review_actions" not in table_names_after
         assert "report_drafts" not in table_names_after
         assert "risk_results" not in table_names_after
         assert "risk_policies" not in table_names_after
