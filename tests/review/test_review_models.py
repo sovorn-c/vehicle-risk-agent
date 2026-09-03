@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState
 from vehicle_risk_agent.reporting.models import (
-    AssessmentOutcome,
     ContributingFactorsSection,
     EvidenceSummarySection,
     ExecutiveSummarySection,
@@ -19,7 +18,6 @@ from vehicle_risk_agent.reporting.models import (
     ReportDraft,
     ReportDraftStatus,
     ReportSections,
-    RiskBand,
     RiskScoreSection,
     SyntheticNoticeSection,
     VehicleIdentitySection,
@@ -35,6 +33,7 @@ from vehicle_risk_agent.review.models import (
     derive_assessment_state,
     derive_report_disposition,
 )
+from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand
 
 
 def _build_dummy_sections(incomplete: bool = False) -> ReportSections:
@@ -190,9 +189,15 @@ class TestApproveReportCommand:
         )
         basic_cmd.validate_for_draft(scored_draft)
 
-        # Incomplete draft rejects basic command
+        # Incomplete draft rejects basic command lacking acknowledgement
+        basic_incomplete_cmd = ApproveReportCommand(
+            assessment_id=incomplete_draft.assessment_id,
+            run_number=incomplete_draft.run_number,
+            reviewer_id="rev-001",
+            idempotency_key="idemp-01",
+        )
         with pytest.raises(ValueError, match="acknowledgement"):
-            basic_cmd.validate_for_draft(incomplete_draft)
+            basic_incomplete_cmd.validate_for_draft(incomplete_draft)
 
         # Incomplete draft accepts compliant command
         compliant_cmd = ApproveReportCommand(
@@ -311,12 +316,10 @@ class TestReviewActionAndDisposition:
     def test_disposition_derivation(self) -> None:
         assert derive_report_disposition(None) == ReportDisposition.PENDING_REVIEW
         assert (
-            derive_report_disposition(ReviewActionType.APPROVE_REPORT)
-            == ReportDisposition.RELEASED
+            derive_report_disposition(ReviewActionType.APPROVE_REPORT) == ReportDisposition.RELEASED
         )
         assert (
-            derive_report_disposition(ReviewActionType.REJECT_REPORT)
-            == ReportDisposition.REJECTED
+            derive_report_disposition(ReviewActionType.REJECT_REPORT) == ReportDisposition.REJECTED
         )
         assert (
             derive_report_disposition(ReviewActionType.REQUEST_REINVESTIGATION)
@@ -353,7 +356,7 @@ class TestReviewActionAndDisposition:
 
         # Frozen model rejects mutation
         with pytest.raises(ValidationError):
-            action.notes = "Mutated"  # type: ignore[misc]
+            action.notes = "Mutated"
 
     def test_released_report_contract(self) -> None:
         draft = _build_test_draft(incomplete=False)
