@@ -1,14 +1,15 @@
 # Local agent cockpit
 specs/
-CONVENTIONS.md
 CLAUDE.md
 AGENTS.md
+CONVENTIONS.md
 claude.md
 agents.md
 .codex/
 .codex
 .pi/
 .pi
+graphify-out/
 .agents/
 .agents
 
