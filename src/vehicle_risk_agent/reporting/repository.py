@@ -19,8 +19,8 @@ class ReportDraftRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def save_draft(self, draft: ReportDraft) -> ReportDraft:
-        """Persist one immutable ReportDraft, enforcing run uniqueness and immutability."""
+    async def _save_draft_uncommitted(self, draft: ReportDraft) -> ReportDraft:
+        """Insert and verify a draft within the current transaction without committing."""
         draft_json = draft.model_dump_json()
         values = {
             "id": draft.id,
@@ -62,6 +62,11 @@ class ReportDraftRepository:
                 "is immutable and cannot be overwritten"
             )
 
+        return stored_domain
+
+    async def save_draft(self, draft: ReportDraft) -> ReportDraft:
+        """Persist one immutable ReportDraft, enforcing run uniqueness and immutability."""
+        stored_domain = await self._save_draft_uncommitted(draft)
         await self._session.commit()
         return stored_domain
 
@@ -83,48 +88,9 @@ class ReportDraftRepository:
         state: AssessmentLifecycleState = AssessmentLifecycleState.AWAITING_REVIEW,
     ) -> ReportDraft:
         """Atomically persist report draft and transition Assessment lifecycle state."""
-        # 1. Insert/Verify draft
-        draft_json = draft.model_dump_json()
-        values = {
-            "id": draft.id,
-            "assessment_id": draft.assessment_id,
-            "run_number": draft.run_number,
-            "vehicle_id": draft.vin,
-            "policy_id": draft.policy_id,
-            "policy_version": draft.policy_version,
-            "outcome": draft.outcome.value,
-            "score": draft.score,
-            "band": draft.band.value if draft.band else None,
-            "draft_hash": draft.draft_hash,
-            "draft_data_json": draft_json,
-            "created_at": draft.created_at,
-        }
+        stored_domain = await self._save_draft_uncommitted(draft)
 
-        stmt = (
-            insert(ReportDraftRecord)
-            .values(values)
-            .on_conflict_do_nothing(index_elements=["assessment_id", "run_number"])
-        )
-        await self._session.execute(stmt)
-
-        query = select(ReportDraftRecord).where(
-            ReportDraftRecord.assessment_id == draft.assessment_id,
-            ReportDraftRecord.run_number == draft.run_number,
-        )
-        existing = (await self._session.execute(query)).scalar_one_or_none()
-        if existing is None:
-            await self._session.rollback()
-            raise ValueError("Failed to retrieve persisted report draft")
-
-        stored_domain = ReportDraft.model_validate_json(existing.draft_data_json)
-        if stored_domain != draft:
-            await self._session.rollback()
-            raise ValueError(
-                f"ReportDraft {draft.assessment_id}:{draft.run_number} "
-                "is immutable and cannot be overwritten"
-            )
-
-        # 2. Update Assessment record lifecycle_state
+        # Update Assessment record lifecycle_state
         asmt_stmt = select(AssessmentRecord).where(AssessmentRecord.id == draft.assessment_id)
         asmt_result = await self._session.execute(asmt_stmt)
         asmt_record = asmt_result.scalar_one_or_none()

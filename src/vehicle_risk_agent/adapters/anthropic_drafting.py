@@ -208,11 +208,26 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         text = message.content[0].text if message.content else ""
         return text
 
+    def _extract_allowed_evidence_ids(self, context: ReportDraftingContext) -> tuple[str, ...]:
+        """Extract all valid observation IDs from items, snapshot provenance, and risk result."""
+        evidence_ids: set[str] = set()
+        for item in context.evidence_items:
+            if item.observation_id:
+                evidence_ids.add(item.observation_id)
+        if context.evidence_snapshot is not None and context.evidence_snapshot.field_provenance:
+            for prov_list in context.evidence_snapshot.field_provenance.values():
+                for p in prov_list:
+                    if p.observation_id:
+                        evidence_ids.add(p.observation_id)
+        for factor in context.risk_result.factors:
+            evidence_ids.update(factor.evidence_refs)
+        for finding in context.risk_result.findings:
+            evidence_ids.update(finding.evidence_refs)
+        return tuple(sorted(evidence_ids))
+
     def _build_system_prompt(self, context: ReportDraftingContext) -> str:
         """Build a grounding-aware system prompt.  Never stored or returned."""
-        allowed_ev = sorted(
-            obs_id for item in context.evidence_items if (obs_id := item.observation_id)
-        )
+        allowed_ev = list(self._extract_allowed_evidence_ids(context))
         return (
             "You are a vehicle risk report drafting assistant. "
             "Your output must be valid JSON matching the required schema. "
@@ -318,10 +333,8 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         )
 
         # Build the grounding context from pinned run state.
-        # evidence_ids: from evidence_items in context
-        allowed_evidence_ids = tuple(
-            item.observation_id for item in context.evidence_items if item.observation_id
-        )
+        # evidence_ids: from items, snapshot provenance, and risk_result
+        allowed_evidence_ids = self._extract_allowed_evidence_ids(context)
 
         # citation_ids: from explicit policy_citations + any refs already in risk_result
         # (risk_result factor/finding citation refs are part of pinned run state)

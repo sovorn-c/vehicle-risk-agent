@@ -1,6 +1,7 @@
 """FastAPI routes for Risk Policy management, validation, and operator activation."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_risk_agent.api.deps import (
@@ -61,7 +62,7 @@ async def create_risk_policy(
             mandatory_review_rules=request.mandatory_review_rules,
             required_evidence_fields=request.required_evidence_fields,
         )
-    except Exception as err:
+    except (ValueError, KeyError, ValidationError) as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "INVALID_RISK_POLICY", "message": str(err)},

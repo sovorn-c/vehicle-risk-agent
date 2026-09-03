@@ -204,7 +204,7 @@ class GroundingValidator:
                     sections.limitations_and_missing_evidence
                 ),
                 "synthetic_data_notice": _repair_section(sections.synthetic_data_notice),
-                # contributing_factors claims may reference factor IDs — leave unchanged
+                "contributing_factors": _repair_section(sections.contributing_factors),
                 # risk_score_and_band — NEVER modified (score/band immutable)
                 # mandatory_review_findings — NEVER modified (findings immutable)
             }
