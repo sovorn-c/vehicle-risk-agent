@@ -26,6 +26,8 @@ from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
+from vehicle_risk_agent.review.models import AssessmentHistory
+from vehicle_risk_agent.review.service import ReviewDecisionService
 
 router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 
@@ -145,6 +147,42 @@ async def get_assessment(
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
+
+
+@router.get("/{assessment_id}/history", response_model=AssessmentHistory)
+async def get_assessment_history_endpoint(
+    assessment_id: str,
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_db_session),
+) -> AssessmentHistory:
+    """Retrieve complete audit history, enforcing owner or reviewer authorization."""
+    if principal.role not in (Role.REQUESTER, Role.REVIEWER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Role not authorized to read assessment history",
+            },
+        )
+
+    service = ReviewDecisionService(session)
+    history = await service.get_assessment_history(assessment_id)
+    if history is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"Assessment {assessment_id} not found"},
+        )
+
+    if principal.role == Role.REQUESTER and history.requester_id != principal.principal_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Access to assessment history is restricted to owner",
+            },
+        )
+
+    return history
 
 
 class SSEStreamingResponse(StreamingResponse):
