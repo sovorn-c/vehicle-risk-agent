@@ -8,7 +8,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -182,6 +182,134 @@ class RejectReportCommand(BaseModel):
         return v.strip()
 
 
+ALLOWED_EVIDENCE_TARGETS: frozenset[str] = frozenset(
+    {
+        "ppsr_result",
+        "stolen_status",
+        "writeoff_status",
+        "odometer_reading",
+        "registration_status",
+        "ownership_history",
+        "wof_status",
+        "safety_recall",
+        "inspection_history",
+        "make",
+        "model",
+        "year",
+        "plate",
+        "is_commercial",
+        "vehicle_usage",
+        "damage_history",
+        "fuel_type",
+    }
+)
+
+
+class RequestReinvestigationCommand(BaseModel):
+    """Strict command to request an additive reinvestigation for an Assessment.
+
+    REQUEST_REINVESTIGATION carries one to five 200-character questions
+    and/or allowed evidence targets, always with non-empty rationale.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    assessment_id: str = Field(min_length=1, description="Target Assessment identifier")
+    run_number: int = Field(ge=1, le=3, description="Target Assessment run sequence number")
+    reviewer_id: str = Field(min_length=1, description="Authenticated Reviewer principal ID")
+    idempotency_key: str = Field(
+        min_length=1, max_length=128, description="Reviewer-scoped idempotency key"
+    )
+    action_type: Literal[ReviewActionType.REQUEST_REINVESTIGATION] = Field(
+        default=ReviewActionType.REQUEST_REINVESTIGATION,
+        description="Fixed action type for reinvestigation requests",
+    )
+    rationale: str = Field(
+        min_length=1, max_length=1000, description="Mandatory reinvestigation rationale"
+    )
+    questions: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Additive questions (max 200 chars each)",
+    )
+    evidence_targets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Additive allowed evidence targets",
+    )
+
+    @field_validator("action_type")
+    @classmethod
+    def validate_action_type(cls, v: ReviewActionType) -> ReviewActionType:
+        if v != ReviewActionType.REQUEST_REINVESTIGATION:
+            raise ValueError(
+                "RequestReinvestigationCommand action_type must be REQUEST_REINVESTIGATION"
+            )
+        return v
+
+    @field_validator("rationale")
+    @classmethod
+    def validate_rationale_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError(
+                "REQUEST_REINVESTIGATION command requires bounded, non-empty rationale"
+            )
+        return v.strip()
+
+    @field_validator("questions", mode="before")
+    @classmethod
+    def coerce_questions(cls, v: Any) -> Any:
+        if isinstance(v, (list, tuple)):
+            return tuple(v)
+        return v
+
+    @field_validator("evidence_targets", mode="before")
+    @classmethod
+    def coerce_evidence_targets(cls, v: Any) -> Any:
+        if isinstance(v, (list, tuple)):
+            return tuple(v)
+        return v
+
+    @field_validator("questions")
+    @classmethod
+    def validate_questions(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned: list[str] = []
+        for q in v:
+            if not isinstance(q, str) or not q.strip():
+                raise ValueError("Reinvestigation question cannot be empty or whitespace")
+            stripped = q.strip()
+            if len(stripped) > 200:
+                raise ValueError(
+                    f"Reinvestigation question exceeds 200 characters: {len(stripped)}"
+                )
+            cleaned.append(stripped)
+        return tuple(cleaned)
+
+    @field_validator("evidence_targets")
+    @classmethod
+    def validate_evidence_targets(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned: list[str] = []
+        for t in v:
+            if not isinstance(t, str) or not t.strip():
+                raise ValueError("Evidence target cannot be empty or whitespace")
+            norm_t = t.strip().lower()
+            if norm_t not in ALLOWED_EVIDENCE_TARGETS:
+                targets_str = ", ".join(sorted(ALLOWED_EVIDENCE_TARGETS))
+                raise ValueError(
+                    f"Evidence target '{t}' is not in allowed evidence targets: {targets_str}"
+                )
+            cleaned.append(norm_t)
+        return tuple(cleaned)
+
+    @model_validator(mode="after")
+    def validate_cardinality(self) -> RequestReinvestigationCommand:
+        total = len(self.questions) + len(self.evidence_targets)
+        if total < 1 or total > 5:
+            raise ValueError(
+                "REQUEST_REINVESTIGATION requires between 1 and 5 questions "
+                f"and/or evidence targets, got {total}"
+            )
+        return self
+
+
 def compute_review_action_hash(
     assessment_id: str,
     run_number: int,
@@ -192,9 +320,11 @@ def compute_review_action_hash(
     rationale: str | None,
     notes: str | None,
     acknowledge_missing_evidence: bool,
+    questions: tuple[str, ...] = (),
+    evidence_targets: tuple[str, ...] = (),
 ) -> str:
     """Compute deterministic SHA-256 fingerprint for a Review Action."""
-    payload = {
+    payload: dict[str, Any] = {
         "assessment_id": assessment_id,
         "run_number": run_number,
         "reviewer_id": reviewer_id,
@@ -205,6 +335,10 @@ def compute_review_action_hash(
         "notes": notes,
         "acknowledge_missing_evidence": acknowledge_missing_evidence,
     }
+    if questions:
+        payload["questions"] = list(questions)
+    if evidence_targets:
+        payload["evidence_targets"] = list(evidence_targets)
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -229,8 +363,28 @@ class ReviewAction(BaseModel):
     acknowledge_missing_evidence: bool = Field(
         default=False, description="Flag acknowledging missing evidence"
     )
+    questions: tuple[str, ...] = Field(
+        default_factory=tuple, description="Additive questions if reinvestigation"
+    )
+    evidence_targets: tuple[str, ...] = Field(
+        default_factory=tuple, description="Additive evidence targets if reinvestigation"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     action_hash: str = Field(default="", description="Deterministic SHA-256 fingerprint")
+
+    @field_validator("questions", mode="before")
+    @classmethod
+    def coerce_questions(cls, v: Any) -> Any:
+        if isinstance(v, (list, tuple)):
+            return tuple(v)
+        return v
+
+    @field_validator("evidence_targets", mode="before")
+    @classmethod
+    def coerce_evidence_targets(cls, v: Any) -> Any:
+        if isinstance(v, (list, tuple)):
+            return tuple(v)
+        return v
 
     @model_validator(mode="after")
     def derive_disposition_and_hash(self) -> ReviewAction:
@@ -248,6 +402,8 @@ class ReviewAction(BaseModel):
             rationale=self.rationale,
             notes=self.notes,
             acknowledge_missing_evidence=self.acknowledge_missing_evidence,
+            questions=self.questions,
+            evidence_targets=self.evidence_targets,
         )
         if not self.action_hash:
             object.__setattr__(self, "action_hash", computed)
