@@ -79,7 +79,7 @@ async def _handle_approve(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
@@ -113,7 +113,7 @@ async def _handle_approve(
         ) from e
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
@@ -146,7 +146,7 @@ async def _handle_reject(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
@@ -180,7 +180,7 @@ async def _handle_reject(
         ) from e
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
@@ -259,7 +259,7 @@ async def _handle_reinvestigate(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
@@ -298,7 +298,7 @@ async def _handle_reinvestigate(
         ) from e
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         ) from e
 
