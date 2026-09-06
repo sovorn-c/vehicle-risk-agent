@@ -26,7 +26,7 @@ from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
-from vehicle_risk_agent.review.models import AssessmentHistory
+from vehicle_risk_agent.review.models import AssessmentHistory, ReleasedReport
 from vehicle_risk_agent.review.service import ReviewDecisionService
 
 router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
@@ -183,6 +183,53 @@ async def get_assessment_history_endpoint(
         )
 
     return history
+
+
+@router.get("/{assessment_id}/report", response_model=ReleasedReport)
+async def get_released_report_endpoint(
+    assessment_id: str,
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_db_session),
+) -> ReleasedReport:
+    """Retrieve the ReleasedReport for an assessment, enforcing owner or reviewer authorization."""
+    if principal.role not in (Role.REQUESTER, Role.REVIEWER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Role not authorized to read assessment report",
+            },
+        )
+
+    asmt_repo = AssessmentRepository(session)
+    assessment = await asmt_repo.get_assessment(assessment_id)
+    if assessment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"Assessment {assessment_id} not found"},
+        )
+
+    if principal.role == Role.REQUESTER and assessment.requester_id != principal.principal_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Access to assessment report is restricted to owner",
+            },
+        )
+
+    service = ReviewDecisionService(session)
+    report = await service.get_released_report(assessment_id)
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "REPORT_NOT_RELEASED",
+                "message": f"Report for assessment {assessment_id} has not been released",
+            },
+        )
+
+    return report
 
 
 class SSEStreamingResponse(StreamingResponse):
