@@ -65,6 +65,25 @@ def derive_assessment_state(action_type: ReviewActionType) -> AssessmentLifecycl
     raise ValueError(f"Unknown ReviewActionType: {action_type}")
 
 
+class PinnedVersions(BaseModel):
+    """Immutable version references pinned at run allocation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    corpus_id: str | None = Field(default=None, description="Active Policy Corpus ID")
+    corpus_manifest_hash: str | None = Field(default=None, description="Active Policy Corpus hash")
+    risk_policy_id: str | None = Field(default=None, description="Active Risk Policy ID")
+    risk_policy_version: str | None = Field(
+        default=None, description="Active Risk Policy version string"
+    )
+    risk_policy_hash: str | None = Field(default=None, description="Active Risk Policy hash")
+    mcp_contract_version: str = Field(default="v1", description="Pinned MCP contract version")
+    model_version: str = Field(
+        default="claude-3-5-sonnet-20241022", description="Pinned drafting model version"
+    )
+    prompt_version: str = Field(default="v1", description="Pinned prompt version")
+
+
 class ApproveReportCommand(BaseModel):
     """Strict command to release one Report Draft as a Reviewed Released Report.
 
@@ -368,6 +387,9 @@ class ReviewAction(BaseModel):
     )
     evidence_targets: tuple[str, ...] = Field(
         default_factory=tuple, description="Additive evidence targets if reinvestigation"
+    )
+    pinned_versions: PinnedVersions | None = Field(
+        default=None, description="Active versions pinned if reinvestigation"
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     action_hash: str = Field(default="", description="Deterministic SHA-256 fingerprint")
