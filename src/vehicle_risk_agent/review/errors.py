@@ -19,3 +19,7 @@ class DraftNotFoundError(ReviewError):
 
 class ReviewActionConflictError(ReviewError):
     """Raised when a ReviewAction already exists for the draft and cannot be overwritten."""
+
+
+class ReinvestigationLimitReachedError(ReviewError):
+    """Raised when reinvestigation is requested beyond the three-run limit."""

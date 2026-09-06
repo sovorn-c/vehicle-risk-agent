@@ -1,5 +1,8 @@
 """Pydantic request and response schemas for Review API routes."""
 
+# story: e05s01
+# story: e05s02
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -47,6 +50,30 @@ class RejectReportRequest(BaseModel):
         return v.strip()
 
 
+class RequestReinvestigationRequest(BaseModel):
+    """Request payload to request additive reinvestigation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_number: int = Field(default=1, ge=1, description="Target Assessment run sequence number")
+    rationale: str = Field(
+        min_length=1, max_length=1000, description="Mandatory reinvestigation rationale"
+    )
+    questions: list[str] = Field(
+        default_factory=list, description="1 to 5 specific questions (max 200 chars each)"
+    )
+    evidence_targets: list[str] = Field(
+        default_factory=list, description="Allowed evidence targets to refresh or expand"
+    )
+
+    @field_validator("rationale")
+    @classmethod
+    def validate_rationale_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Reinvestigation rationale cannot be empty or whitespace")
+        return v.strip()
+
+
 class ReviewDecisionResponse(BaseModel):
     """Response returned upon recording a Review Action."""
 
@@ -66,3 +93,12 @@ class ReviewDecisionResponse(BaseModel):
     created_at: datetime = Field(description="Timestamp of action recording")
     action_hash: str = Field(description="Deterministic SHA-256 fingerprint")
     released_report_id: str | None = Field(default=None, description="Report Draft ID if released")
+    next_run_number: int | None = Field(
+        default=None, description="Next allocated run sequence number if reinvestigation"
+    )
+    questions: list[str] = Field(
+        default_factory=list, description="Recorded questions for reinvestigation"
+    )
+    evidence_targets: list[str] = Field(
+        default_factory=list, description="Recorded evidence targets for reinvestigation"
+    )
