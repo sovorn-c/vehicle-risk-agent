@@ -1,6 +1,8 @@
 """Transactional service for human review decisions, row locking, and report release."""
 
 # story: e05s01
+# story: e05s02
+# story: e05s03
 
 from __future__ import annotations
 

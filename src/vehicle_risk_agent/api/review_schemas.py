@@ -1,5 +1,8 @@
 """Pydantic request and response schemas for Review API routes."""
 
+# story: e05s01
+# story: e05s02
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator

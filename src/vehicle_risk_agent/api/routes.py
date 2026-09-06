@@ -149,6 +149,7 @@ async def get_assessment(
     )
 
 
+# story: e05s03
 @router.get("/{assessment_id}/history", response_model=AssessmentHistory)
 async def get_assessment_history_endpoint(
     assessment_id: str,
@@ -185,6 +186,7 @@ async def get_assessment_history_endpoint(
     return history
 
 
+# story: e05s03
 @router.get("/{assessment_id}/report", response_model=ReleasedReport)
 async def get_released_report_endpoint(
     assessment_id: str,
