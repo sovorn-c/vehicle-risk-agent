@@ -36,6 +36,7 @@ from vehicle_risk_agent.review.errors import (
 )
 from vehicle_risk_agent.review.models import (
     ApproveReportCommand,
+    AssessmentHistory,
     PinnedVersions,
     RejectReportCommand,
     ReleasedReport,
@@ -43,6 +44,7 @@ from vehicle_risk_agent.review.models import (
     RequestReinvestigationCommand,
     ReviewAction,
     ReviewActionType,
+    RunHistoryItem,
     compute_review_payload_hash,
     derive_assessment_state,
     derive_report_disposition,
@@ -162,6 +164,97 @@ class ReviewDecisionService:
             report_draft=draft,
             review_action=action,
             released_at=action.created_at,
+        )
+
+    async def get_assessment_history(self, assessment_id: str) -> AssessmentHistory | None:
+        """Project ordered immutable runs, drafts, evidence summaries, and Review Actions."""
+        asmt_stmt = select(AssessmentRecord).where(AssessmentRecord.id == assessment_id)
+        asmt_res = await self._session.execute(asmt_stmt)
+        asmt_rec = asmt_res.scalar_one_or_none()
+        if asmt_rec is None:
+            return None
+
+        # Fetch runs ordered by run_number
+        runs_stmt = (
+            select(AssessmentRunRecord)
+            .where(AssessmentRunRecord.assessment_id == assessment_id)
+            .order_by(AssessmentRunRecord.run_number)
+        )
+        run_records = (await self._session.execute(runs_stmt)).scalars().all()
+
+        # Fetch drafts ordered by run_number
+        drafts_stmt = (
+            select(ReportDraftRecord)
+            .where(ReportDraftRecord.assessment_id == assessment_id)
+            .order_by(ReportDraftRecord.run_number)
+        )
+        draft_records = (await self._session.execute(drafts_stmt)).scalars().all()
+        drafts_by_run: dict[int, ReportDraft] = {
+            d.run_number: ReportDraft.model_validate_json(d.draft_data_json) for d in draft_records
+        }
+
+        # Fetch review actions ordered by run_number
+        actions = await self.get_review_history(assessment_id)
+        actions_by_run: dict[int, ReviewAction] = {a.run_number: a for a in actions}
+
+        # Fetch released report if approved
+        released_report = await self.get_released_report(assessment_id)
+
+        # Build run history items
+        run_items: list[RunHistoryItem] = []
+        for run_rec in run_records:
+            draft = drafts_by_run.get(run_rec.run_number)
+            evidence_summary = draft.sections.evidence_summary if draft else None
+            action = actions_by_run.get(run_rec.run_number)
+
+            pinned: PinnedVersions | None = None
+            if run_rec.run_number > 1:
+                prior_action = actions_by_run.get(run_rec.run_number - 1)
+                if prior_action and prior_action.pinned_versions:
+                    pinned = prior_action.pinned_versions
+            elif draft is not None:
+                pinned = PinnedVersions(
+                    risk_policy_id=draft.policy_id,
+                    risk_policy_version=draft.policy_version,
+                )
+
+            run_items.append(
+                RunHistoryItem(
+                    run_number=run_rec.run_number,
+                    phase=run_rec.phase,
+                    draft=draft,
+                    evidence_summary=evidence_summary,
+                    pinned_versions=pinned,
+                    review_action=action,
+                    created_at=run_rec.created_at,
+                    updated_at=run_rec.updated_at,
+                )
+            )
+
+        # Derive disposition
+        if asmt_rec.lifecycle_state == AssessmentLifecycleState.RELEASED.value:
+            disposition = ReportDisposition.RELEASED
+        elif asmt_rec.lifecycle_state == AssessmentLifecycleState.REJECTED.value:
+            disposition = ReportDisposition.REJECTED
+        elif asmt_rec.lifecycle_state == AssessmentLifecycleState.IN_PROGRESS.value:
+            if any(a.action_type == ReviewActionType.REQUEST_REINVESTIGATION for a in actions):
+                disposition = ReportDisposition.REINVESTIGATION_REQUESTED
+            else:
+                disposition = ReportDisposition.PENDING_REVIEW
+        else:
+            disposition = ReportDisposition.PENDING_REVIEW
+
+        return AssessmentHistory(
+            assessment_id=asmt_rec.id,
+            vin=asmt_rec.vin,
+            requester_id=asmt_rec.requester_id,
+            lifecycle_state=AssessmentLifecycleState(asmt_rec.lifecycle_state),
+            current_run_number=asmt_rec.current_run_number,
+            disposition=disposition,
+            runs=tuple(run_items),
+            released_report=released_report,
+            created_at=asmt_rec.created_at,
+            updated_at=asmt_rec.updated_at,
         )
 
     async def record_review_action(

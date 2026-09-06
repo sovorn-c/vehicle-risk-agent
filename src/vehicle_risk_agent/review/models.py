@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState
 from vehicle_risk_agent.reporting.models import (
     AbstentionNotice,
+    EvidenceSummarySection,
     MissingEvidenceNotice,
     ReportDraft,
     ReportSections,
@@ -527,3 +528,50 @@ def compute_review_payload_hash(
     """Compute deterministic SHA-256 fingerprint of normalized review command content."""
     data = json.dumps(command.model_dump(mode="json"), sort_keys=True)
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+class RunHistoryItem(BaseModel):
+    """Immutable projection of an individual Assessment run in audit history."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_number: int = Field(ge=1, description="Run sequence number")
+    phase: str = Field(description="Run phase")
+    draft: ReportDraft | None = Field(default=None, description="Report draft for this run")
+    evidence_summary: EvidenceSummarySection | None = Field(
+        default=None, description="Evidence summary for this run"
+    )
+    pinned_versions: PinnedVersions | None = Field(
+        default=None, description="Pinned versions for this run"
+    )
+    review_action: ReviewAction | None = Field(
+        default=None, description="Review action for this run"
+    )
+    created_at: datetime = Field(description="Run creation timestamp")
+    updated_at: datetime = Field(description="Run update timestamp")
+
+
+class AssessmentHistory(BaseModel):
+    """Authoritative audit projection for an Assessment and its complete run/review history."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    assessment_id: str = Field(description="Unique assessment identifier")
+    vin: str = Field(description="Vehicle VIN")
+    requester_id: str = Field(description="Owning requester ID")
+    lifecycle_state: AssessmentLifecycleState = Field(
+        description="Current aggregate assessment lifecycle state"
+    )
+    current_run_number: int = Field(ge=1, description="Current run sequence number")
+    disposition: ReportDisposition = Field(
+        default=ReportDisposition.PENDING_REVIEW,
+        description="Current report disposition",
+    )
+    runs: tuple[RunHistoryItem, ...] = Field(
+        default=(), description="Ordered immutable run history items"
+    )
+    released_report: ReleasedReport | None = Field(
+        default=None, description="Released report if assessment was approved"
+    )
+    created_at: datetime = Field(description="Assessment creation timestamp")
+    updated_at: datetime = Field(description="Assessment update timestamp")
