@@ -66,3 +66,18 @@ def test_ci_deterministic_gates_no_paid_credentials() -> None:
         live_job = jobs["live-eval"]
         # Must only run on workflow_dispatch or explicit condition
         assert "workflow_dispatch" in str(config.get("on")) or "if" in live_job
+
+
+def test_ci_database_url_and_driver_contract() -> None:
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    ci_path = repo_root / ".github" / "workflows" / "ci.yml"
+    assert ci_path.exists()
+
+    content = ci_path.read_text(encoding="utf-8")
+    assert "DATABASE_URL:" in content or "DATABASE_URL" in content, "CI must use DATABASE_URL"
+    assert "VEHICLE_RISK_AGENT_DATABASE_URL" not in content, (
+        "CI must not use unused VEHICLE_RISK_AGENT_DATABASE_URL"
+    )
+    assert "asyncpg" not in content, "CI must not reference uninstalled asyncpg driver"
+    assert "psycopg" in content, "CI must use psycopg driver matching pyproject.toml"
+
