@@ -1,6 +1,6 @@
 """Configuration settings for vehicle-risk-agent."""
 
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,12 +38,15 @@ class Settings(BaseSettings):
             return None
         if not value.strip():
             raise ValueError("mcp_server_url must not be blank")
-        parsed = urlsplit(value)
+        parsed = urlsplit(value.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("mcp_server_url must be an HTTP(S) URL")
         if parsed.username or parsed.password:
             raise ValueError("mcp_server_url must not contain credentials")
-        return value
+        path = parsed.path.rstrip("/") or "/mcp"
+        if path != "/mcp":
+            raise ValueError("mcp_server_url must target the /mcp endpoint")
+        return urlunsplit((parsed.scheme, parsed.netloc, "/mcp", parsed.query, ""))
 
     @field_validator("snapshot_integrity_secret")
     @classmethod
