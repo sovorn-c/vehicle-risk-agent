@@ -68,6 +68,14 @@ def test_ci_deterministic_gates_no_paid_credentials() -> None:
         assert "workflow_dispatch" in str(config.get("on")) or "if" in live_job
 
 
+def test_alembic_explicit_url_is_authoritative() -> None:
+    """Migration configuration must not silently replace an explicit URL with env state."""
+    env_path = Path(__file__).resolve().parent.parent.parent / "alembic" / "env.py"
+    content = env_path.read_text(encoding="utf-8")
+    assert "config.get_main_option(\"sqlalchemy.url\")" in content
+    assert "os.environ.get(\"DATABASE_URL\"" not in content
+
+
 def test_ci_database_url_and_driver_contract() -> None:
     repo_root = Path(__file__).resolve().parent.parent.parent
     ci_path = repo_root / ".github" / "workflows" / "ci.yml"
