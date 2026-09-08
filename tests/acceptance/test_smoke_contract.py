@@ -9,9 +9,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 def test_local_smoke_starts_and_tears_down_compose_stack() -> None:
     """The operator script must own the full Compose lifecycle."""
     content = (REPO_ROOT / "scripts" / "smoke-local.sh").read_text(encoding="utf-8")
-    assert "docker compose up" in content
-    assert "docker compose down -v" in content
-    assert "docker compose restart agent-api" in content
+    assert "docker compose -f compose.yaml up" in content
+    assert "docker compose -f compose.yaml down -v" in content
+    assert "docker compose -f compose.yaml restart agent-api" in content
     assert "vehicle_risk_agent.cli.smoke" in content
 
 

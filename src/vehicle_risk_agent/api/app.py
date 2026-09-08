@@ -4,8 +4,8 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -94,8 +94,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.embedding_adapter = embedding_adapter
     app.state.reranker_adapter = reranker_adapter
     app.state.mcp_adapter = mcp_adapter
-    app.state.workflow_tasks: set[asyncio.Task[Any]] = set()
-    app.state.scheduled_workflow_runs: set[tuple[str, int]] = set()
+    app.state.workflow_tasks = set()
+    app.state.scheduled_workflow_runs = set()
 
     def schedule_workflow_run(assessment: Assessment) -> bool:
         """Schedule one pending run and retain its task until completion."""

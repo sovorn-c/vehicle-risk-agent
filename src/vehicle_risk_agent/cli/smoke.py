@@ -1,420 +1,227 @@
-"""Comprehensive local smoke verification exercising all domain paths."""
+"""Live local-stack smoke verification through the public Agent API."""
 
-# story: e07s03
+# story: e07s02 e07s03
+
+from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
-import logging
-import sys
-from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
-from sqlalchemy import delete, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import httpx
 
-from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
-from vehicle_risk_agent.api.models import AssessmentContext, AssessmentCreateRequest, SaleType
-from vehicle_risk_agent.cli.seed import seed_database
-from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
-from vehicle_risk_agent.domain.vin import calculate_vin_check_digit
-from vehicle_risk_agent.evidence.models import (
-    ConfidenceAssessment,
-    ConfidenceBand,
-    VehicleRevisionResponse,
-)
-from vehicle_risk_agent.persistence.models import (
-    AssessmentRecord,
-    AssessmentRunRecord,
-    IdempotencyRecord,
-    ReportDraftRecord,
-    ReviewActionRecord,
-    RiskResultRecord,
-)
-from vehicle_risk_agent.persistence.repository import AssessmentRepository
-from vehicle_risk_agent.review.models import (
-    ApproveReportCommand,
-    RejectReportCommand,
-    ReportDisposition,
-    RequestReinvestigationCommand,
-)
-from vehicle_risk_agent.review.service import ReviewDecisionService
-from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand
-from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
-from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
-logger = logging.getLogger(__name__)
+_DEFAULT_BASE_URL = "http://localhost:8001"
+_DEFAULT_REQUESTER_TOKEN = "dev-requester-token"
+_DEFAULT_REVIEWER_TOKEN = "dev-reviewer-token"
+_CLEAN_VIN = "1HGCR2F85HA000000"
+_RISKY_VIN = "1FA6P8CF8H5000000"
+_UNKNOWN_VIN = "JM0BL10F000000000"
+_TERMINAL_PHASES = {
+    AssessmentRunPhase.COMPLETED.value,
+    AssessmentRunPhase.INCOMPLETE.value,
+    AssessmentRunPhase.FAILED.value,
+}
 
 
-def _make_vin(idx: int) -> str:
-    raw = f"7AT0BJ0302000{idx:04d}"
-    check = calculate_vin_check_digit(raw)
-    assert check is not None
-    return raw[:8] + check + raw[9:]
+async def _request(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    expected_status: int,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    response = await client.request(method, path, **kwargs)
+    if response.status_code != expected_status:
+        raise RuntimeError(f"{method} {path} returned HTTP {response.status_code}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{method} {path} returned an invalid JSON object")
+    return payload
 
 
-def _make_initial_state(
+async def _wait_until_terminal(
+    client: httpx.AsyncClient,
     assessment_id: str,
-    run_number: int,
-    vin: str,
-    context: AssessmentContext,
-) -> AssessmentGraphState:
-    return {
-        "assessment_id": assessment_id,
-        "run_number": run_number,
-        "vin": vin,
-        "context": context,
-        "phase": AssessmentRunPhase.PENDING,
-        "visited_phases": [AssessmentRunPhase.PENDING],
-        "events": [],
-    }
+    headers: dict[str, str],
+    timeout_seconds: float = 30.0,
+) -> dict[str, Any]:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        payload = await _request(
+            client,
+            "GET",
+            f"/api/v1/assessments/{assessment_id}",
+            200,
+            headers=headers,
+        )
+        runs = payload.get("runs", [])
+        current_run = next((run for run in runs if run.get("run_number") == 1), None)
+        if isinstance(current_run, dict) and current_run.get("phase") in _TERMINAL_PHASES:
+            return payload
+        await asyncio.sleep(0.5)
+    raise RuntimeError(f"Assessment {assessment_id} did not reach a terminal phase")
 
 
-def _make_vehicle_revision(
+async def _create_and_wait(
+    client: httpx.AsyncClient,
     vin: str,
-    make: str = "HONDA",
-    model: str = "ACCORD",
-    year: int = 2018,
-    ppsr_result: str = "NO_FINANCE_REGISTERED",
-    stolen_status: str = "NOT_STOLEN",
-    writeoff_status: str = "NOT_WRITTEN_OFF",
-) -> VehicleRevisionResponse:
-    now = datetime.now(UTC)
-    return VehicleRevisionResponse(
-        vin=vin,
-        revision_id=f"rev-{vin[:8]}",
-        revision_number=1,
-        material_hash="0" * 64,
-        canonical_fields={
-            "make": make,
-            "model": model,
-            "year": year,
-            "ppsr_result": ppsr_result,
-            "stolen_status": stolen_status,
-            "writeoff_status": writeoff_status,
-        },
-        field_provenance={},
-        conflicts=(),
-        confidence=ConfidenceAssessment(
-            score=95,
-            band=ConfidenceBand.HIGH,
-            field_scores={},
-            field_components={},
-            rule_version="v1",
-            explanation="verified",
-        ),
-        as_of=now,
-        published_at=now,
+    sale_type: str,
+    idempotency_key: str,
+    requester_headers: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    payload = {"vin": vin, "context": {"sale_type": sale_type}}
+    headers = {**requester_headers, "Idempotency-Key": idempotency_key}
+    first = await _request(
+        client,
+        "POST",
+        "/api/v1/assessments",
+        201,
+        headers=headers,
+        json=payload,
     )
+    second = await _request(
+        client,
+        "POST",
+        "/api/v1/assessments",
+        201,
+        headers=headers,
+        json=payload,
+    )
+    assessment_id = first.get("id")
+    if not isinstance(assessment_id, str) or second.get("id") != assessment_id:
+        raise RuntimeError("Assessment idempotency replay returned a different assessment")
+    completed = await _wait_until_terminal(client, assessment_id, requester_headers)
+    return assessment_id, completed
 
 
-async def _cleanup_smoke_records(
-    session_factory: async_sessionmaker[AsyncSession],
-    test_assessment_ids: list[str],
-    run_uid: str,
+async def _assert_progress_stream(
+    client: httpx.AsyncClient,
+    assessment_id: str,
+    headers: dict[str, str],
 ) -> None:
-    """Failure-safe teardown of smoke assessments, checkpoints, and idempotency records."""
-    async with session_factory() as session:
-        for aid in test_assessment_ids:
-            await session.execute(
-                delete(ReviewActionRecord).where(ReviewActionRecord.assessment_id == aid)
-            )
-            await session.execute(
-                delete(ReportDraftRecord).where(ReportDraftRecord.assessment_id == aid)
-            )
-            await session.execute(
-                delete(RiskResultRecord).where(RiskResultRecord.assessment_id == aid)
-            )
-            await session.execute(
-                delete(AssessmentRunRecord).where(AssessmentRunRecord.assessment_id == aid)
-            )
-            await session.execute(delete(AssessmentRecord).where(AssessmentRecord.id == aid))
-
-            for tbl in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-                with contextlib.suppress(Exception):
-                    await session.execute(
-                        text(f"DELETE FROM {tbl} WHERE thread_id = :aid"),
-                        {"aid": aid},
-                    )
-
-        await session.execute(
-            delete(IdempotencyRecord).where(IdempotencyRecord.idempotency_key.like(f"%{run_uid}%"))
-        )
-        await session.execute(
-            delete(IdempotencyRecord).where(IdempotencyRecord.idempotency_key.like("%smoke%"))
-        )
-        await session.commit()
+    async with client.stream(
+        "GET",
+        f"/api/v1/assessments/{assessment_id}/events?run_number=1",
+        headers=headers,
+    ) as response:
+        if response.status_code != 200:
+            raise RuntimeError(f"GET assessment events returned HTTP {response.status_code}")
+        body = await response.aread()
+    if b"event: progress" not in body or b"phase" not in body:
+        raise RuntimeError("Assessment event stream did not contain persisted progress")
 
 
 async def run_smoke(
-    database_url: str | None = None,
-    settings: Settings | None = None,
+    base_url: str = _DEFAULT_BASE_URL,
+    requester_token: str = _DEFAULT_REQUESTER_TOKEN,
+    reviewer_token: str = _DEFAULT_REVIEWER_TOKEN,
 ) -> dict[str, Any]:
-    """Run end-to-end smoke verification across domain paths."""
-    if settings is None:
-        settings = Settings()
-    db_url = database_url or settings.database_url
-    if database_url:
-        settings = settings.model_copy(update={"database_url": database_url})
-    run_uid = str(uuid4())[:8]
-    test_assessment_ids: list[str] = []
+    """Exercise seeded pipeline evidence, the Agent API, review, and SSE boundaries."""
+    base_url = base_url.rstrip("/")
+    requester_headers = {"Authorization": f"Bearer {requester_token}"}
+    reviewer_headers = {"Authorization": f"Bearer {reviewer_token}"}
 
-    print("==> [1/7] Initializing and seeding local database...")
-    seed_result = await seed_database(database_url=db_url, settings=settings)
-    print(f"    Seed status: {seed_result['status']}")
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as client:
+        await _request(client, "GET", "/health", 200)
+        await _request(client, "GET", "/ready", 200)
 
-    engine = create_async_engine(db_url, echo=False)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    try:
-        fake_mcp = FakeVehicleMcpAdapter()
-
-        # Pre-seed MCP adapter with vehicles for all test scenarios
-        clean_vin = _make_vin(1)
-        risky_vin = _make_vin(2)
-        incomplete_vin = _make_vin(3)
-        reinvestigate_vin = _make_vin(4)
-
-        fake_mcp.seed_vehicle(_make_vehicle_revision(clean_vin))
-        fake_mcp.seed_vehicle(
-            _make_vehicle_revision(
-                risky_vin,
-                ppsr_result="REGISTERED_SECURITY_INTEREST",
-                stolen_status="STOLEN",
-                writeoff_status="STATUTORY_WRITEOFF",
-            )
+        clean_id, clean = await _create_and_wait(
+            client, _CLEAN_VIN, "DEALER", "live-smoke-clean", requester_headers
+        )
+        risky_id, risky = await _create_and_wait(
+            client, _RISKY_VIN, "PRIVATE", "live-smoke-risky", requester_headers
+        )
+        unknown_id, unknown = await _create_and_wait(
+            client, _UNKNOWN_VIN, "AUCTION", "live-smoke-unknown", requester_headers
         )
 
-        # Incomplete vehicle missing ppsr_result
-        now = datetime.now(UTC)
-        incomplete_rev = VehicleRevisionResponse(
-            vin=incomplete_vin,
-            revision_id="rev-incomplete",
-            revision_number=1,
-            material_hash="1" * 64,
-            canonical_fields={
-                "make": "NISSAN",
-                "model": "LEAF",
-                "year": 2020,
+        clean_phase = clean["runs"][0]["phase"]
+        risky_phase = risky["runs"][0]["phase"]
+        unknown_phase = unknown["runs"][0]["phase"]
+        if clean_phase != AssessmentRunPhase.COMPLETED.value:
+            raise RuntimeError("Clean seeded vehicle did not complete")
+        if risky_phase != AssessmentRunPhase.COMPLETED.value:
+            raise RuntimeError("Risky seeded vehicle did not complete")
+        if unknown_phase != AssessmentRunPhase.INCOMPLETE.value:
+            raise RuntimeError("Unknown seeded vehicle did not withhold scoring")
+
+        await _assert_progress_stream(client, clean_id, requester_headers)
+
+        await _request(
+            client,
+            "POST",
+            f"/api/v1/assessments/{clean_id}/review/approve",
+            200,
+            headers={**reviewer_headers, "Idempotency-Key": "live-smoke-approve"},
+            json={"run_number": 1, "draft_outcome": "SCORED", "notes": "Smoke approval"},
+        )
+        await _request(
+            client,
+            "GET",
+            f"/api/v1/assessments/{clean_id}/report",
+            200,
+            headers=requester_headers,
+        )
+        await _request(
+            client,
+            "POST",
+            f"/api/v1/assessments/{risky_id}/review/reject",
+            200,
+            headers={**reviewer_headers, "Idempotency-Key": "live-smoke-reject"},
+            json={"run_number": 1, "rationale": "Synthetic risk fixture is recorded as risky."},
+        )
+        await _request(
+            client,
+            "POST",
+            f"/api/v1/assessments/{unknown_id}/review/approve",
+            200,
+            headers={**reviewer_headers, "Idempotency-Key": "live-smoke-approve-incomplete"},
+            json={
+                "run_number": 1,
+                "draft_outcome": "INCOMPLETE",
+                "acknowledge_missing_evidence": True,
+                "rationale": "Synthetic fixture intentionally lacks required evidence.",
             },
-            field_provenance={},
-            conflicts=(),
-            confidence=ConfidenceAssessment(
-                score=40,
-                band=ConfidenceBand.LOW,
-                field_scores={},
-                field_components={},
-                rule_version="v1",
-                explanation="missing evidence",
-            ),
-            as_of=now,
-            published_at=now,
         )
-        fake_mcp.seed_vehicle(incomplete_rev)
-        fake_mcp.seed_vehicle(_make_vehicle_revision(reinvestigate_vin))
-
-        async with AssessmentWorkflowRunner.create(
-            settings, session_factory=session_factory, mcp_adapter=fake_mcp
-        ) as runner:
-            # --- SCENARIO 1: Clean Vehicle Assessment ---
-            print("==> [2/7] Exercising clean vehicle assessment (Low Risk)...")
-            async with session_factory() as session:
-                repo = AssessmentRepository(session)
-                asmt_clean = await repo.create_assessment(
-                    requester_id="principal-requester-1",
-                    idempotency_key=f"smoke-clean-{clean_vin}-{run_uid}",
-                    request=AssessmentCreateRequest(
-                        vin=clean_vin,
-                        context=AssessmentContext(sale_type=SaleType.DEALER),
-                    ),
-                )
-                test_assessment_ids.append(asmt_clean.id)
-
-            clean_state = await runner.run(
-                assessment_id=asmt_clean.id,
-                run_number=1,
-                initial_state=_make_initial_state(
-                    asmt_clean.id, 1, clean_vin, AssessmentContext(sale_type=SaleType.DEALER)
-                ),
-            )
-            assert clean_state["phase"] == AssessmentRunPhase.COMPLETED
-            assert clean_state.get("risk_result") is not None
-            assert clean_state["risk_result"].band == RiskBand.LOW
-            print(
-                f"    Clean vehicle score: {clean_state['risk_result'].score}, "
-                f"band: {clean_state['risk_result'].band}"
-            )
-
-            # --- SCENARIO 2: Risky Vehicle Assessment ---
-            print("==> [3/7] Exercising risky vehicle assessment (High/Critical Risk)...")
-            async with session_factory() as session:
-                repo = AssessmentRepository(session)
-                asmt_risky = await repo.create_assessment(
-                    requester_id="principal-requester-1",
-                    idempotency_key=f"smoke-risky-{risky_vin}-{run_uid}",
-                    request=AssessmentCreateRequest(
-                        vin=risky_vin,
-                        context=AssessmentContext(sale_type=SaleType.PRIVATE),
-                    ),
-                )
-                test_assessment_ids.append(asmt_risky.id)
-
-            risky_state = await runner.run(
-                assessment_id=asmt_risky.id,
-                run_number=1,
-                initial_state=_make_initial_state(
-                    asmt_risky.id, 1, risky_vin, AssessmentContext(sale_type=SaleType.PRIVATE)
-                ),
-            )
-            assert risky_state["phase"] == AssessmentRunPhase.COMPLETED
-            assert risky_state.get("risk_result") is not None
-            assert risky_state["risk_result"].band in (RiskBand.HIGH, RiskBand.CRITICAL)
-            print(
-                f"    Risky vehicle score: {risky_state['risk_result'].score}, "
-                f"band: {risky_state['risk_result'].band}"
-            )
-
-            # --- SCENARIO 3: Incomplete Evidence Assessment ---
-            print("==> [4/7] Exercising incomplete evidence assessment...")
-            async with session_factory() as session:
-                repo = AssessmentRepository(session)
-                asmt_inc = await repo.create_assessment(
-                    requester_id="principal-requester-1",
-                    idempotency_key=f"smoke-inc-{incomplete_vin}-{run_uid}",
-                    request=AssessmentCreateRequest(
-                        vin=incomplete_vin,
-                        context=AssessmentContext(sale_type=SaleType.AUCTION),
-                    ),
-                )
-                test_assessment_ids.append(asmt_inc.id)
-
-            inc_state = await runner.run(
-                assessment_id=asmt_inc.id,
-                run_number=1,
-                initial_state=_make_initial_state(
-                    asmt_inc.id, 1, incomplete_vin, AssessmentContext(sale_type=SaleType.AUCTION)
-                ),
-            )
-            assert inc_state["phase"] == AssessmentRunPhase.INCOMPLETE
-            assert inc_state.get("risk_result") is not None
-            assert inc_state["risk_result"].outcome == AssessmentOutcome.INCOMPLETE
-            print(f"    Incomplete outcome: {inc_state['risk_result'].outcome}")
-
-            # --- SCENARIO 4: Human Review Decision ---
-            print("==> [5/7] Exercising human review approval and rejection...")
-            async with session_factory() as session:
-                review_svc = ReviewDecisionService(session)
-                approve_cmd = ApproveReportCommand(
-                    assessment_id=asmt_clean.id,
-                    run_number=1,
-                    reviewer_id="principal-reviewer-1",
-                    idempotency_key=f"smoke-review-approve-{run_uid}",
-                    rationale="Clean history verified against official register data.",
-                    notes="Approved for customer delivery",
-                )
-                approve_res = await review_svc.record_review_action(approve_cmd)
-                assert approve_res.disposition == ReportDisposition.RELEASED
-                print(f"    Clean report disposition: {approve_res.disposition}")
-
-                reject_cmd = RejectReportCommand(
-                    assessment_id=asmt_risky.id,
-                    run_number=1,
-                    reviewer_id="principal-reviewer-1",
-                    idempotency_key=f"smoke-review-reject-{run_uid}",
-                    rationale="Vehicle is recorded stolen on register.",
-                )
-                reject_res = await review_svc.record_review_action(reject_cmd)
-                assert reject_res.disposition == ReportDisposition.REJECTED
-                print(f"    Risky report disposition: {reject_res.disposition}")
-
-            # --- SCENARIO 5: Reinvestigation Cycle ---
-            print("==> [6/7] Exercising reinvestigation flow (Run 2)...")
-            async with session_factory() as session:
-                repo = AssessmentRepository(session)
-                asmt_reinv = await repo.create_assessment(
-                    requester_id="principal-requester-1",
-                    idempotency_key=f"smoke-reinv-{reinvestigate_vin}-{run_uid}",
-                    request=AssessmentCreateRequest(
-                        vin=reinvestigate_vin,
-                        context=AssessmentContext(sale_type=SaleType.DEALER),
-                    ),
-                )
-                test_assessment_ids.append(asmt_reinv.id)
-
-            # Run 1
-            await runner.run(
-                assessment_id=asmt_reinv.id,
-                run_number=1,
-                initial_state=_make_initial_state(
-                    asmt_reinv.id,
-                    1,
-                    reinvestigate_vin,
-                    AssessmentContext(sale_type=SaleType.DEALER),
-                ),
-            )
-
-            # Reinvestigate command
-            async with session_factory() as session:
-                review_svc = ReviewDecisionService(session)
-                reinv_cmd = RequestReinvestigationCommand(
-                    assessment_id=asmt_reinv.id,
-                    run_number=1,
-                    reviewer_id="principal-reviewer-1",
-                    idempotency_key=f"smoke-reinvestigate-{run_uid}",
-                    rationale="Need additional evidence check for recent odometer read",
-                    evidence_targets=("odometer_reading",),
-                )
-                reinv_res = await review_svc.record_review_action(reinv_cmd)
-                assert reinv_res.next_run_number == 2
-                print(f"    Reinvestigation triggered for run: {reinv_res.next_run_number}")
-
-            # Run 2
-            run2_state = await runner.run(
-                assessment_id=asmt_reinv.id,
-                run_number=2,
-                initial_state=_make_initial_state(
-                    asmt_reinv.id,
-                    2,
-                    reinvestigate_vin,
-                    AssessmentContext(sale_type=SaleType.DEALER),
-                ),
-            )
-            assert run2_state["run_number"] == 2
-            print(f"    Run 2 completed with phase: {run2_state['phase']}")
-
-        # --- SCENARIO 6: Restart & Idempotency ---
-        print("==> [7/7] Verifying restart idempotency and tearing down smoke records...")
-        re_seed = await seed_database(database_url=db_url, settings=settings)
-        assert re_seed["status"] in ("seeded", "ok")
-    finally:
-        await _cleanup_smoke_records(session_factory, test_assessment_ids, run_uid)
-        await engine.dispose()
-        print("    Teardown completed cleanly.")
 
     return {
         "status": "success",
-        "exercised": [
-            "clean",
-            "risky",
-            "incomplete",
-            "review",
-            "reinvestigate",
-            "restart",
-            "teardown",
-        ],
+        "scenarios": ["clean", "risky", "unknown", "review", "sse", "idempotency"],
     }
 
 
+async def _wait_for_health(base_url: str, timeout_seconds: float = 30.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=3.0) as client:
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                response = await client.get("/health")
+                if response.status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.5)
+    raise RuntimeError("Agent API did not become healthy")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run local smoke verification")
-    parser.add_argument("--database-url", type=str, default=None)
+    parser = argparse.ArgumentParser(description="Run live local-stack smoke verification")
+    parser.add_argument("--base-url", default=_DEFAULT_BASE_URL)
+    parser.add_argument("--requester-token", default=_DEFAULT_REQUESTER_TOKEN)
+    parser.add_argument("--reviewer-token", default=_DEFAULT_REVIEWER_TOKEN)
     args = parser.parse_args()
 
-    result = asyncio.run(run_smoke(database_url=args.database_url))
-    print(f"Smoke verification result: {result['status']}")
-    sys.exit(0)
+    asyncio.run(_wait_for_health(args.base_url))
+    result = asyncio.run(
+        run_smoke(
+            base_url=args.base_url,
+            requester_token=args.requester_token,
+            reviewer_token=args.reviewer_token,
+        )
+    )
+    print(f"Live smoke verification result: {result['status']}")
 
 
 if __name__ == "__main__":

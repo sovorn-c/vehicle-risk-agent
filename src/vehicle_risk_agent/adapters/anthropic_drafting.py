@@ -21,11 +21,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from vehicle_risk_agent.observability.telemetry import record_model_tokens
 from vehicle_risk_agent.reporting.models import (
     ClaimReference,
     ReportDraft,
 )
-from vehicle_risk_agent.observability.telemetry import record_model_tokens
 from vehicle_risk_agent.reporting.protocol import (
     ReportDraftingContext,
     ReportDraftingProtocol,

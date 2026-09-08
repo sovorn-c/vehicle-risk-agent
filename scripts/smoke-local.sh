@@ -1,25 +1,20 @@
 #!/usr/bin/env bash
-# story: e07s03
-set -euo pipefail
+set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BASE_URL="${VEHICLE_RISK_AGENT_BASE_URL:-http://localhost:8001}"
 
-echo "=================================================================="
-echo " Vehicle Risk Agent — Local Smoke Verification"
-echo "=================================================================="
-echo "Workspace: ${ROOT_DIR}"
+cleanup() {
+  docker compose -f compose.yaml down -v --remove-orphans
+}
+trap cleanup EXIT
 
-cd "${ROOT_DIR}"
+printf '%s\n' '==> Building and starting the seeded local stack'
+docker compose -f compose.yaml up -d --build --wait
 
-# 1. Run migrations and deterministic seed
-echo "==> [1/2] Seeding database with deterministic policies and corpora..."
-uv run python -m vehicle_risk_agent.cli.seed
+printf '%s\n' '==> Restarting Agent API before boundary smoke'
+docker compose -f compose.yaml restart agent-api
 
-# 2. Run full domain smoke sequence
-echo "==> [2/2] Running end-to-end smoke verification..."
-uv run python -m vehicle_risk_agent.cli.smoke
+printf '%s\n' '==> Exercising pipeline -> MCP -> Agent API -> review'
+uv run python -m vehicle_risk_agent.cli.smoke --base-url "${BASE_URL}"
 
-echo "=================================================================="
-echo " All local smoke scenarios PASSED successfully!"
-echo "=================================================================="
+printf '%s\n' '==> Local stack smoke passed; teardown is handled by EXIT trap'

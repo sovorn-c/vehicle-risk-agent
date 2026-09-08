@@ -175,7 +175,9 @@ class AssessmentWorkflowRunner:
                         if "assessment_repo" not in configurable:
                             configurable["assessment_repo"] = AssessmentRepository(session)
                         if "retrieval_service" not in configurable:
-                            active_corpus = await CorpusLifecycleManager(session).get_active_corpus()
+                            active_corpus = await CorpusLifecycleManager(
+                                session
+                            ).get_active_corpus()
                             if active_corpus is not None:
                                 embedder = self.embedding_adapter or FakeEmbeddingAdapter()
                                 reranker = self.reranker_adapter or FakeRerankerAdapter()
