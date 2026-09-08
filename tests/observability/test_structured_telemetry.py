@@ -62,6 +62,7 @@ def test_trace_boundary_sync_records_span(
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
     s = spans[0]
+    assert s.attributes is not None
     assert s.name == "mcp.call_tool"
     assert s.attributes["boundary"] == "mcp"
     assert s.attributes["correlation_id"] == "corr-mcp-1"
@@ -92,15 +93,17 @@ async def test_trace_boundary_async_records_span(
 
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
-    assert spans[0].name == "workflow.node"
-    assert spans[0].attributes["boundary"] == "graph"
-    assert spans[0].attributes["node"] == "assess_risk"
+    s0 = spans[0]
+    assert s0.attributes is not None
+    assert s0.name == "workflow.node"
+    assert s0.attributes["boundary"] == "graph"
+    assert s0.attributes["node"] == "assess_risk"
 
 
 def test_trace_all_required_boundaries(
     memory_telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader, TelemetryManager],
 ) -> None:
-    """Confirm spans can be emitted for all required boundaries: API, graph, MCP, retrieval, model, database, review."""
+    """Confirm spans can be emitted for all required boundaries."""
     exporter, _reader, _manager = memory_telemetry
     boundaries = ["api", "graph", "mcp", "retrieval", "model", "database", "review"]
 
@@ -109,7 +112,11 @@ def test_trace_all_required_boundaries(
             pass
 
     spans = exporter.get_finished_spans()
-    emitted_boundaries = {s.attributes["boundary"] for s in spans}
+    emitted_boundaries = {
+        s.attributes["boundary"]
+        for s in spans
+        if s.attributes is not None and "boundary" in s.attributes
+    }
     assert emitted_boundaries == set(boundaries)
 
 
@@ -119,14 +126,17 @@ def test_trace_boundary_handles_safe_failure(
     """Span records safe error status when an exception occurs."""
     exporter, _reader, _manager = memory_telemetry
 
-    with pytest.raises(ValueError, match="Invalid payload"):
-        with trace_boundary("database.query", boundary="database", query_type="select"):
-            raise ValueError("Invalid payload")
+    with (
+        pytest.raises(ValueError, match="Invalid payload"),
+        trace_boundary("database.query", boundary="database", query_type="select"),
+    ):
+        raise ValueError("Invalid payload")
 
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
     s = spans[0]
     assert s.status.status_code == trace.StatusCode.ERROR
+    assert s.attributes is not None
     assert s.attributes["safe_outcome"] == "INTERNAL_FAILURE"
 
 

@@ -11,13 +11,29 @@ from vehicle_risk_agent.observability.logging import (
     set_assessment_context,
     setup_logging,
 )
+from vehicle_risk_agent.observability.telemetry import (
+    TelemetryManager,
+    get_meter,
+    get_tracer,
+    init_telemetry,
+    instrument_app,
+    record_boundary_metric,
+    trace_boundary,
+)
 
 __all__ = [
     "JsonFormatter",
     "SafeFailure",
     "SafeFailureCategory",
+    "TelemetryManager",
     "classify_safe_failure",
     "get_logger",
+    "get_meter",
+    "get_tracer",
+    "init_telemetry",
+    "instrument_app",
+    "record_boundary_metric",
     "set_assessment_context",
     "setup_logging",
+    "trace_boundary",
 ]
