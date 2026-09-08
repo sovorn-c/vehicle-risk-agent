@@ -15,6 +15,7 @@ from vehicle_risk_agent.adapters.mcp import (
 from vehicle_risk_agent.auth import Principal, Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.retrieval.adapters import EmbeddingAdapter, RerankerAdapter
 
 
@@ -120,5 +121,6 @@ def require_role(allowed_role: Role) -> Callable[[Principal], Principal]:
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Yield an async database session from engine session factory."""
     session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
-    async with session_factory() as session:
-        yield session
+    with trace_boundary("database.api_session", boundary="database"):
+        async with session_factory() as session:
+            yield session

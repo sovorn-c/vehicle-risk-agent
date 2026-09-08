@@ -93,6 +93,21 @@ def get_meter(name: str = "vehicle_risk_agent") -> Meter:
     return manager.meter_provider.get_meter(name)
 
 
+def record_model_tokens(
+    input_tokens: int,
+    output_tokens: int,
+    model: str = "unknown",
+) -> None:
+    """Record model token usage without retaining prompt or response content."""
+    if input_tokens < 0 or output_tokens < 0:
+        raise ValueError("model token counts must be non-negative")
+    manager = get_telemetry_manager()
+    manager.model_tokens_counter.add(
+        input_tokens + output_tokens,
+        {"model": sanitize_telemetry_value("model", model)},
+    )
+
+
 def record_boundary_metric(
     boundary: str,
     duration_ms: float,

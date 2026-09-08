@@ -29,6 +29,10 @@ from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
 from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
 from vehicle_risk_agent.risk.calculator import calculate_risk_result
 from vehicle_risk_agent.risk.models import RiskPolicy, build_risk_policy_v1
+from vehicle_risk_agent.observability.telemetry import (
+    record_model_tokens,
+    trace_boundary,
+)
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
@@ -55,6 +59,11 @@ async def _emit_progress(
         store = configurable.get("event_store")
         if store is not None:
             await store.append_event(evt)
+        assessment_repo = configurable.get("assessment_repo")
+        if assessment_repo is not None:
+            await assessment_repo.update_run_phase(
+                state["assessment_id"], state["run_number"], phase
+            )
 
     return {
         "phase": phase,
@@ -233,7 +242,16 @@ async def node_incomplete(
         policy_citations=tuple(policy_citations),
     )
     drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()
-    draft = await drafter.draft_report(draft_context)
+    with trace_boundary(
+        "model.draft_report",
+        boundary="model",
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        model=type(drafter).__name__,
+    ):
+        draft = await drafter.draft_report(draft_context)
+        # Offline drafting has no provider usage; provider adapters record actual usage.
+        record_model_tokens(0, 0, model=type(drafter).__name__)
 
     draft_repo = configurable.get("draft_repo")
     if draft_repo is not None:
@@ -275,9 +293,25 @@ async def node_retrieving_policy(
     )
     configurable = config.get("configurable", {}) if config else {}
     citations_override = configurable.get("policy_citations")
-    citations: tuple[PolicyCitation, ...] = (
-        tuple(citations_override) if citations_override is not None else ()
-    )
+    with trace_boundary(
+        "retrieval.policy",
+        boundary="retrieval",
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+    ):
+        if citations_override is not None:
+            citations = tuple(citations_override)
+        else:
+            retrieval_service = configurable.get("retrieval_service")
+            if retrieval_service is None:
+                citations = ()
+            else:
+                questions = state["context"].questions
+                query = "vehicle sale consumer protection" + (
+                    " " + " ".join(questions) if questions else ""
+                )
+                retrieval_result = await retrieval_service.retrieve(query)
+                citations = tuple(retrieval_result.citations)
     return {
         **progress,
         "policy_citations": citations,
@@ -350,7 +384,16 @@ async def node_drafting_report(
     )
     configurable = config.get("configurable", {}) if config else {}
     drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()
-    draft = await drafter.draft_report(draft_context)
+    with trace_boundary(
+        "model.draft_report",
+        boundary="model",
+        assessment_id=state["assessment_id"],
+        run_number=state["run_number"],
+        model=type(drafter).__name__,
+    ):
+        draft = await drafter.draft_report(draft_context)
+        # Offline drafting has no provider usage; provider adapters record actual usage.
+        record_model_tokens(0, 0, model=type(drafter).__name__)
     draft_repo = configurable.get("draft_repo")
     if draft_repo is not None:
         await draft_repo.save_draft_and_transition_assessment(

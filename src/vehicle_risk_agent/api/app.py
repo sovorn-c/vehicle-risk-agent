@@ -2,7 +2,9 @@
 
 # story: e07s01 e07s03
 
+import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -17,8 +19,10 @@ from vehicle_risk_agent.api.review_routes import router as review_router
 from vehicle_risk_agent.api.risk_policy_routes import router as risk_policy_router
 from vehicle_risk_agent.api.routes import router as assessment_router
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.domain.assessment import Assessment, AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
-from vehicle_risk_agent.observability.logging import setup_logging
+from vehicle_risk_agent.observability.failures import classify_safe_failure
+from vehicle_risk_agent.observability.logging import get_logger, setup_logging
 from vehicle_risk_agent.observability.telemetry import init_telemetry, instrument_app
 from vehicle_risk_agent.retrieval.adapters import (
     CrossEncoderRerankerAdapter,
@@ -28,6 +32,9 @@ from vehicle_risk_agent.retrieval.adapters import (
     RerankerAdapter,
     SentenceTransformersEmbeddingAdapter,
 )
+from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner, build_initial_state
+
+logger = get_logger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,9 +57,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         embedding_adapter = FakeEmbeddingAdapter()
         reranker_adapter = FakeRerankerAdapter()
 
+    mcp_adapter = create_mcp_adapter(settings)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        yield
+        async with AssessmentWorkflowRunner.create(
+            settings,
+            session_factory=session_factory,
+            broadcaster=event_broadcaster,
+            mcp_adapter=mcp_adapter,
+            embedding_adapter=embedding_adapter,
+            reranker_adapter=reranker_adapter,
+        ) as runner:
+            app.state.workflow_runner = runner
+            try:
+                yield
+            finally:
+                pending_tasks = list(app.state.workflow_tasks)
+                for task in pending_tasks:
+                    task.cancel()
+                if pending_tasks:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                app.state.workflow_runner = None
         await engine.dispose()
 
     app = FastAPI(
@@ -67,7 +93,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.event_broadcaster = event_broadcaster
     app.state.embedding_adapter = embedding_adapter
     app.state.reranker_adapter = reranker_adapter
-    app.state.mcp_adapter = create_mcp_adapter(settings)
+    app.state.mcp_adapter = mcp_adapter
+    app.state.workflow_tasks: set[asyncio.Task[Any]] = set()
+    app.state.scheduled_workflow_runs: set[tuple[str, int]] = set()
+
+    def schedule_workflow_run(assessment: Assessment) -> bool:
+        """Schedule one pending run and retain its task until completion."""
+        runner = getattr(app.state, "workflow_runner", None)
+        run = next(
+            (item for item in assessment.runs if item.run_number == assessment.current_run_number),
+            None,
+        )
+        if runner is None or run is None or run.phase != AssessmentRunPhase.PENDING:
+            return False
+
+        key = (assessment.id, run.run_number)
+        if key in app.state.scheduled_workflow_runs:
+            return False
+
+        app.state.scheduled_workflow_runs.add(key)
+        task = asyncio.create_task(
+            runner.run(
+                initial_state=build_initial_state(
+                    assessment.id,
+                    run.run_number,
+                    assessment.vin,
+                    assessment.context,
+                )
+            ),
+            name=f"assessment-workflow:{assessment.id}:{run.run_number}",
+        )
+        app.state.workflow_tasks.add(task)
+
+        def _task_finished(completed: asyncio.Task[Any]) -> None:
+            app.state.workflow_tasks.discard(completed)
+            app.state.scheduled_workflow_runs.discard(key)
+            try:
+                completed.result()
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                failure = classify_safe_failure(exc)
+                logger.error(
+                    "Assessment workflow task failed",
+                    extra={
+                        "assessment_id": assessment.id,
+                        "run_id": f"{assessment.id}:{run.run_number}",
+                        "safe_outcome": failure.category.value,
+                    },
+                )
+
+        task.add_done_callback(_task_finished)
+        return True
+
+    app.state.schedule_workflow_run = schedule_workflow_run
 
     @app.middleware("http")
     async def asgi_spec_version_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]

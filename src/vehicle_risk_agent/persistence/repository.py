@@ -4,6 +4,7 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -81,6 +82,32 @@ class AssessmentRepository:
         if record is None:
             return None
         return _record_to_domain(record)
+
+    async def update_run_phase(
+        self,
+        assessment_id: str,
+        run_number: int,
+        phase: AssessmentRunPhase,
+    ) -> None:
+        """Persist the current phase of one run and fail the aggregate on run failure."""
+        run_stmt = select(AssessmentRunRecord).where(
+            AssessmentRunRecord.assessment_id == assessment_id,
+            AssessmentRunRecord.run_number == run_number,
+        )
+        run_record = (await self._session.execute(run_stmt)).scalar_one_or_none()
+        if run_record is None:
+            raise ValueError(f"Assessment run {assessment_id}:{run_number} not found")
+
+        now = datetime.now(UTC)
+        run_record.phase = phase.value
+        run_record.updated_at = now
+        if phase == AssessmentRunPhase.FAILED:
+            assessment_stmt = select(AssessmentRecord).where(AssessmentRecord.id == assessment_id)
+            assessment_record = (await self._session.execute(assessment_stmt)).scalar_one_or_none()
+            if assessment_record is not None:
+                assessment_record.lifecycle_state = AssessmentLifecycleState.FAILED.value
+                assessment_record.updated_at = now
+        await self._session.commit()
 
     async def create_assessment(
         self,
