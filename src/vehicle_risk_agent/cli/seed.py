@@ -1,5 +1,7 @@
 """Deterministic, idempotent database migrations and seed tooling."""
 
+# story: e07s02
+
 import argparse
 import asyncio
 import hashlib
@@ -17,7 +19,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from alembic import command
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.persistence.models import (
-    Base,
     PolicyCorpusRecord,
     PolicyCorpusSnapshotRecord,
     PolicyPassageRecord,
@@ -40,10 +41,11 @@ def run_migrations(database_url: str) -> None:
     """Run Alembic database migrations up to head."""
     root_dir = Path(__file__).resolve().parent.parent.parent.parent
     alembic_ini = root_dir / "alembic.ini"
-    if alembic_ini.exists():
-        cfg = Config(str(alembic_ini))
-        cfg.set_main_option("sqlalchemy.url", database_url)
-        command.upgrade(cfg, "head")
+    if not alembic_ini.exists():
+        raise FileNotFoundError(f"alembic.ini not found at {alembic_ini}")
+    cfg = Config(str(alembic_ini))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(cfg, "head")
 
 
 async def seed_database(
@@ -55,16 +57,8 @@ async def seed_database(
         settings = Settings()
     db_url = database_url or settings.database_url
 
-    # 1. Run migrations and ensure tables exist
-    try:
-        await asyncio.to_thread(run_migrations, db_url)
-    except Exception as exc:
-        logger.warning("Alembic upgrade through config failed: %s", exc)
-
-    engine_bootstrap = create_async_engine(db_url, echo=False)
-    async with engine_bootstrap.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await engine_bootstrap.dispose()
+    # 1. Run migrations up to head (must succeed, no masking or create_all fallback)
+    await asyncio.to_thread(run_migrations, db_url)
 
     engine = create_async_engine(db_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -133,13 +127,18 @@ async def seed_database(
 
         # 3. Seed Policy Sources, Snapshots, Passages, and Corpus
         fta_source_id = "nz-fta-1986"
-        fta_snap_id = f"{fta_source_id}-snap1"
-        retrieval_config = RetrievalConfiguration()
-        manifest_hash = compute_manifest_hash(
-            corpus_id=seeded_corpus_id,
-            snapshot_ids=[fta_snap_id],
-            retrieval_config=retrieval_config,
+        fta_content = (
+            "# Fair Trading Act 1986\n"
+            "## Section 9: Misleading and deceptive conduct\n"
+            "No person shall, in trade, engage in conduct that is misleading or deceptive "
+            "or is likely to mislead or deceive.\n"
+            "## Section 13: False or misleading representations\n"
+            "No person shall, in trade, in connection with the supply or possible supply "
+            "of goods, make false or misleading representations concerning quality or status."
         )
+        fta_content_hash = hashlib.sha256(fta_content.encode("utf-8")).hexdigest()
+        fta_snap_id = f"snap-fta-{fta_content_hash[:16]}"
+        retrieval_config = RetrievalConfiguration()
 
         active_pc_stmt = select(PolicyCorpusRecord).where(
             PolicyCorpusRecord.lifecycle_state == "ACTIVE"
@@ -147,12 +146,26 @@ async def seed_database(
         active_pc = (await session.execute(active_pc_stmt)).scalar_one_or_none()
 
         if active_pc is not None:
+            # Query actual content-addressed snapshots linked to this active corpus
+            assoc_snaps_stmt = (
+                select(PolicyCorpusSnapshotRecord.snapshot_id)
+                .where(PolicyCorpusSnapshotRecord.corpus_id == active_pc.id)
+                .order_by(PolicyCorpusSnapshotRecord.snapshot_id)
+            )
+            actual_snap_ids = list((await session.execute(assoc_snaps_stmt)).scalars().all())
+            if not actual_snap_ids:
+                actual_snap_ids = [fta_snap_id]
+
+            active_manifest_hash = compute_manifest_hash(
+                corpus_id=active_pc.id,
+                snapshot_ids=actual_snap_ids,
+                retrieval_config=retrieval_config,
+            )
             active_pc.retrieval_config_json = json.dumps(retrieval_config.model_dump(mode="json"))
-            active_pc.manifest_hash = manifest_hash
+            active_pc.manifest_hash = active_manifest_hash
             await session.commit()
         else:
             # Policy Source: FTA 1986
-            fta_source_id = "nz-fta-1986"
             fta_source = (
                 await session.execute(
                     select(PolicySourceRecord).where(PolicySourceRecord.id == fta_source_id)
@@ -175,19 +188,6 @@ async def seed_database(
                 )
                 session.add(fta_source)
                 await session.flush()
-
-            # Snapshot for FTA
-            fta_content = (
-                "# Fair Trading Act 1986\n"
-                "## Section 9: Misleading and deceptive conduct\n"
-                "No person shall, in trade, engage in conduct that is misleading or deceptive "
-                "or is likely to mislead or deceive.\n"
-                "## Section 13: False or misleading representations\n"
-                "No person shall, in trade, in connection with the supply or possible supply "
-                "of goods, make false or misleading representations concerning quality or status."
-            )
-            fta_content_hash = hashlib.sha256(fta_content.encode("utf-8")).hexdigest()
-            fta_snap_id = f"snap-fta-{fta_content_hash[:16]}"
 
             fta_snap = (
                 await session.execute(
