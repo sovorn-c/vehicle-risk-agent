@@ -1,4 +1,4 @@
-"""Tests for structured JSON logging with correlation, assessment, node, outcome, and duration fields."""
+"""Tests for structured JSON logging with correlation, assessment, node, outcome fields."""
 
 import io
 import json
@@ -35,7 +35,7 @@ def test_json_formatter_emits_valid_json_with_standard_fields() -> None:
 
 
 def test_structured_telemetry_fields_in_log_record() -> None:
-    """Formatter must include correlation_id, assessment_id, run_id, node, safe_outcome, and elapsed_time_ms."""
+    """Formatter must include correlation_id, assessment_id, run_id, node, outcome, duration."""
     formatter = JsonFormatter()
     record = logging.LogRecord(
         name="vehicle_risk_agent.workflow",
@@ -46,12 +46,12 @@ def test_structured_telemetry_fields_in_log_record() -> None:
         args=(),
         exc_info=None,
     )
-    record.correlation_id = "corr-12345"  # type: ignore[attr-defined]
-    record.assessment_id = "asm-67890"  # type: ignore[attr-defined]
-    record.run_id = "run-001"  # type: ignore[attr-defined]
-    record.node = "evaluate_risk"  # type: ignore[attr-defined]
-    record.safe_outcome = "SUCCESS"  # type: ignore[attr-defined]
-    record.elapsed_time_ms = 45.2  # type: ignore[attr-defined]
+    record.correlation_id = "corr-12345"
+    record.assessment_id = "asm-67890"
+    record.run_id = "run-001"
+    record.node = "evaluate_risk"
+    record.safe_outcome = "SUCCESS"
+    record.elapsed_time_ms = 45.2
 
     output = formatter.format(record)
     data = json.loads(output)
