@@ -1,5 +1,7 @@
 """Acceptance tests verifying database migrations and deterministic, idempotent seeding."""
 
+# story: e07s02
+
 from collections.abc import AsyncIterator
 
 import pytest
@@ -74,6 +76,35 @@ async def test_seed_database_idempotent(clean_engine: AsyncEngine) -> None:
 
         passages = (await session.execute(select(PolicyPassageRecord))).scalars().all()
         assert len(passages) >= 1
+
+        # Manifest hash must not be overwritten by placeholder snapshot ID
+        active_pc = active_pcs[0]
+        from vehicle_risk_agent.policy.corpus_models import (
+            RetrievalConfiguration,
+            compute_manifest_hash,
+        )
+
+        placeholder_hash = compute_manifest_hash(
+            corpus_id=active_pc.id,
+            snapshot_ids=["nz-fta-1986-snap1"],
+            retrieval_config=RetrievalConfiguration(),
+        )
+        assert active_pc.manifest_hash != placeholder_hash, (
+            "Active corpus manifest_hash must not be overwritten with placeholder snapshot ID"
+        )
+
+
+@pytest.mark.asyncio
+async def test_seed_database_raises_on_migration_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Alembic migration failure must not be masked by seed_database."""
+
+    def _failing_migration(_url: str) -> None:
+        raise RuntimeError("Simulated Alembic migration failure")
+
+    monkeypatch.setattr("vehicle_risk_agent.cli.seed.run_migrations", _failing_migration)
+    settings = Settings(database_url=TEST_DB_URL)
+    with pytest.raises(RuntimeError, match="Simulated Alembic migration failure"):
+        await seed_database(database_url=TEST_DB_URL, settings=settings)
 
 
 @pytest.mark.asyncio
