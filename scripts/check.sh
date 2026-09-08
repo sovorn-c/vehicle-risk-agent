@@ -5,8 +5,9 @@ echo "=================================================================="
 echo " Vehicle Risk Agent — Local Preflight Verification"
 echo "=================================================================="
 
-echo "==> [1/6] Running Ruff linter..."
-uv run ruff check .
+echo "==> [1/7] Preflight check — RED baseline"
+echo "FAIL: container contract not integrated into preflight" >&2
+exit 1
 
 echo "==> [2/6] Checking code formatting..."
 uv run ruff format --check .
