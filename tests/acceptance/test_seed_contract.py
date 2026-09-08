@@ -1,17 +1,22 @@
 """Acceptance tests verifying database migrations and deterministic, idempotent seeding."""
 
 from collections.abc import AsyncIterator
+
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from vehicle_risk_agent.auth import Role, authenticate_bearer_token
 from vehicle_risk_agent.cli.seed import seed_database
 from vehicle_risk_agent.config import Settings
-from vehicle_risk_agent.evaluation.matrix import load_evaluation_matrix
+from vehicle_risk_agent.evaluation.matrix import get_evaluation_matrix
 from vehicle_risk_agent.persistence.models import (
-    Base,
     PolicyCorpusRecord,
     PolicyPassageRecord,
     PolicySourceRecord,
@@ -25,11 +30,14 @@ TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 async def clean_engine() -> AsyncIterator[AsyncEngine]:
     """Provide a clean PostgreSQL database for testing migrations and seeds."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
+    reset_sql = (
+        "DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS vector;"
+    )
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(sa.text(reset_sql))
     yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(sa.text(reset_sql))
     await engine.dispose()
 
 
@@ -74,16 +82,20 @@ async def test_principals_and_evaluation_matrix_available() -> None:
     settings = Settings(database_url=TEST_DB_URL)
 
     req_p = authenticate_bearer_token("dev-requester-token", settings)
-    assert req_p is not None and req_p.role == Role.REQUESTER
+    assert req_p is not None
+    assert req_p.role == Role.REQUESTER
 
     rev_p = authenticate_bearer_token("dev-reviewer-token", settings)
-    assert rev_p is not None and rev_p.role == Role.REVIEWER
+    assert rev_p is not None
+    assert rev_p.role == Role.REVIEWER
 
     op_p = authenticate_bearer_token("dev-operator-token", settings)
-    assert op_p is not None and op_p.role == Role.TECHNICAL_OPERATOR
+    assert op_p is not None
+    assert op_p.role == Role.TECHNICAL_OPERATOR
 
     maint_p = authenticate_bearer_token("dev-maintainer-token", settings)
-    assert maint_p is not None and maint_p.role == Role.POLICY_CORPUS_MAINTAINER
+    assert maint_p is not None
+    assert maint_p.role == Role.POLICY_CORPUS_MAINTAINER
 
-    scenarios = load_evaluation_matrix()
+    scenarios = get_evaluation_matrix()
     assert len(scenarios) == 30
