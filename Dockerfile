@@ -7,18 +7,28 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.5 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
+ARG INSTALL_ML=false
+
 WORKDIR /app
 
 # Install dependencies using lockfile
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN if [ "$INSTALL_ML" = "true" ]; then \
+      uv sync --frozen --no-dev --no-install-project --extra ml; \
+    else \
+      uv sync --frozen --no-dev --no-install-project; \
+    fi
 
 # Copy application source and sync project
 COPY README.md ./
 COPY src/ src/
 COPY alembic/ alembic/
 COPY alembic.ini ./
-RUN uv sync --frozen --no-dev
+RUN if [ "$INSTALL_ML" = "true" ]; then \
+      uv sync --frozen --no-dev --extra ml; \
+    else \
+      uv sync --frozen --no-dev; \
+    fi
 
 # Final minimal runtime image
 FROM python:3.12.11-slim-bookworm AS runtime

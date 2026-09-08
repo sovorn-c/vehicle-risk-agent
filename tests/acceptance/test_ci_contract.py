@@ -72,8 +72,8 @@ def test_alembic_explicit_url_is_authoritative() -> None:
     """Migration configuration must not silently replace an explicit URL with env state."""
     env_path = Path(__file__).resolve().parent.parent.parent / "alembic" / "env.py"
     content = env_path.read_text(encoding="utf-8")
-    assert "config.get_main_option(\"sqlalchemy.url\")" in content
-    assert "os.environ.get(\"DATABASE_URL\"" not in content
+    assert 'config.get_main_option("sqlalchemy.url")' in content
+    assert 'os.environ.get("DATABASE_URL"' not in content
 
 
 def test_ci_database_url_and_driver_contract() -> None:

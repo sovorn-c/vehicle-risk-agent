@@ -83,6 +83,36 @@ class AssessmentRepository:
             return None
         return _record_to_domain(record)
 
+    async def ensure_run(self, assessment_id: str, run_number: int) -> None:
+        """Ensure a directly requested run has a persisted pending record.
+
+        API reinvestigation allocates its run record before scheduling. This
+        compatibility path also supports callers that invoke the workflow
+        runner directly with a newly allocated run number.
+        """
+        run_stmt = select(AssessmentRunRecord).where(
+            AssessmentRunRecord.assessment_id == assessment_id,
+            AssessmentRunRecord.run_number == run_number,
+        )
+        if (await self._session.execute(run_stmt)).scalar_one_or_none() is not None:
+            return
+
+        assessment_stmt = select(AssessmentRecord).where(AssessmentRecord.id == assessment_id)
+        if (await self._session.execute(assessment_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"Assessment {assessment_id} not found")
+        if run_number < 1:
+            raise ValueError("run_number must be positive")
+
+        self._session.add(
+            AssessmentRunRecord(
+                id=str(uuid4()),
+                assessment_id=assessment_id,
+                run_number=run_number,
+                phase=AssessmentRunPhase.PENDING.value,
+            )
+        )
+        await self._session.flush()
+
     async def update_run_phase(
         self,
         assessment_id: str,

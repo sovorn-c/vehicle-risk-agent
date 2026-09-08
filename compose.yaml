@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "54329:5432"
+      - "${VEHICLE_RISK_AGENT_DB_PORT:-54329}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -73,6 +73,7 @@ services:
       VEHICLE_MCP_HTTP_HOST: 0.0.0.0
       VEHICLE_MCP_HTTP_PORT: 8080
       VEHICLE_MCP_ALLOW_INSECURE_BIND: "true"
+      VEHICLE_MCP_ALLOWED_HOSTS: mcp,mcp:8080
       VEHICLE_MCP_PIPELINE_BASE_URL: http://pipeline:8000
     ports:
       - "8080:8080"
@@ -98,6 +99,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      pipeline-seed:
+        condition: service_completed_successfully
 
   agent-api:
     build:

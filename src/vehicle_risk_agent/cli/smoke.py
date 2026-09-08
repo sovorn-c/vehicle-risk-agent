@@ -45,6 +45,7 @@ async def _wait_until_terminal(
     client: httpx.AsyncClient,
     assessment_id: str,
     headers: dict[str, str],
+    run_number: int = 1,
     timeout_seconds: float = 30.0,
 ) -> dict[str, Any]:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
@@ -57,7 +58,10 @@ async def _wait_until_terminal(
             headers=headers,
         )
         runs = payload.get("runs", [])
-        current_run = next((run for run in runs if run.get("run_number") == 1), None)
+        current_run = next(
+            (run for run in runs if run.get("run_number") == run_number),
+            None,
+        )
         if isinstance(current_run, dict) and current_run.get("phase") in _TERMINAL_PHASES:
             return payload
         await asyncio.sleep(0.5)
@@ -136,6 +140,9 @@ async def run_smoke(
         unknown_id, unknown = await _create_and_wait(
             client, _UNKNOWN_VIN, "AUCTION", "live-smoke-unknown", requester_headers
         )
+        reinvest_id, _reinvest_run_one = await _create_and_wait(
+            client, _CLEAN_VIN, "DEALER", "live-smoke-reinvest", requester_headers
+        )
 
         clean_phase = clean["runs"][0]["phase"]
         risky_phase = risky["runs"][0]["phase"]
@@ -148,6 +155,35 @@ async def run_smoke(
             raise RuntimeError("Unknown seeded vehicle did not withhold scoring")
 
         await _assert_progress_stream(client, clean_id, requester_headers)
+
+        reinvestigation = await _request(
+            client,
+            "POST",
+            f"/api/v1/assessments/{reinvest_id}/review/reinvestigate",
+            200,
+            headers={**reviewer_headers, "Idempotency-Key": "live-smoke-reinvestigate"},
+            json={
+                "run_number": 1,
+                "rationale": "Verify the seeded vehicle again before release.",
+                "questions": ["Confirm current register evidence."],
+                "evidence_targets": ["ppsr_result"],
+            },
+        )
+        if reinvestigation.get("next_run_number") != 2:
+            raise RuntimeError("Reinvestigation did not allocate run 2")
+        reinvested = await _wait_until_terminal(
+            client, reinvest_id, requester_headers, run_number=2
+        )
+        if reinvested["runs"][1]["phase"] != AssessmentRunPhase.COMPLETED.value:
+            raise RuntimeError("Reinvestigated seeded vehicle did not complete")
+        await _request(
+            client,
+            "POST",
+            f"/api/v1/assessments/{reinvest_id}/review/approve",
+            200,
+            headers={**reviewer_headers, "Idempotency-Key": "live-smoke-approve-reinvest"},
+            json={"run_number": 2, "draft_outcome": "SCORED", "notes": "Smoke re-review"},
+        )
 
         await _request(
             client,

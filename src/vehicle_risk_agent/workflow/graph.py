@@ -24,15 +24,14 @@ from vehicle_risk_agent.evidence.sufficiency import (
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
-from vehicle_risk_agent.policy.models import PolicyCitation
-from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
-from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
-from vehicle_risk_agent.risk.calculator import calculate_risk_result
-from vehicle_risk_agent.risk.models import RiskPolicy, build_risk_policy_v1
 from vehicle_risk_agent.observability.telemetry import (
     record_model_tokens,
     trace_boundary,
 )
+from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
+from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
+from vehicle_risk_agent.risk.calculator import calculate_risk_result
+from vehicle_risk_agent.risk.models import RiskPolicy, build_risk_policy_v1
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 

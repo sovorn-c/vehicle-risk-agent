@@ -206,7 +206,12 @@ class StreamableHttpVehicleMcpAdapter:
                 ) from None
 
         if result.structured_content is not None:
-            return result.structured_content
+            structured = result.structured_content
+            # MCP wraps top-level list outputs in an object because structured
+            # content must be a JSON object. Normalize that protocol shape here.
+            if isinstance(structured, dict) and set(structured) == {"result"}:
+                return structured["result"]
+            return structured
         try:
             return json.loads(cls._text_content(result))
         except (ValueError, TypeError):

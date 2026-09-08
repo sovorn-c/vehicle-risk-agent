@@ -88,10 +88,11 @@ def test_compose_defines_reproducible_seed_order() -> None:
 
     assert {"pipeline-migrate", "pipeline-seed", "agent-seed"}.issubset(services)
     assert services["pipeline-migrate"]["command"] == ["alembic", "upgrade", "head"]
-    assert "nz_vehicle_data_pipeline.cli.seed" in " ".join(
-        services["pipeline-seed"]["command"]
-    )
+    assert "nz_vehicle_data_pipeline.cli.seed" in " ".join(services["pipeline-seed"]["command"])
     assert services["pipeline"]["depends_on"]["pipeline-seed"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert services["agent-seed"]["depends_on"]["pipeline-seed"]["condition"] == (
         "service_completed_successfully"
     )
     assert services["agent-api"]["depends_on"]["agent-seed"]["condition"] == (

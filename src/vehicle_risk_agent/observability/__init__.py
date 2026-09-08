@@ -18,6 +18,7 @@ from vehicle_risk_agent.observability.telemetry import (
     init_telemetry,
     instrument_app,
     record_boundary_metric,
+    record_model_tokens,
     trace_boundary,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "init_telemetry",
     "instrument_app",
     "record_boundary_metric",
+    "record_model_tokens",
     "set_assessment_context",
     "setup_logging",
     "trace_boundary",

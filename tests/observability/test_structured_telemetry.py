@@ -2,11 +2,13 @@
 
 # story: e07s01
 
+from typing import cast
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -164,7 +166,8 @@ def test_model_token_metrics_record_input_and_output_totals(
         for metric in scope_metrics.metrics
     }
     token_metric = metrics_by_name["model_tokens_total"]
-    assert token_metric.data.data_points[0].value == 20
+    point = cast(NumberDataPoint, token_metric.data.data_points[0])
+    assert point.value == 20
 
 
 def test_metrics_recording(

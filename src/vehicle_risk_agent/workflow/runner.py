@@ -195,6 +195,8 @@ class AssessmentWorkflowRunner:
 
                         run_config["configurable"] = configurable
                         assessment_repo = configurable.get("assessment_repo")
+                        if assessment_repo is not None:
+                            await assessment_repo.ensure_run(asmt_id, run_num)
                         try:
                             result: dict[str, Any] = await self._app.ainvoke(
                                 initial_state, config=cast(RunnableConfig, run_config)
