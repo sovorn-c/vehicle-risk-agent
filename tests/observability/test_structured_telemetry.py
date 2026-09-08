@@ -19,6 +19,7 @@ from vehicle_risk_agent.observability.telemetry import (
     get_tracer,
     init_telemetry,
     record_boundary_metric,
+    record_model_tokens,
     trace_boundary,
 )
 
@@ -144,6 +145,26 @@ def test_trace_boundary_handles_safe_failure(
     assert s.status.status_code == trace.StatusCode.ERROR
     assert s.attributes is not None
     assert s.attributes["safe_outcome"] == "INTERNAL_FAILURE"
+
+
+def test_model_token_metrics_record_input_and_output_totals(
+    memory_telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader, TelemetryManager],
+) -> None:
+    """Model operations must record token totals without recording prompt content."""
+    _exporter, reader, _manager = memory_telemetry
+
+    record_model_tokens(input_tokens=12, output_tokens=8, model="offline")
+
+    data = reader.get_metrics_data()
+    assert data is not None
+    metrics_by_name = {
+        metric.name: metric
+        for resource_metrics in data.resource_metrics
+        for scope_metrics in resource_metrics.scope_metrics
+        for metric in scope_metrics.metrics
+    }
+    token_metric = metrics_by_name["model_tokens_total"]
+    assert token_metric.data.data_points[0].value == 20
 
 
 def test_metrics_recording(
