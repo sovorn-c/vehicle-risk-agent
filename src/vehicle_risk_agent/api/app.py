@@ -96,6 +96,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/health", tags=["Operational"])
+    async def health_check() -> dict[str, str]:
+        return {"status": "healthy", "service": "vehicle-risk-agent"}
+
+    @app.get("/ready", tags=["Operational"])
+    async def readiness_check() -> dict[str, str]:
+        return {"status": "ready", "service": "vehicle-risk-agent"}
+
     app.include_router(assessment_router)
     app.include_router(policy_router)
     app.include_router(evidence_router)

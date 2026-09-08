@@ -1,7 +1,8 @@
 """Acceptance tests verifying Docker Compose and Dockerfile contracts."""
 
 from pathlib import Path
-import yaml
+
+import yaml  # type: ignore[import-untyped]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -26,9 +27,9 @@ def test_all_services_present_in_compose() -> None:
 
     services = data.get("services", {})
     required_services = {"db", "pipeline", "mcp", "agent-api"}
-    assert required_services.issubset(
-        services.keys()
-    ), f"Missing required services: {required_services - set(services.keys())}"
+    assert required_services.issubset(services.keys()), (
+        f"Missing required services: {required_services - set(services.keys())}"
+    )
 
 
 def test_all_services_define_healthchecks() -> None:
