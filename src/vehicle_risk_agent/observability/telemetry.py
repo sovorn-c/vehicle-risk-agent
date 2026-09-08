@@ -117,7 +117,11 @@ def trace_boundary(
     tracer = get_tracer(f"vehicle_risk_agent.{boundary}")
     start_time = time.perf_counter()
 
-    with tracer.start_as_current_span(name) as span:
+    with tracer.start_as_current_span(
+        name,
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
         span.set_attribute("boundary", boundary)
         for key, val in attributes.items():
             if val is not None:

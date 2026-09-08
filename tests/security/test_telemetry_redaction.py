@@ -4,12 +4,12 @@ import io
 import json
 import logging
 
+import pytest
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-import pytest
 
 from vehicle_risk_agent.observability.failures import classify_safe_failure
 from vehicle_risk_agent.observability.logging import JsonFormatter
@@ -138,6 +138,7 @@ def test_metrics_do_not_leak_high_cardinality_or_sensitive_data() -> None:
         for scope_metric in resource_metric.scope_metrics:
             for metric in scope_metric.metrics:
                 for point in metric.data.data_points:
+                    assert point.attributes is not None
                     for k in point.attributes:
                         assert k in ("boundary", "safe_outcome")
 
