@@ -1,5 +1,7 @@
 """Typed asynchronous MCP adapters for Vehicle Intelligence server tools."""
 
+# story: e07s01
+
 import asyncio
 import json
 import random
@@ -18,6 +20,7 @@ from vehicle_risk_agent.evidence.models import (
     SourceObservationResponse,
     VehicleRevisionResponse,
 )
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 
 _SAFE_MESSAGES: dict[SafeErrorCategory, tuple[str, str]] = {
     SafeErrorCategory.INVALID_INPUT: (
@@ -155,20 +158,21 @@ class StreamableHttpVehicleMcpAdapter:
         self.initial_backoff = initial_backoff
 
     async def _call_once(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        async with (
-            streamable_http_client(self.server_url) as streams,
-            ClientSession(
-                streams[0],
-                streams[1],
-                read_timeout_seconds=self.timeout_seconds,
-            ) as session,
-        ):
-            await session.initialize()
-            return await session.call_tool(
-                tool_name,
-                arguments=arguments,
-                read_timeout_seconds=self.timeout_seconds,
-            )
+        with trace_boundary("mcp.call_tool", boundary="mcp", tool=tool_name):
+            async with (
+                streamable_http_client(self.server_url) as streams,
+                ClientSession(
+                    streams[0],
+                    streams[1],
+                    read_timeout_seconds=self.timeout_seconds,
+                ) as session,
+            ):
+                await session.initialize()
+                return await session.call_tool(
+                    tool_name,
+                    arguments=arguments,
+                    read_timeout_seconds=self.timeout_seconds,
+                )
 
     @staticmethod
     def _text_content(result: types.CallToolResult) -> str:

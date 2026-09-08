@@ -1,5 +1,7 @@
 """Assessment workflow runner integrating LangGraph and domain repositories."""
 
+# story: e07s01
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -15,6 +17,7 @@ from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Setting
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.reporting.repository import ReportDraftRepository
@@ -105,37 +108,43 @@ class AssessmentWorkflowRunner:
         if "mcp_adapter" not in configurable and self.mcp_adapter is not None:
             configurable["mcp_adapter"] = self.mcp_adapter
 
-        # If session_factory is available and event_store not explicitly passed in configurable
-        if self.session_factory is not None:
-            async with self.session_factory() as session:
-                if "event_store" not in configurable:
-                    store = EventStore(session, broadcaster=self.broadcaster)
-                    configurable["event_store"] = store
-                if "evidence_repo" not in configurable:
-                    configurable["evidence_repo"] = VehicleEvidenceRepository(
-                        session,
-                        integrity_secret=self.integrity_secret,
+        with trace_boundary(
+            "workflow.execute",
+            boundary="workflow",
+            assessment_id=assessment_id,
+            run_number=run_number,
+        ):
+            # If session_factory is available and event_store not explicitly passed in configurable
+            if self.session_factory is not None:
+                async with self.session_factory() as session:
+                    if "event_store" not in configurable:
+                        store = EventStore(session, broadcaster=self.broadcaster)
+                        configurable["event_store"] = store
+                    if "evidence_repo" not in configurable:
+                        configurable["evidence_repo"] = VehicleEvidenceRepository(
+                            session,
+                            integrity_secret=self.integrity_secret,
+                        )
+                    if "policy_repo" not in configurable:
+                        configurable["policy_repo"] = RiskPolicyRepository(session)
+                    if "risk_repo" not in configurable:
+                        configurable["risk_repo"] = RiskResultRepository(session)
+                    if "draft_repo" not in configurable:
+                        configurable["draft_repo"] = ReportDraftRepository(session)
+                    if "assessment_repo" not in configurable:
+                        configurable["assessment_repo"] = AssessmentRepository(session)
+                    run_config["configurable"] = configurable
+                    result: dict[str, Any] = await self._app.ainvoke(
+                        initial_state, config=cast(RunnableConfig, run_config)
                     )
-                if "policy_repo" not in configurable:
-                    configurable["policy_repo"] = RiskPolicyRepository(session)
-                if "risk_repo" not in configurable:
-                    configurable["risk_repo"] = RiskResultRepository(session)
-                if "draft_repo" not in configurable:
-                    configurable["draft_repo"] = ReportDraftRepository(session)
-                if "assessment_repo" not in configurable:
-                    configurable["assessment_repo"] = AssessmentRepository(session)
-                run_config["configurable"] = configurable
-                result: dict[str, Any] = await self._app.ainvoke(
-                    initial_state, config=cast(RunnableConfig, run_config)
-                )
-                await session.commit()
-                return result
+                    await session.commit()
+                    return result
 
-        run_config["configurable"] = configurable
-        res: dict[str, Any] = await self._app.ainvoke(
-            initial_state, config=cast(RunnableConfig, run_config)
-        )
-        return res
+            run_config["configurable"] = configurable
+            res: dict[str, Any] = await self._app.ainvoke(
+                initial_state, config=cast(RunnableConfig, run_config)
+            )
+            return res
 
 
 class AssessmentRunner:
@@ -174,7 +183,13 @@ class AssessmentRunner:
                 "evidence_repo": self.evidence_repo,
             }
         }
-        res: dict[str, Any] = await self._app.ainvoke(
-            initial_state, config=cast(RunnableConfig, config)
-        )
-        return res
+        with trace_boundary(
+            "workflow.execute",
+            boundary="workflow",
+            assessment_id=assessment_id,
+            run_number=run_number,
+        ):
+            res: dict[str, Any] = await self._app.ainvoke(
+                initial_state, config=cast(RunnableConfig, config)
+            )
+            return res

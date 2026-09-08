@@ -1,10 +1,13 @@
 """FastAPI application factory with exception handlers and lifecycle management."""
 
+# story: e07s01 e07s03
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
@@ -15,6 +18,8 @@ from vehicle_risk_agent.api.risk_policy_routes import router as risk_policy_rout
 from vehicle_risk_agent.api.routes import router as assessment_router
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
+from vehicle_risk_agent.observability.logging import setup_logging
+from vehicle_risk_agent.observability.telemetry import init_telemetry, instrument_app
 from vehicle_risk_agent.retrieval.adapters import (
     CrossEncoderRerankerAdapter,
     EmbeddingAdapter,
@@ -29,6 +34,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if settings is None:
         settings = Settings()
+
+    setup_logging(level=settings.log_level)
+    init_telemetry()
 
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -52,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    instrument_app(app)
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
@@ -102,6 +111,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/ready", tags=["Operational"])
     async def readiness_check() -> dict[str, str]:
+        try:
+            async with session_factory() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "SERVICE_UNAVAILABLE",
+                    "message": "Database connectivity check failed",
+                },
+            ) from None
         return {"status": "ready", "service": "vehicle-risk-agent"}
 
     app.include_router(assessment_router)

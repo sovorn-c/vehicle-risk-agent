@@ -170,7 +170,9 @@ async def test_app_telemetry_wiring_and_readiness(
 ) -> None:
     """create_app must configure telemetry, instrument app, and provide conditional /ready."""
     _exporter, _reader, _manager = memory_telemetry
-    settings = Settings(database_url="postgresql+psycopg://postgres:postgres@localhost:54329/postgres")
+    settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+    )
     app = create_app(settings)
 
     transport = ASGITransport(app=app)
@@ -180,7 +182,9 @@ async def test_app_telemetry_wiring_and_readiness(
         assert resp.json()["status"] == "ready"
 
     # Test unreachable DB returns 503 Service Unavailable
-    bad_settings = Settings(database_url="postgresql+psycopg://postgres:postgres@localhost:54320/nonexistent")
+    bad_settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@localhost:54320/nonexistent"
+    )
     bad_app = create_app(bad_settings)
     bad_transport = ASGITransport(app=bad_app)
     async with AsyncClient(transport=bad_transport, base_url="http://test") as bad_client:
@@ -211,4 +215,3 @@ async def test_workflow_runner_emits_trace_boundary_span(
     assert workflow_spans[0].attributes is not None
     assert workflow_spans[0].attributes["boundary"] == "workflow"
     assert workflow_spans[0].attributes["assessment_id"] == "asmt-trace-1"
-

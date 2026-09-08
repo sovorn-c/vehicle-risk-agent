@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     environment: str = "development"
+    log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
     requester_token: str = "dev-requester-token"
     reviewer_token: str = "dev-reviewer-token"
