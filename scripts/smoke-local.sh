@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# story: e07s03
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

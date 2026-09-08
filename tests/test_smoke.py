@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent import __version__
 from vehicle_risk_agent.cli.smoke import run_smoke
-from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.persistence.models import IdempotencyRecord
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
@@ -36,9 +35,7 @@ async def test_smoke_verification_leaves_no_residual_records() -> None:
         assert len(idemp_records) == 0, f"Found leaked idempotency records: {idemp_records}"
 
         # Check that no checkpoint records for smoke assessments remain
-        checkpoints_stmt = text(
-            "SELECT count(*) FROM checkpoints WHERE thread_id LIKE '%asmt-%'"
-        )
+        checkpoints_stmt = text("SELECT count(*) FROM checkpoints WHERE thread_id LIKE '%asmt-%'")
         try:
             count = (await session.execute(checkpoints_stmt)).scalar_one_or_none()
             assert count == 0, f"Found leaked checkpoints: {count}"
