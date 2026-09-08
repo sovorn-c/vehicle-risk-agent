@@ -1,5 +1,7 @@
 """Immutable Vehicle Evidence Snapshot domain models and transactional repository."""
 
+# story: e03s01
+
 from __future__ import annotations
 
 import hashlib

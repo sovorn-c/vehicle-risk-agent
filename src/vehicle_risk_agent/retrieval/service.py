@@ -1,5 +1,7 @@
 """Hybrid Policy Retrieval Service with dense search, keyword search, RRF, and reranking."""
 
+# story: e02s03
+
 from dataclasses import dataclass
 
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration

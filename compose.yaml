@@ -1,3 +1,4 @@
+# story: e07s02
 services:
   db:
     image: pgvector/pgvector:pg16

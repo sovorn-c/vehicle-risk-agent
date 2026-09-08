@@ -1,5 +1,7 @@
 """Tests for evaluating Vehicle Evidence Sufficiency and required field completeness."""
 
+# story: e03s02
+
 from datetime import UTC, datetime
 
 import pytest

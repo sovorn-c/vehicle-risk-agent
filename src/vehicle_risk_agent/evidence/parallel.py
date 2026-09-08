@@ -1,5 +1,7 @@
 """Parallel asynchronous fan-out and deterministic keyed merge for evidence checks."""
 
+# story: e03s03
+
 from __future__ import annotations
 
 import asyncio

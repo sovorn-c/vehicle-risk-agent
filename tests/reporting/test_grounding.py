@@ -7,6 +7,8 @@ The grounding validator checks every model draft claim against the pinned
 evidence and policy citation allowlists from the run state.
 """
 
+# story: e04s03
+
 from __future__ import annotations
 
 import pytest

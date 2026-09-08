@@ -1,5 +1,7 @@
 """Tests for transactional Assessment and Assessment Run persistence with idempotency."""
 
+# story: e01s03
+
 from collections.abc import AsyncIterator
 
 import pytest

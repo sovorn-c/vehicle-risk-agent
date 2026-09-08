@@ -1,5 +1,7 @@
 """Deterministic evaluation of Required Evidence sufficiency for risk policy input."""
 
+# story: e03s02
+
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field

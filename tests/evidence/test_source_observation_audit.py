@@ -1,5 +1,7 @@
 """Tests for resolving only provenance-linked bounded observation identifiers for reviewer audit."""
 
+# story: e03s04
+
 import hashlib
 from datetime import UTC, datetime
 

@@ -1,3 +1,7 @@
+"""Tests for offline report drafting adapter with deterministic citations."""
+
+# story: e04s02
+
 from datetime import UTC, datetime
 from typing import Any
 

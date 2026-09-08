@@ -1,5 +1,7 @@
 """Assessment aggregate and Assessment Run domain definitions."""
 
+# story: e01s01
+
 from datetime import datetime
 from enum import StrEnum
 

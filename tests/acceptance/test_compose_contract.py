@@ -1,5 +1,7 @@
 """Acceptance tests verifying Docker Compose and Dockerfile contracts."""
 
+# story: e07s02
+
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]

@@ -2,7 +2,10 @@
 
 # story: e07s03
 
+from collections.abc import AsyncIterator
+
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -11,6 +14,16 @@ from vehicle_risk_agent.cli.smoke import run_smoke
 from vehicle_risk_agent.persistence.models import IdempotencyRecord
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_database_for_smoke() -> AsyncIterator[None]:
+    """Ensure a clean database schema before running smoke migrations and seed."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+    await engine.dispose()
+    yield
 
 
 def test_package_version() -> None:

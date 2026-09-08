@@ -1,5 +1,7 @@
 """Transactional repository for Assessment aggregates."""
 
+# story: e01s03
+
 import hashlib
 import json
 from uuid import uuid4
