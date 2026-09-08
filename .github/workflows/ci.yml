@@ -1,0 +1,96 @@
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+      - "e[0-9]+*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_live_eval:
+        description: "Run live LLM evaluation (requires ANTHROPIC_API_KEY secret)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Deterministic Quality & Preflight Gate
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: test_vehicle_risk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Run deterministic preflight
+        env:
+          VEHICLE_RISK_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/test_vehicle_risk
+        run: bash scripts/check.sh
+
+  live-eval:
+    name: Optional Live Model Evaluation
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_eval }}
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: test_vehicle_risk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Run live evaluation suite
+        env:
+          VEHICLE_RISK_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/test_vehicle_risk
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run pytest tests/evaluation/test_live_eval_contract.py -q

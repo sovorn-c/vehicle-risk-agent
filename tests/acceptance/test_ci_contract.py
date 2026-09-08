@@ -17,10 +17,11 @@ def test_ci_workflow_exists_and_valid() -> None:
 
     assert config is not None
     assert "name" in config
-    assert "on" in config
+    assert "on" in config or True in config
 
     # Triggers must include push, pull_request, and workflow_dispatch for manual live evals
-    triggers = config["on"]
+    triggers = config.get("on") if "on" in config else config.get(True)
+    assert triggers is not None
     if isinstance(triggers, (list, dict)):
         assert "push" in triggers
         assert "pull_request" in triggers
