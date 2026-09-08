@@ -78,3 +78,16 @@ def test_dockerfile_contract() -> None:
     assert "USER" in content
     assert "HEALTHCHECK" in content
     assert "EXPOSE" in content
+
+
+def test_compose_mcp_server_url_contract() -> None:
+    """compose.yaml agent-api must configure MCP_SERVER_URL pointing to /mcp endpoint."""
+    compose_path = REPO_ROOT / "compose.yaml"
+    with compose_path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    agent_env = data.get("services", {}).get("agent-api", {}).get("environment", {})
+    mcp_url = agent_env.get("MCP_SERVER_URL", "")
+    assert mcp_url == "http://mcp:8080/mcp", (
+        f"MCP_SERVER_URL in compose.yaml must be http://mcp:8080/mcp, got: {mcp_url}"
+    )
