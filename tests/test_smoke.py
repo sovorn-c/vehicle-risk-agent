@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent import __version__
-from vehicle_risk_agent.cli.smoke import run_smoke
+from vehicle_risk_agent.cli.domain_smoke import run_smoke
 from vehicle_risk_agent.persistence.models import IdempotencyRecord
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
