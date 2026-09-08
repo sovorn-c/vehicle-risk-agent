@@ -1,6 +1,9 @@
 """Tests for OpenTelemetry spans and metrics across system boundaries."""
 
+# story: e07s01
+
 import pytest
+from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -8,6 +11,9 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from vehicle_risk_agent.api.app import create_app
+from vehicle_risk_agent.api.models import AssessmentContext, SaleType
+from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.observability.telemetry import (
     TelemetryManager,
     get_tracer,
@@ -156,3 +162,53 @@ def test_metrics_recording(
     assert data is not None
     resource_metrics = data.resource_metrics
     assert len(resource_metrics) > 0
+
+
+@pytest.mark.asyncio
+async def test_app_telemetry_wiring_and_readiness(
+    memory_telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader, TelemetryManager],
+) -> None:
+    """create_app must configure telemetry, instrument app, and provide conditional /ready."""
+    _exporter, _reader, _manager = memory_telemetry
+    settings = Settings(database_url="postgresql+psycopg://postgres:postgres@localhost:54329/postgres")
+    app = create_app(settings)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/ready")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ready"
+
+    # Test unreachable DB returns 503 Service Unavailable
+    bad_settings = Settings(database_url="postgresql+psycopg://postgres:postgres@localhost:54320/nonexistent")
+    bad_app = create_app(bad_settings)
+    bad_transport = ASGITransport(app=bad_app)
+    async with AsyncClient(transport=bad_transport, base_url="http://test") as bad_client:
+        bad_resp = await bad_client.get("/ready")
+        assert bad_resp.status_code == 503
+        assert bad_resp.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_workflow_runner_emits_trace_boundary_span(
+    memory_telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader, TelemetryManager],
+) -> None:
+    """AssessmentRunner execution must emit a workflow.execute span via trace_boundary."""
+    exporter, _reader, _manager = memory_telemetry
+    from vehicle_risk_agent.workflow.runner import AssessmentRunner
+
+    runner = AssessmentRunner()
+    _res = await runner.run(
+        assessment_id="asmt-trace-1",
+        run_number=1,
+        vin="7AT0BJ03020000001",
+        context=AssessmentContext(sale_type=SaleType.DEALER),
+    )
+
+    spans = exporter.get_finished_spans()
+    workflow_spans = [s for s in spans if s.name == "workflow.execute"]
+    assert len(workflow_spans) >= 1
+    assert workflow_spans[0].attributes is not None
+    assert workflow_spans[0].attributes["boundary"] == "workflow"
+    assert workflow_spans[0].attributes["assessment_id"] == "asmt-trace-1"
+
