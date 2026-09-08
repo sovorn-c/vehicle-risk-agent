@@ -232,7 +232,7 @@ async def node_incomplete(
         evidence_snapshot=snapshot,
         policy_citations=tuple(policy_citations),
     )
-    drafter = OfflineReportDraftingAdapter()
+    drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()
     draft = await drafter.draft_report(draft_context)
 
     draft_repo = configurable.get("draft_repo")
@@ -273,7 +273,11 @@ async def node_retrieving_policy(
         "Retrieving policy citations and rules",
         config,
     )
-    citations: tuple[PolicyCitation, ...] = ()
+    configurable = config.get("configurable", {}) if config else {}
+    citations_override = configurable.get("policy_citations")
+    citations: tuple[PolicyCitation, ...] = (
+        tuple(citations_override) if citations_override is not None else ()
+    )
     return {
         **progress,
         "policy_citations": citations,
@@ -344,10 +348,9 @@ async def node_drafting_report(
         evidence_snapshot=snapshot,
         policy_citations=tuple(policy_citations),
     )
-    drafter = OfflineReportDraftingAdapter()
-    draft = await drafter.draft_report(draft_context)
-
     configurable = config.get("configurable", {}) if config else {}
+    drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()
+    draft = await drafter.draft_report(draft_context)
     draft_repo = configurable.get("draft_repo")
     if draft_repo is not None:
         await draft_repo.save_draft_and_transition_assessment(
