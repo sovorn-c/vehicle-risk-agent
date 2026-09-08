@@ -25,6 +25,10 @@ from vehicle_risk_agent.persistence.models import (
     PolicySourceRecord,
     RiskPolicyRecord,
 )
+from vehicle_risk_agent.policy.corpus_models import (
+    RetrievalConfiguration,
+    compute_manifest_hash,
+)
 from vehicle_risk_agent.risk.models import (
     create_default_policy_v1,
 )
@@ -128,12 +132,25 @@ async def seed_database(
             await session.commit()
 
         # 3. Seed Policy Sources, Snapshots, Passages, and Corpus
+        fta_source_id = "nz-fta-1986"
+        fta_snap_id = f"{fta_source_id}-snap1"
+        retrieval_config = RetrievalConfiguration()
+        manifest_hash = compute_manifest_hash(
+            corpus_id=seeded_corpus_id,
+            snapshot_ids=[fta_snap_id],
+            retrieval_config=retrieval_config,
+        )
+
         active_pc_stmt = select(PolicyCorpusRecord).where(
             PolicyCorpusRecord.lifecycle_state == "ACTIVE"
         )
         active_pc = (await session.execute(active_pc_stmt)).scalar_one_or_none()
 
-        if active_pc is None:
+        if active_pc is not None:
+            active_pc.retrieval_config_json = json.dumps(retrieval_config.model_dump(mode="json"))
+            active_pc.manifest_hash = manifest_hash
+            await session.commit()
+        else:
             # Policy Source: FTA 1986
             fta_source_id = "nz-fta-1986"
             fta_source = (
@@ -242,8 +259,12 @@ async def seed_database(
                 )
             ).scalar_one_or_none()
 
-            manifest_content = f"{seeded_corpus_id}:{fta_snap_id}"
-            manifest_hash = hashlib.sha256(manifest_content.encode("utf-8")).hexdigest()
+            retrieval_config = RetrievalConfiguration()
+            manifest_hash = compute_manifest_hash(
+                corpus_id=seeded_corpus_id,
+                snapshot_ids=[fta_snap_id],
+                retrieval_config=retrieval_config,
+            )
 
             if corpus_record is None:
                 corpus_record = PolicyCorpusRecord(
@@ -251,9 +272,7 @@ async def seed_database(
                     name="New Zealand Consumer Protection Policy Corpus v1",
                     description="Authoritative baseline corpus covering Fair Trading Act.",
                     lifecycle_state="ACTIVE",
-                    retrieval_config_json=json.dumps(
-                        {"vector_weight": 0.5, "keyword_weight": 0.5, "top_k": 5}
-                    ),
+                    retrieval_config_json=json.dumps(retrieval_config.model_dump(mode="json")),
                     manifest_hash=manifest_hash,
                     created_at=datetime.now(UTC),
                     activated_at=datetime.now(UTC),
@@ -269,6 +288,10 @@ async def seed_database(
                 session.add(assoc)
             else:
                 corpus_record.lifecycle_state = "ACTIVE"
+                corpus_record.retrieval_config_json = json.dumps(
+                    retrieval_config.model_dump(mode="json")
+                )
+                corpus_record.manifest_hash = manifest_hash
                 corpus_record.activated_at = datetime.now(UTC)
                 corpus_record.activated_by = "system-seed"
 
