@@ -80,6 +80,25 @@ def test_dockerfile_contract() -> None:
     assert "EXPOSE" in content
 
 
+def test_compose_defines_reproducible_seed_order() -> None:
+    """Compose must migrate and seed upstream and Agent data before API startup."""
+    compose_path = REPO_ROOT / "compose.yaml"
+    with compose_path.open("r", encoding="utf-8") as f:
+        services = yaml.safe_load(f)["services"]
+
+    assert {"pipeline-migrate", "pipeline-seed", "agent-seed"}.issubset(services)
+    assert services["pipeline-migrate"]["command"] == ["alembic", "upgrade", "head"]
+    assert "nz_vehicle_data_pipeline.cli.seed" in " ".join(
+        services["pipeline-seed"]["command"]
+    )
+    assert services["pipeline"]["depends_on"]["pipeline-seed"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert services["agent-api"]["depends_on"]["agent-seed"]["condition"] == (
+        "service_completed_successfully"
+    )
+
+
 def test_compose_mcp_server_url_contract() -> None:
     """compose.yaml agent-api must configure MCP_SERVER_URL pointing to /mcp endpoint."""
     compose_path = REPO_ROOT / "compose.yaml"

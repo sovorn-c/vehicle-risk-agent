@@ -55,6 +55,13 @@ async def test_seed_database_idempotent(clean_engine: AsyncEngine) -> None:
     # Second seed run (must not fail or duplicate active policies)
     result2 = await seed_database(database_url=TEST_DB_URL, settings=settings)
     assert result2["status"] in ("seeded", "ok")
+    assert result2["principals"] == {
+        "requester": "principal-requester-1",
+        "reviewer": "principal-reviewer-1",
+        "operator": "principal-operator-1",
+        "maintainer": "principal-maintainer-1",
+    }
+    assert result2["evaluation_scenarios"] == 30
 
     # Verify database state
     session_factory = async_sessionmaker(clean_engine, expire_on_commit=False)
