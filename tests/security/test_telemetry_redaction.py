@@ -1,5 +1,7 @@
 """Tests verifying redaction of credentials, prompts, raw observations, and stack traces."""
 
+# story: e07s01
+
 import io
 import json
 import logging
@@ -11,6 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.observability.failures import classify_safe_failure
 from vehicle_risk_agent.observability.logging import JsonFormatter
 from vehicle_risk_agent.observability.telemetry import (
@@ -152,3 +155,49 @@ def test_safe_failure_classification_redacts_credentials_in_message() -> None:
     assert canary not in failure.safe_message
     assert canary not in failure.safe_code
     assert failure.safe_message == "An internal processing failure occurred"
+
+
+def test_logs_redact_canaries_in_message_and_safe_extras() -> None:
+    """Log formatting must redact canaries from message and arbitrary safe extra keys."""
+    canary = "canary-message-secret-abc-999"
+    canary_extra = "canary-extra-secret-def-888"
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+
+    logger = logging.getLogger("test_message_redaction_logger")
+    logger.handlers = [handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    logger.info(
+        f"Processing assessment with secret {canary}",
+        extra={
+            "arbitrary_safe_key": f"Value containing {canary_extra}",
+            "custom_metadata": {"inner_note": f"Embedded {canary}"},
+        },
+    )
+
+    output = stream.getvalue()
+    data = json.loads(output)
+
+    assert canary not in output
+    assert canary_extra not in output
+    assert canary not in data["message"]
+    assert canary_extra not in data["arbitrary_safe_key"]
+    assert canary not in data["custom_metadata"]["inner_note"]
+
+
+def test_safe_failure_idempotency_conflict_redacts_canaries() -> None:
+    """IdempotencyConflictError must not leak custom message or key details into safe failure."""
+    canary_key = "canary-idempotency-key-xyz"
+    canary_msg = "canary-sensitive-mismatch-detail"
+    err = IdempotencyConflictError(key=canary_key, message=f"Conflict on {canary_msg}")
+
+    failure = classify_safe_failure(err)
+
+    assert failure.safe_code == "IDEMPOTENCY_CONFLICT"
+    assert canary_key not in failure.safe_message
+    assert canary_msg not in failure.safe_message
+    assert failure.safe_message == "An idempotency conflict occurred for the specified operation"
