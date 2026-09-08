@@ -80,4 +80,3 @@ def test_ci_database_url_and_driver_contract() -> None:
     )
     assert "asyncpg" not in content, "CI must not reference uninstalled asyncpg driver"
     assert "psycopg" in content, "CI must use psycopg driver matching pyproject.toml"
-

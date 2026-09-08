@@ -67,4 +67,3 @@ def test_readme_ports_match_compose() -> None:
     assert "8001" in content, "README must document agent-api port 8001"
     assert "8080" in content, "README must document MCP port 8080"
     assert "asyncpg" not in content, "README must use psycopg, not asyncpg"
-

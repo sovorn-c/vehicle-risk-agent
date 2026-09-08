@@ -91,9 +91,10 @@ cp .env.example .env
 ```
 
 Key environment variables:
-- `VEHICLE_RISK_AGENT_DATABASE_URL`: PostgreSQL connection string (default: `postgresql+asyncpg://postgres:postgres@localhost:5432/vehicle_risk`)
+- `DATABASE_URL`: PostgreSQL connection string (default: `postgresql+psycopg://postgres:postgres@localhost:54329/postgres`)
 - `ANTHROPIC_API_KEY`: Optional Anthropic API key for live report drafting (offline drafting adapter used when absent)
-- `VEHICLE_RISK_AGENT_LOG_LEVEL`: Logging verbosity (`INFO`, `DEBUG`)
+- `LOG_LEVEL`: Logging verbosity (`INFO`, `DEBUG`)
+- `MCP_SERVER_URL`: Upstream vehicle intelligence MCP server (`http://localhost:8080`)
 
 ### Running Locally with Docker Compose
 
@@ -103,15 +104,15 @@ docker compose up -d
 ```
 
 Services started:
-- `db`: PostgreSQL 16 with pgvector extension (`localhost:5432`)
-- `pipeline`: Upstream vehicle data pipeline service (`localhost:8001`)
-- `mcp`: Vehicle intelligence MCP server (`localhost:8002`)
-- `agent-api`: Vehicle risk assessment service (`localhost:8000`)
+- `db`: PostgreSQL 16 with pgvector extension (`localhost:54329`)
+- `pipeline`: Upstream vehicle data pipeline service (`localhost:8000`)
+- `mcp`: Vehicle intelligence MCP server (`localhost:8080`)
+- `agent-api`: Vehicle risk assessment service (`localhost:8001`)
 
 Check health endpoints:
 ```bash
-curl -f http://localhost:8000/health
-curl -f http://localhost:8000/ready
+curl -f http://localhost:8001/health
+curl -f http://localhost:8001/ready
 ```
 
 ---
@@ -186,7 +187,7 @@ Approve             Reject           Request Reinvestigation
 |---|---|---|
 | `pgvector extension missing` | PostgreSQL container started without pgvector | Use image `pgvector/pgvector:pg16` in `compose.yaml` |
 | `Alembic version conflict` | Database schema out of sync | Run `uv run alembic upgrade head` |
-| `Port 5432 in use` | Existing local postgres service | Stop conflicting daemon or adjust `POSTGRES_PORT` |
+| `Port 54329 in use` | Existing local postgres service | Stop conflicting daemon or adjust port in compose.yaml |
 | `OpenTelemetry span leak` | Custom span exporter recording raw exceptions | Use `trace_boundary` helper from `vehicle_risk_agent.observability.telemetry` |
 | `Drafting fallback active` | `ANTHROPIC_API_KEY` not set | Expected in offline mode; system uses `OfflineReportDraftingAdapter` |
 

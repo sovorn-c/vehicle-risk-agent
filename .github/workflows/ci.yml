@@ -54,7 +54,7 @@ jobs:
 
       - name: Run deterministic preflight
         env:
-          VEHICLE_RISK_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/test_vehicle_risk
+          DATABASE_URL: postgresql+psycopg://postgres:testpassword@localhost:5432/test_vehicle_risk
         run: bash scripts/check.sh
 
   live-eval:
@@ -91,6 +91,6 @@ jobs:
 
       - name: Run live evaluation suite
         env:
-          VEHICLE_RISK_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/test_vehicle_risk
+          DATABASE_URL: postgresql+psycopg://postgres:testpassword@localhost:5432/test_vehicle_risk
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: uv run pytest tests/evaluation/test_live_eval_contract.py -q
