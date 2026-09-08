@@ -1,7 +1,6 @@
 """Alembic environment configuration supporting async SQLAlchemy engines."""
 
 import asyncio
-import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -19,8 +18,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-settings = Settings()
-db_url = os.environ.get("DATABASE_URL", settings.database_url)
+configured_url = config.get_main_option("sqlalchemy.url")
+if configured_url and not configured_url.startswith("driver://"):
+    db_url = configured_url
+else:
+    db_url = Settings().database_url
 config.set_main_option("sqlalchemy.url", db_url)
 
 

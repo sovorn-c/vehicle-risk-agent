@@ -17,7 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic import command
+from vehicle_risk_agent.auth import Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
+from vehicle_risk_agent.evaluation.matrix import get_evaluation_matrix
 from vehicle_risk_agent.persistence.models import (
     PolicyCorpusRecord,
     PolicyCorpusSnapshotRecord,
@@ -56,6 +58,24 @@ async def seed_database(
     if settings is None:
         settings = Settings()
     db_url = database_url or settings.database_url
+
+    # Validate the credential-backed local Principals and deterministic evaluation fixtures.
+    principal_roles = {
+        "requester": (settings.requester_token, Role.REQUESTER),
+        "reviewer": (settings.reviewer_token, Role.REVIEWER),
+        "operator": (settings.operator_token, Role.TECHNICAL_OPERATOR),
+        "maintainer": (settings.maintainer_token, Role.POLICY_CORPUS_MAINTAINER),
+    }
+    principal_ids: dict[str, str] = {}
+    for name, (token, expected_role) in principal_roles.items():
+        principal = authenticate_bearer_token(token, settings)
+        if principal is None or principal.role != expected_role:
+            raise ValueError(f"Configured local Principal is invalid: {name}")
+        principal_ids[name] = principal.principal_id
+
+    evaluation_scenarios = get_evaluation_matrix()
+    if len(evaluation_scenarios) != 30:
+        raise ValueError("Expected exactly 30 deterministic evaluation fixtures")
 
     # 1. Run migrations up to head (must succeed, no masking or create_all fallback)
     await asyncio.to_thread(run_migrations, db_url)
@@ -302,6 +322,8 @@ async def seed_database(
         "status": "seeded",
         "risk_policy_id": seeded_risk_policy_id,
         "corpus_id": seeded_corpus_id,
+        "principals": principal_ids,
+        "evaluation_scenarios": len(evaluation_scenarios),
     }
 
 

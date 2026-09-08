@@ -30,10 +30,10 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: test_vehicle_risk
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports:
-          - 5432:5432
+          - 54329:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run deterministic preflight
         env:
-          DATABASE_URL: postgresql+psycopg://postgres:testpassword@localhost:5432/test_vehicle_risk
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:54329/postgres
         run: bash scripts/check.sh
 
   live-eval:
@@ -67,10 +67,10 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: test_vehicle_risk
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports:
-          - 5432:5432
+          - 54329:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -91,6 +91,6 @@ jobs:
 
       - name: Run live evaluation suite
         env:
-          DATABASE_URL: postgresql+psycopg://postgres:testpassword@localhost:5432/test_vehicle_risk
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:54329/postgres
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: uv run pytest tests/evaluation/test_live_eval_contract.py -q

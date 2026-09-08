@@ -17,6 +17,32 @@ services:
       timeout: 2s
       retries: 10
 
+  pipeline-migrate:
+    build:
+      context: ../nz-vehicle-data-pipeline
+      dockerfile: Dockerfile
+    image: nz-vehicle-data-pipeline:0.1.0
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  pipeline-seed:
+    build:
+      context: ../nz-vehicle-data-pipeline
+      dockerfile: Dockerfile
+    image: nz-vehicle-data-pipeline:0.1.0
+    restart: "no"
+    command: ["python", "-m", "nz_vehicle_data_pipeline.cli.seed", "--manifest", "fixtures/manifest.json", "--phase2"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      pipeline-migrate:
+        condition: service_completed_successfully
+
   pipeline:
     build:
       context: ../nz-vehicle-data-pipeline
@@ -28,8 +54,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      pipeline-seed:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/ready\")'"]
       interval: 3s
@@ -59,6 +85,20 @@ services:
       timeout: 2s
       retries: 10
 
+  agent-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vehicle-risk-agent:0.1.0
+    restart: "no"
+    command: ["python", "-m", "vehicle_risk_agent.cli.seed"]
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
   agent-api:
     build:
       context: .
@@ -74,6 +114,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      agent-seed:
+        condition: service_completed_successfully
       mcp:
         condition: service_healthy
     healthcheck:
