@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 
 import anyio
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import ClientDisconnect
@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 @router.post("", response_model=AssessmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_assessment(
     request: AssessmentCreateRequest,
+    http_request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     principal: Principal = Depends(require_role(Role.REQUESTER)),
     session: AsyncSession = Depends(get_db_session),
@@ -77,6 +78,10 @@ async def create_assessment(
                 "message": str(err),
             },
         ) from err
+
+    schedule_workflow_run = getattr(http_request.app.state, "schedule_workflow_run", None)
+    if schedule_workflow_run is not None:
+        schedule_workflow_run(assessment)
 
     return AssessmentResponse(
         id=assessment.id,

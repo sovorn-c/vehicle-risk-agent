@@ -1,5 +1,7 @@
 """Tests for SSE event streaming, replay, authorization, and heartbeats."""
 
+# story: e01s02
+
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime

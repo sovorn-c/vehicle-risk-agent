@@ -3,7 +3,7 @@
 # story: e05s01
 # story: e05s02
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_risk_agent.api.deps import get_db_session, require_role
@@ -15,6 +15,7 @@ from vehicle_risk_agent.api.review_schemas import (
 )
 from vehicle_risk_agent.auth import Principal, Role
 from vehicle_risk_agent.domain.errors import IdempotencyConflictError
+from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.review.errors import (
     AssessmentNotFoundError,
     AssessmentNotReviewableError,
@@ -322,9 +323,21 @@ async def _handle_reinvestigate(
 async def request_reinvestigation(
     assessment_id: str,
     request: RequestReinvestigationRequest,
+    http_request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     principal: Principal = Depends(require_role(Role.REVIEWER)),
     session: AsyncSession = Depends(get_db_session),
 ) -> ReviewDecisionResponse:
     """Reviewer requests additive reinvestigation within the 3-run limit."""
-    return await _handle_reinvestigate(assessment_id, request, idempotency_key, principal, session)
+    response = await _handle_reinvestigate(
+        assessment_id, request, idempotency_key, principal, session
+    )
+
+    # The review transaction allocates the pending run. Schedule it only after
+    # the commit so the workflow can observe its persisted Assessment Run.
+    schedule_workflow_run = getattr(http_request.app.state, "schedule_workflow_run", None)
+    if response.next_run_number is not None and schedule_workflow_run is not None:
+        assessment = await AssessmentRepository(session).get_assessment(assessment_id)
+        if assessment is not None:
+            schedule_workflow_run(assessment)
+    return response

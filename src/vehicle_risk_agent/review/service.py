@@ -20,6 +20,7 @@ from vehicle_risk_agent.domain.assessment import (
     AssessmentRunPhase,
 )
 from vehicle_risk_agent.domain.errors import IdempotencyConflictError
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.models import (
     AssessmentRecord,
     AssessmentRunRecord,
@@ -260,6 +261,20 @@ class ReviewDecisionService:
         )
 
     async def record_review_action(
+        self,
+        command: ApproveReportCommand | RejectReportCommand | RequestReinvestigationCommand,
+    ) -> ReviewDecisionResult:
+        """Record a review decision and emit a safe review boundary trace."""
+        with trace_boundary(
+            "review.record_action",
+            boundary="review",
+            assessment_id=command.assessment_id,
+            run_number=command.run_number,
+            action_type=command.action_type.value,
+        ):
+            return await self._record_review_action(command)
+
+    async def _record_review_action(
         self,
         command: ApproveReportCommand | RejectReportCommand | RequestReinvestigationCommand,
     ) -> ReviewDecisionResult:

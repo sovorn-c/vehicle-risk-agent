@@ -1,5 +1,7 @@
 """Tests for explicit policy abstention below grounding threshold and fail-loud technical errors."""
 
+# story: e02s03
+
 import hashlib
 
 import pytest

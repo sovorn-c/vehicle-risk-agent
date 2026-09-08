@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from vehicle_risk_agent.observability.telemetry import record_model_tokens
 from vehicle_risk_agent.reporting.models import (
     ClaimReference,
     ReportDraft,
@@ -203,6 +204,15 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
             )
         except Exception as exc:
             raise DraftingFailureError("PROVIDER_UNAVAILABLE") from exc
+
+        usage = getattr(message, "usage", None)
+        if isinstance(usage, dict):
+            input_tokens = int(usage.get("input_tokens", 0))
+            output_tokens = int(usage.get("output_tokens", 0))
+        else:
+            input_tokens = int(getattr(usage, "input_tokens", 0))
+            output_tokens = int(getattr(usage, "output_tokens", 0))
+        record_model_tokens(input_tokens, output_tokens, model=self.model)
 
         # Extract text block
         text = message.content[0].text if message.content else ""

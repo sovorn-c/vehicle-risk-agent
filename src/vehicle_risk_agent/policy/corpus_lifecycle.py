@@ -1,5 +1,7 @@
 """Corpus lifecycle manager for validating and activating immutable Policy Corpus Versions."""
 
+# story: e02s02
+
 import json
 from datetime import UTC, datetime
 

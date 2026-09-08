@@ -1,5 +1,7 @@
 """Safe failure categorization and redaction without leaking sensitive internals."""
 
+# story: e07s01
+
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
@@ -36,7 +38,7 @@ def classify_safe_failure(exc: Exception) -> SafeFailure:
         return SafeFailure(
             category=SafeFailureCategory.IDEMPOTENCY_CONFLICT,
             safe_code=SafeFailureCategory.IDEMPOTENCY_CONFLICT.value,
-            safe_message=str(exc),
+            safe_message="An idempotency conflict occurred for the specified operation",
         )
 
     if isinstance(exc, (ConnectionError, TimeoutError, OSError)):

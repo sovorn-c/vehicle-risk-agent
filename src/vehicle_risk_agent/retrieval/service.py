@@ -1,7 +1,10 @@
 """Hybrid Policy Retrieval Service with dense search, keyword search, RRF, and reranking."""
 
+# story: e02s03
+
 from dataclasses import dataclass
 
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.retrieval.adapters import RerankerAdapter
@@ -50,6 +53,14 @@ class HybridRetrievalService:
 
     async def retrieve(self, query: str) -> RetrievalResult:
         """Execute hybrid search pipeline: dense + keyword -> RRF -> rerank -> citations."""
+        with trace_boundary("retrieval.retrieve", boundary="retrieval") as span:
+            result = await self._retrieve(query)
+            span.set_attribute("citation_count", len(result.citations))
+            span.set_attribute("abstention", result.is_abstention)
+            return result
+
+    async def _retrieve(self, query: str) -> RetrievalResult:
+        """Run retrieval without owning the observability boundary."""
         if not query or not query.strip():
             return RetrievalResult(
                 query=query,

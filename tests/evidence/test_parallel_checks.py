@@ -1,5 +1,7 @@
 """Tests for parallel field explanations, fan-out, and deterministic keyed merge."""
 
+# story: e03s03
+
 import pytest
 
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter

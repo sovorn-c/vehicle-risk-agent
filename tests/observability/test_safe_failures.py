@@ -1,4 +1,5 @@
 """Tests for mapping domain and dependency failures to stable safe categories."""
+# story: e07s01
 
 from vehicle_risk_agent.domain.errors import (
     IdempotencyConflictError,
@@ -15,7 +16,7 @@ def test_classify_idempotency_conflict() -> None:
     failure = classify_safe_failure(err)
     assert failure.category == SafeFailureCategory.IDEMPOTENCY_CONFLICT
     assert failure.safe_code == "IDEMPOTENCY_CONFLICT"
-    assert "Payload mismatch" in failure.safe_message
+    assert failure.safe_message == "An idempotency conflict occurred for the specified operation"
     # No stack trace or credentials in safe message
     assert "Traceback" not in failure.safe_message
 

@@ -17,9 +17,13 @@ dependencies = [
     "alembic>=1.13.0,<2",
     "httpx>=0.27.0",
     "pgvector>=0.3.0",
-    "sentence-transformers>=3.0.0",
     "mcp>=2.1.1,<3",
+    "opentelemetry-sdk>=1.44.0",
+    "opentelemetry-instrumentation-fastapi>=0.65b0",
 ]
+
+[project.optional-dependencies]
+ml = ["sentence-transformers>=3.0.0"]
 
 [project.scripts]
 vehicle-risk-agent = "vehicle_risk_agent.__main__:main"

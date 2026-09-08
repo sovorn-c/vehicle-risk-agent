@@ -52,3 +52,12 @@ def test_principal_role_mapping_unknown_token() -> None:
     settings = Settings()
     assert authenticate_bearer_token("invalid-secret-token", settings) is None
     assert authenticate_bearer_token("", settings) is None
+
+
+def test_mcp_server_url_normalizes_to_mcp_endpoint() -> None:
+    """Bare base URL must normalize to the streamable /mcp endpoint path."""
+    settings = Settings(mcp_server_url="http://localhost:8080")
+    assert settings.mcp_server_url == "http://localhost:8080/mcp"
+
+    settings_already_mcp = Settings(mcp_server_url="http://localhost:8080/mcp")
+    assert settings_already_mcp.mcp_server_url == "http://localhost:8080/mcp"

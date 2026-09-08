@@ -1,5 +1,7 @@
 """In-memory pub/sub broadcaster for live workflow progress events."""
 
+# story: e01s02
+
 import asyncio
 from collections import defaultdict
 from collections.abc import AsyncIterator

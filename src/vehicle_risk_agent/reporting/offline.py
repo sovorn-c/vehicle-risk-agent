@@ -1,5 +1,7 @@
 """Pure deterministic offline report drafting adapter."""
 
+# story: e04s02
+
 from __future__ import annotations
 
 from vehicle_risk_agent.reporting.models import (

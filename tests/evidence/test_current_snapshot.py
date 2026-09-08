@@ -1,5 +1,7 @@
 """Tests for persisting and retrieving immutable Vehicle Evidence Snapshots."""
 
+# story: e03s01
+
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 

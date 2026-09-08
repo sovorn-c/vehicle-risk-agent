@@ -10,6 +10,8 @@ Design constraints (e04s03):
 - GroundingResult is a frozen Pydantic model.
 """
 
+# story: e04s03
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

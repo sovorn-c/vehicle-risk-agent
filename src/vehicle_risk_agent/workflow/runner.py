@@ -1,5 +1,7 @@
 """Assessment workflow runner integrating LangGraph and domain repositories."""
 
+# story: e07s01
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -15,12 +17,40 @@ from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Setting
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
+from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
+from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
 from vehicle_risk_agent.reporting.repository import ReportDraftRepository
+from vehicle_risk_agent.retrieval.adapters import (
+    EmbeddingAdapter,
+    FakeEmbeddingAdapter,
+    FakeRerankerAdapter,
+    RerankerAdapter,
+)
+from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
+from vehicle_risk_agent.retrieval.service import HybridRetrievalService
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository, RiskResultRepository
 from vehicle_risk_agent.workflow.graph import build_assessment_graph
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
+
+
+def build_initial_state(
+    assessment_id: str,
+    run_number: int,
+    vin: str,
+    context: AssessmentContext,
+) -> AssessmentGraphState:
+    """Build the initial state for one persisted Assessment Run."""
+    return {
+        "assessment_id": assessment_id,
+        "run_number": run_number,
+        "vin": vin,
+        "context": context,
+        "phase": AssessmentRunPhase.PENDING,
+        "visited_phases": [AssessmentRunPhase.PENDING],
+        "events": [],
+    }
 
 
 class AssessmentWorkflowRunner:
@@ -32,12 +62,16 @@ class AssessmentWorkflowRunner:
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         broadcaster: ProgressEventBroadcaster | None = None,
         mcp_adapter: VehicleMcpClientAdapter | None = None,
+        embedding_adapter: EmbeddingAdapter | None = None,
+        reranker_adapter: RerankerAdapter | None = None,
         integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
         self.broadcaster = broadcaster
         self.mcp_adapter = mcp_adapter
+        self.embedding_adapter = embedding_adapter
+        self.reranker_adapter = reranker_adapter
         self.integrity_secret = integrity_secret
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
@@ -50,6 +84,8 @@ class AssessmentWorkflowRunner:
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         broadcaster: ProgressEventBroadcaster | None = None,
         mcp_adapter: VehicleMcpClientAdapter | None = None,
+        embedding_adapter: EmbeddingAdapter | None = None,
+        reranker_adapter: RerankerAdapter | None = None,
     ) -> AsyncIterator["AssessmentWorkflowRunner"]:
         """Create and initialize a runner with AsyncPostgresSaver and optional session factory."""
         conn_string = settings.database_url.replace("+psycopg", "")
@@ -69,6 +105,8 @@ class AssessmentWorkflowRunner:
                     session_factory=session_factory,
                     broadcaster=broadcaster,
                     mcp_adapter=configured_mcp_adapter,
+                    embedding_adapter=embedding_adapter,
+                    reranker_adapter=reranker_adapter,
                     integrity_secret=settings.snapshot_integrity_secret.get_secret_value(),
                 )
             finally:
@@ -105,37 +143,92 @@ class AssessmentWorkflowRunner:
         if "mcp_adapter" not in configurable and self.mcp_adapter is not None:
             configurable["mcp_adapter"] = self.mcp_adapter
 
-        # If session_factory is available and event_store not explicitly passed in configurable
-        if self.session_factory is not None:
-            async with self.session_factory() as session:
-                if "event_store" not in configurable:
-                    store = EventStore(session, broadcaster=self.broadcaster)
-                    configurable["event_store"] = store
-                if "evidence_repo" not in configurable:
-                    configurable["evidence_repo"] = VehicleEvidenceRepository(
-                        session,
-                        integrity_secret=self.integrity_secret,
-                    )
-                if "policy_repo" not in configurable:
-                    configurable["policy_repo"] = RiskPolicyRepository(session)
-                if "risk_repo" not in configurable:
-                    configurable["risk_repo"] = RiskResultRepository(session)
-                if "draft_repo" not in configurable:
-                    configurable["draft_repo"] = ReportDraftRepository(session)
-                if "assessment_repo" not in configurable:
-                    configurable["assessment_repo"] = AssessmentRepository(session)
-                run_config["configurable"] = configurable
-                result: dict[str, Any] = await self._app.ainvoke(
-                    initial_state, config=cast(RunnableConfig, run_config)
-                )
-                await session.commit()
-                return result
+        with trace_boundary(
+            "workflow.execute",
+            boundary="workflow",
+            assessment_id=asmt_id,
+            run_number=run_num,
+        ):
+            # If session_factory is available and event_store not explicitly passed in configurable
+            if self.session_factory is not None:
+                async with self.session_factory() as session:
+                    with trace_boundary(
+                        "database.workflow_session",
+                        boundary="database",
+                        assessment_id=asmt_id,
+                        run_number=run_num,
+                    ):
+                        if "event_store" not in configurable:
+                            store = EventStore(session, broadcaster=self.broadcaster)
+                            configurable["event_store"] = store
+                        if "evidence_repo" not in configurable:
+                            configurable["evidence_repo"] = VehicleEvidenceRepository(
+                                session,
+                                integrity_secret=self.integrity_secret,
+                            )
+                        if "policy_repo" not in configurable:
+                            configurable["policy_repo"] = RiskPolicyRepository(session)
+                        if "risk_repo" not in configurable:
+                            configurable["risk_repo"] = RiskResultRepository(session)
+                        if "draft_repo" not in configurable:
+                            configurable["draft_repo"] = ReportDraftRepository(session)
+                        if "assessment_repo" not in configurable:
+                            configurable["assessment_repo"] = AssessmentRepository(session)
+                        if "retrieval_service" not in configurable:
+                            active_corpus = await CorpusLifecycleManager(
+                                session
+                            ).get_active_corpus()
+                            if active_corpus is not None:
+                                embedder = self.embedding_adapter or FakeEmbeddingAdapter()
+                                reranker = self.reranker_adapter or FakeRerankerAdapter()
+                                index = PostgresPolicyIndex(
+                                    session,
+                                    embedder,
+                                    active_corpus.snapshot_ids,
+                                    active_corpus.retrieval_config,
+                                )
+                                configurable["retrieval_service"] = HybridRetrievalService(
+                                    index,
+                                    reranker,
+                                    active_corpus.retrieval_config,
+                                )
 
-        run_config["configurable"] = configurable
-        res: dict[str, Any] = await self._app.ainvoke(
-            initial_state, config=cast(RunnableConfig, run_config)
-        )
-        return res
+                        run_config["configurable"] = configurable
+                        assessment_repo = configurable.get("assessment_repo")
+                        if assessment_repo is not None:
+                            await assessment_repo.ensure_run(asmt_id, run_num)
+                        try:
+                            result: dict[str, Any] = await self._app.ainvoke(
+                                initial_state, config=cast(RunnableConfig, run_config)
+                            )
+                            phase_value = result.get("phase", AssessmentRunPhase.FAILED)
+                            try:
+                                final_phase = AssessmentRunPhase(phase_value)
+                            except (TypeError, ValueError):
+                                final_phase = AssessmentRunPhase.FAILED
+                            if assessment_repo is not None:
+                                await assessment_repo.update_run_phase(
+                                    asmt_id, run_num, final_phase
+                                )
+                            else:
+                                await session.commit()
+                            return result
+                        except Exception:
+                            await session.rollback()
+                            if assessment_repo is not None:
+                                try:
+                                    await assessment_repo.update_run_phase(
+                                        asmt_id, run_num, AssessmentRunPhase.FAILED
+                                    )
+                                except Exception:
+                                    await session.rollback()
+                            raise
+
+            run_config["configurable"] = configurable
+            res: dict[str, Any] = await self._app.ainvoke(
+                initial_state, config=cast(RunnableConfig, run_config)
+            )
+            return res
 
 
 class AssessmentRunner:
@@ -159,22 +252,20 @@ class AssessmentRunner:
         context: AssessmentContext,
     ) -> dict[str, Any]:
         """Execute the assessment graph without checkpointer."""
-        initial_state: AssessmentGraphState = {
-            "assessment_id": assessment_id,
-            "run_number": run_number,
-            "vin": vin,
-            "context": context,
-            "phase": AssessmentRunPhase.PENDING,
-            "visited_phases": [AssessmentRunPhase.PENDING],
-            "events": [],
-        }
+        initial_state = build_initial_state(assessment_id, run_number, vin, context)
         config: dict[str, Any] = {
             "configurable": {
                 "mcp_adapter": self.mcp_adapter,
                 "evidence_repo": self.evidence_repo,
             }
         }
-        res: dict[str, Any] = await self._app.ainvoke(
-            initial_state, config=cast(RunnableConfig, config)
-        )
-        return res
+        with trace_boundary(
+            "workflow.execute",
+            boundary="workflow",
+            assessment_id=assessment_id,
+            run_number=run_number,
+        ):
+            res: dict[str, Any] = await self._app.ainvoke(
+                initial_state, config=cast(RunnableConfig, config)
+            )
+            return res

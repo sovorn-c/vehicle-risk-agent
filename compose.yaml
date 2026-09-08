@@ -1,0 +1,131 @@
+# story: e07s02
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${VEHICLE_RISK_AGENT_DB_PORT:-54329}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  pipeline-migrate:
+    build:
+      context: ../nz-vehicle-data-pipeline
+      dockerfile: Dockerfile
+    image: nz-vehicle-data-pipeline:0.1.0
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  pipeline-seed:
+    build:
+      context: ../nz-vehicle-data-pipeline
+      dockerfile: Dockerfile
+    image: nz-vehicle-data-pipeline:0.1.0
+    restart: "no"
+    command: ["python", "-m", "nz_vehicle_data_pipeline.cli.seed", "--manifest", "fixtures/manifest.json", "--phase2"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      pipeline-migrate:
+        condition: service_completed_successfully
+
+  pipeline:
+    build:
+      context: ../nz-vehicle-data-pipeline
+      dockerfile: Dockerfile
+    image: nz-vehicle-data-pipeline:0.1.0
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    ports:
+      - "8000:8000"
+    depends_on:
+      pipeline-seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/ready\")'"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  mcp:
+    build:
+      context: ../vehicle-mcp-server
+      dockerfile: Dockerfile
+    image: vehicle-mcp-server:0.1.0
+    restart: unless-stopped
+    environment:
+      VEHICLE_MCP_TRANSPORT: http
+      VEHICLE_MCP_HTTP_HOST: 0.0.0.0
+      VEHICLE_MCP_HTTP_PORT: 8080
+      VEHICLE_MCP_ALLOW_INSECURE_BIND: "true"
+      VEHICLE_MCP_ALLOWED_HOSTS: mcp,mcp:8080
+      VEHICLE_MCP_PIPELINE_BASE_URL: http://pipeline:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.create_connection(('127.0.0.1', 8080), timeout=2); s.close()\""]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  agent-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vehicle-risk-agent:0.1.0
+    restart: "no"
+    command: ["python", "-m", "vehicle_risk_agent.cli.seed"]
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+      pipeline-seed:
+        condition: service_completed_successfully
+
+  agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vehicle-risk-agent:0.1.0
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/postgres
+      MCP_SERVER_URL: http://mcp:8080/mcp
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+      agent-seed:
+        condition: service_completed_successfully
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/health\")'"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+volumes:
+  db_data:

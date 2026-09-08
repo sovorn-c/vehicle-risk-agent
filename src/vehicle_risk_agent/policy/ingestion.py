@@ -1,5 +1,7 @@
 """Policy document parsing, chunking, structural validation, and ingestion."""
 
+# story: e02s01
+
 import hashlib
 import re
 from datetime import UTC, datetime

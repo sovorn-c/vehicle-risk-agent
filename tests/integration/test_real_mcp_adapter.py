@@ -60,6 +60,50 @@ async def test_streamable_http_adapter_validates_structured_tool_results(
 
 
 @pytest.mark.asyncio
+async def test_streamable_http_adapter_unwraps_mcp_list_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Top-level list output wrapped by MCP is normalized before validation."""
+    adapter = StreamableHttpVehicleMcpAdapter(
+        server_url="http://mcp:8000/mcp",
+        timeout_seconds=1,
+        max_retries=0,
+    )
+    now = datetime.now(UTC).isoformat()
+    history_item = {
+        "vin": "7AT0BK00X00000001",
+        "revision_id": "rev-1",
+        "revision_number": 1,
+        "material_hash": "a" * 64,
+        "canonical_fields": {"make": "HONDA"},
+        "confidence": {
+            "score": 90,
+            "band": "HIGH",
+            "field_scores": {},
+            "field_components": {},
+            "rule_version": "v1",
+            "explanation": "verified",
+        },
+        "as_of": now,
+        "published_at": now,
+    }
+    result = types.CallToolResult(
+        content=[],
+        structured_content={"result": [history_item]},
+    )
+
+    async def fake_call_once(_tool_name: str, _arguments: dict[str, Any]) -> types.CallToolResult:
+        assert _tool_name == "get_vehicle_history"
+        assert _arguments == {"vin": "7AT0BK00X00000001", "limit": 20}
+        return result
+
+    monkeypatch.setattr(adapter, "_call_once", fake_call_once)
+    history = await adapter.get_vehicle_history("7AT0BK00X00000001")
+    assert len(history) == 1
+    assert history[0].revision_id == "rev-1"
+
+
+@pytest.mark.asyncio
 async def test_streamable_http_adapter_rejects_response_for_another_vin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

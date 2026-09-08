@@ -1,5 +1,7 @@
 """Tests for Policy Corpus state transitions, validation, and single-active-corpus invariant."""
 
+# story: e02s02
+
 from collections.abc import AsyncGenerator
 
 import pytest
