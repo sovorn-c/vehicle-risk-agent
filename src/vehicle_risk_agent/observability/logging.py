@@ -1,8 +1,11 @@
 """Structured JSON logging with correlation, assessment, and redaction support."""
 
+# story: e07s01
+
 import contextvars
 import json
 import logging
+import re
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -36,6 +39,22 @@ SENSITIVE_KEY_SUBSTRINGS = (
     "raw_evidence",
 )
 
+CANARY_PATTERN = re.compile(r"(?i)\bcanary[-_a-zA-Z0-9]*\b")
+BEARER_PATTERN = re.compile(r"(?i)bearer\s+[a-zA-Z0-9._~+/-]+=*")
+TOKEN_PAIR_PATTERN = re.compile(
+    r"(?i)(password|secret|token|api[_-]?key)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?"
+)
+
+
+def redact_sensitive_text(text: str) -> str:
+    """Redact tokens, passwords, canaries, and bearer headers from arbitrary text."""
+    if not isinstance(text, str):
+        return text
+    text = BEARER_PATTERN.sub("Bearer [REDACTED]", text)
+    text = TOKEN_PAIR_PATTERN.sub(r"\1=[REDACTED]", text)
+    text = CANARY_PATTERN.sub("[REDACTED]", text)
+    return text
+
 
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.lower()
@@ -43,9 +62,11 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def sanitize_telemetry_value(key: str, value: Any) -> Any:
-    """Sanitize sensitive keys or nested dict values."""
+    """Sanitize sensitive keys or nested dict values, redacting sensitive text."""
     if _is_sensitive_key(key):
         return "[REDACTED]"
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
     if isinstance(value, dict):
         return {k: sanitize_telemetry_value(str(k), v) for k, v in value.items()}
     if isinstance(value, list):
@@ -86,7 +107,7 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact_sensitive_text(record.getMessage()),
         }
 
         # Resolve context fields from record attributes or active contextvars
