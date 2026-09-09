@@ -86,6 +86,9 @@ def test_hosted_mcp_quickstart_documents_safe_local_fallback() -> None:
         "nz-vehicle-data-pipeline",
         "full-local",
         "docker compose -p vehicle-risk-agent-quickstart -f compose.quickstart.yaml down -v",
+        "curl",
+        "synthetic fixtures",
+        "live restricted-register data",
     ):
         assert value in readme, f"README must document {value}"
 
