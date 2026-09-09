@@ -7,8 +7,8 @@ from vehicle_risk_agent.config import Settings
 
 
 def _client() -> TestClient:
-    """Build an app without reading a developer's local .env file."""
-    return TestClient(create_app(settings=Settings(_env_file=None)))
+    """Build an app with the MCP boundary explicitly unconfigured."""
+    return TestClient(create_app(settings=Settings(mcp_server_url=None)))
 
 
 def test_docs_is_a_branded_workflow_entrypoint() -> None:
