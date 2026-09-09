@@ -18,7 +18,7 @@ To use the full local stack instead, clone the sibling repositories beside this 
 EOF
 }
 
-echo "Checking hosted Vehicle Intelligence MCP endpoint: ${MCP_URL}"
+echo "Checking hosted Vehicle Intelligence MCP endpoint"
 if ! status_code=$(curl -sS --connect-timeout 5 --max-time 10 \
     -o /dev/null -w "%{http_code}" \
     -X POST "${MCP_URL}" \

@@ -8,8 +8,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-    ports:
-      - "${VEHICLE_RISK_AGENT_QUICKSTART_DB_PORT:-54329}:5432"
     volumes:
       - quickstart_db_data:/var/lib/postgresql/data
     healthcheck:
