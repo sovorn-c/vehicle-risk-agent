@@ -44,6 +44,18 @@ def test_docs_has_a_narrow_layout_overflow_guard() -> None:
     assert "@media (max-width: 680px)" in response.text
 
 
+def test_docs_only_runs_public_get_operations_without_cookies() -> None:
+    """Protected GETs are documented but the landing page can run only public probes."""
+    with _client() as client:
+        response = client.get("/docs")
+
+    assert "const publicReadPaths = new Set(['/health', '/ready']);" in response.text
+    assert "publicReadPaths.has(operation.path)" in response.text
+    assert "method: 'GET'" in response.text
+    assert "credentials: 'omit'" in response.text
+    assert "authenticated" in response.text
+
+
 def test_docs_explorer_is_openapi_backed_and_read_only_on_landing_page() -> None:
     """The explorer discovers the full contract but only executes GET operations."""
     with _client() as client:
