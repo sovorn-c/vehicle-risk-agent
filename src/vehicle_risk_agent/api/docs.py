@@ -370,7 +370,7 @@ DOCS_HTML = r"""<!doctype html>
     <main id="top">
       <header class="topbar">
         <div class="crumb"><b>Developer docs</b> / v0.1.0</div>
-        <div class="top-actions"><span class="ready" id="ready-status">Checking API…</span><a class="top-link" href="/openapi.json">OpenAPI JSON ↗</a><a class="top-link" href="/reference">Full reference ↗</a></div>
+        <div class="top-actions"><span class="ready" id="ready-status" role="status" aria-live="polite">Checking API…</span><a class="top-link" href="/openapi.json">OpenAPI JSON ↗</a><a class="top-link" href="/reference">Full reference ↗</a></div>
       </header>
 
       <div class="content">
@@ -442,7 +442,8 @@ DOCS_HTML = r"""<!doctype html>
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
     }[char]));
 
-    const isSafeRead = (operation) => operation.method.toLowerCase() === 'get' && !operation.path.endsWith('/events') && !operation.path.includes('/evidence/observations/');
+    const publicReadPaths = new Set(['/health', '/ready']);
+    const isSafeRead = (operation) => operation.method.toLowerCase() === 'get' && publicReadPaths.has(operation.path);
 
     const groupFor = (operation) => {
       const tag = operation.tags?.[0];
@@ -477,7 +478,7 @@ DOCS_HTML = r"""<!doctype html>
       response.textContent = 'Requesting…';
       response.dataset.state = 'loading';
       try {
-        const result = await fetch(operationUrl(operation, card), { headers: { Accept: 'application/json' } });
+        const result = await fetch(operationUrl(operation, card), { method: 'GET', credentials: 'omit', headers: { Accept: 'application/json' } });
         const text = await result.text();
         let payload;
         try { payload = JSON.parse(text); } catch { payload = text; }
@@ -521,9 +522,10 @@ DOCS_HTML = r"""<!doctype html>
             const safe = isSafeRead(operation);
             const params = (operation.parameters || []).filter((parameter) => parameter.in === 'path' || parameter.in === 'query');
             const inputs = params.map((parameter) => `<input class="param-input" data-param="${escapeHtml(parameter.name)}" data-location="${escapeHtml(parameter.in)}" value="${escapeHtml(examples[parameter.name] || '')}" placeholder="${escapeHtml(parameter.name)}" aria-label="${escapeHtml(parameter.name)}">`).join('');
-            const badges = safe ? '<span class="badge safe">read-only</span>' : `<span class="badge review">${method === 'get' ? 'stream / restricted' : 'authenticated'}</span>`;
+            const restrictedStream = method === 'get' && (operation.path.endsWith('/events') || operation.path.includes('/evidence/observations/'));
+            const badges = safe ? '<span class="badge safe">read-only</span>' : `<span class="badge review">${restrictedStream ? 'stream / restricted' : 'authenticated'}</span>`;
             const controls = safe ? `<button class="run" type="button" data-operation="${index}">Try request</button>` : '<span class="badge review">Use full reference</span>';
-            return `<details class="endpoint"><summary><span class="method ${escapeHtml(method)}">${escapeHtml(method.toUpperCase())}</span><span class="path mono">${escapeHtml(operation.path)}</span><span class="operation-badges">${badges}</span><span class="summary-text">${escapeHtml(operation.summary || 'API operation')}</span></summary><div class="endpoint-body"><div class="endpoint-description"><p>${escapeHtml(operation.description || operation.summary || 'API operation.')}</p><div class="try-form">${inputs}${controls}<button class="copy" type="button" data-copy-operation="${index}">Copy cURL</button></div></div><div><span class="response-label">Response preview</span><pre class="response">${safe ? 'Run a read-only request to inspect the response.' : 'This operation is documented here and executable in the full reference UI.'}</pre></div></div></details>`;
+            return `<details class="endpoint"><summary><span class="method ${escapeHtml(method)}">${escapeHtml(method.toUpperCase())}</span><span class="path mono">${escapeHtml(operation.path)}</span><span class="operation-badges">${badges}</span><span class="summary-text">${escapeHtml(operation.summary || 'API operation')}</span></summary><div class="endpoint-body"><div class="endpoint-description"><p>${escapeHtml(operation.description || operation.summary || 'API operation.')}</p><div class="try-form">${inputs}${controls}<button class="copy" type="button" data-copy-operation="${index}">Copy cURL</button></div></div><div><span class="response-label">Response preview</span><pre class="response" role="status" aria-live="polite">${safe ? 'Run a read-only request to inspect the response.' : 'This operation is documented here and executable in the full reference UI.'}</pre></div></div></details>`;
           }).join('')}
         </div></div>`).join('');
       endpointRoot.querySelectorAll('.run').forEach((button) => button.addEventListener('click', () => runReadOnly(button)));
@@ -532,10 +534,10 @@ DOCS_HTML = r"""<!doctype html>
 
     const loadContract = async () => {
       try {
-        const response = await fetch('/openapi.json', { headers: { Accept: 'application/json' } });
+        const response = await fetch('/openapi.json', { method: 'GET', credentials: 'omit', headers: { Accept: 'application/json' } });
         if (!response.ok) throw new Error('contract unavailable');
         const schema = await response.json();
-        const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+        const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'];
         operations = Object.entries(schema.paths).flatMap(([path, pathItem]) => methods.filter((method) => pathItem[method]).map((method) => ({ ...pathItem[method], method, path })));
         renderEndpoints();
       } catch {
@@ -547,7 +549,7 @@ DOCS_HTML = r"""<!doctype html>
     const checkReady = async () => {
       const status = document.getElementById('ready-status');
       try {
-        const response = await fetch('/ready', { headers: { Accept: 'application/json' } });
+        const response = await fetch('/ready', { method: 'GET', credentials: 'omit', headers: { Accept: 'application/json' } });
         status.textContent = response.ok ? 'API ready' : 'API unavailable';
         status.classList.toggle('online', response.ok);
       } catch { status.textContent = 'API unavailable'; }
