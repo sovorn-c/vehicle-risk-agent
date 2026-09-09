@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
+from vehicle_risk_agent.api.docs import DOCS_HTML
 from vehicle_risk_agent.api.evidence_routes import router as evidence_router
 from vehicle_risk_agent.api.policy_routes import router as policy_router
 from vehicle_risk_agent.api.review_routes import router as review_router
@@ -84,6 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="Vehicle Risk Assessment Agent",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
         lifespan=lifespan,
     )
     instrument_app(app)
@@ -96,6 +100,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.mcp_adapter = mcp_adapter
     app.state.workflow_tasks = set()
     app.state.scheduled_workflow_runs = set()
+
+    @app.get("/docs", include_in_schema=False, response_class=HTMLResponse)
+    async def documentation() -> HTMLResponse:
+        return HTMLResponse(DOCS_HTML)
+
+    @app.get("/reference", include_in_schema=False, response_class=HTMLResponse)
+    async def documentation_reference() -> HTMLResponse:
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url or "/openapi.json",
+            title="Vehicle Risk Assessment Agent · Full API reference",
+        )
 
     def schedule_workflow_run(assessment: Assessment) -> bool:
         """Schedule one pending run and retain its task until completion."""
