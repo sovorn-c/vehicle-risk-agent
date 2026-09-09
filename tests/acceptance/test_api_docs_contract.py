@@ -35,6 +35,15 @@ def test_docs_is_a_branded_workflow_entrypoint() -> None:
     assert "prefers-reduced-motion" in response.text
 
 
+def test_docs_has_a_narrow_layout_overflow_guard() -> None:
+    """The mobile grid can shrink instead of using endpoint content as its width."""
+    with _client() as client:
+        response = client.get("/docs")
+
+    assert "grid-template-columns: minmax(0, 1fr);" in response.text
+    assert "@media (max-width: 680px)" in response.text
+
+
 def test_docs_explorer_is_openapi_backed_and_read_only_on_landing_page() -> None:
     """The explorer discovers the full contract but only executes GET operations."""
     with _client() as client:
