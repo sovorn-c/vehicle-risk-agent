@@ -111,3 +111,24 @@ def test_compose_mcp_server_url_contract() -> None:
     assert mcp_url == "http://mcp:8080/mcp", (
         f"MCP_SERVER_URL in compose.yaml must be http://mcp:8080/mcp, got: {mcp_url}"
     )
+
+
+def test_quickstart_compose_uses_hosted_mcp_without_sibling_repositories() -> None:
+    """Quickstart must use hosted MCP while full-local Compose keeps sibling services."""
+    compose_path = REPO_ROOT / "compose.quickstart.yaml"
+    assert compose_path.exists(), "compose.quickstart.yaml must exist"
+    content = compose_path.read_text(encoding="utf-8")
+    data = yaml.safe_load(content)
+
+    services = data.get("services", {})
+    assert set(services) == {"db", "agent-seed", "agent-api"}
+    agent_env = services["agent-api"].get("environment", {})
+    assert agent_env.get("MCP_SERVER_URL") == (
+        "${QUICKSTART_MCP_SERVER_URL:-https://vehicle-mcp.chhlatbot.com/mcp}"
+    )
+    assert "vehicle-mcp-server" not in content
+    assert "nz-vehicle-data-pipeline" not in content
+    assert services["agent-seed"]["depends_on"]["db"]["condition"] == "service_healthy"
+    assert services["agent-api"]["depends_on"]["agent-seed"]["condition"] == (
+        "service_completed_successfully"
+    )
