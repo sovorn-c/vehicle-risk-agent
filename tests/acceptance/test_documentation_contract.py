@@ -67,3 +67,30 @@ def test_readme_ports_match_compose() -> None:
     assert "8001" in content, "README must document agent-api port 8001"
     assert "8080" in content, "README must document MCP port 8080"
     assert "asyncpg" not in content, "README must use psycopg, not asyncpg"
+
+
+def test_hosted_mcp_quickstart_documents_safe_local_fallback() -> None:
+    """Quickstart docs and its reachability script must provide both delivery paths."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    script_path = repo_root / "scripts/smoke-quickstart.sh"
+    assert script_path.exists(), "quickstart reachability script must exist"
+    script = script_path.read_text(encoding="utf-8")
+
+    for value in (
+        "compose.quickstart.yaml",
+        "scripts/smoke-quickstart.sh",
+        "QUICKSTART_MCP_SERVER_URL",
+        "https://vehicle-mcp.chhlatbot.com/mcp",
+        "vehicle-mcp-server",
+        "nz-vehicle-data-pipeline",
+        "full-local",
+    ):
+        assert value in readme, f"README must document {value}"
+
+    assert "tools/list" in script
+    assert "--connect-timeout" in script
+    assert "--max-time" in script
+    assert "vehicle-mcp-server" in script
+    assert "nz-vehicle-data-pipeline" in script
+    assert "silently" in script.lower()
