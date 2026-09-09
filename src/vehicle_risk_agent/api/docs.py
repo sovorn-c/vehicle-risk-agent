@@ -316,7 +316,7 @@ DOCS_HTML = r"""<!doctype html>
     .footer a { color: var(--ink); font-weight: 800; }
 
     @media (max-width: 1000px) {
-      .app { grid-template-columns: 1fr; }
+      .app { grid-template-columns: minmax(0, 1fr); }
       .sidebar { position: static; height: auto; padding: 16px 20px; gap: 15px; }
       .nav-label, .sidebar-foot { display: none; }
       .nav { display: flex; overflow-x: auto; gap: 3px; }
