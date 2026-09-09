@@ -85,9 +85,11 @@ def test_hosted_mcp_quickstart_documents_safe_local_fallback() -> None:
         "vehicle-mcp-server",
         "nz-vehicle-data-pipeline",
         "full-local",
+        "docker compose -p vehicle-risk-agent-quickstart -f compose.quickstart.yaml down -v",
     ):
         assert value in readme, f"README must document {value}"
 
+    assert "config --format json" in script
     assert "tools/list" in script
     assert "--connect-timeout" in script
     assert "--max-time" in script
