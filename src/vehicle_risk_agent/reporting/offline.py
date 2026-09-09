@@ -407,9 +407,7 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
         citations = context.policy_citations
         aid = context.assessment_id
         rnum = context.run_number
-        is_abstention = context.metadata.get("is_abstention", False) or (
-            len(citations) == 0 and context.risk_result.is_incomplete
-        )
+        is_abstention = context.metadata.get("is_abstention", False) or not citations
 
         abstention_notice = None
         if is_abstention or len(citations) == 0:

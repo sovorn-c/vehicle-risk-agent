@@ -527,6 +527,32 @@ async def test_offline_draft_policy_abstention_handling() -> None:
 
 
 @pytest.mark.asyncio
+async def test_offline_draft_empty_citations_mark_scored_abstention() -> None:
+    """Verify empty policy grounding is explicit for complete scored reports."""
+    _, snapshot = _make_sample_snapshot()
+    risk_result = calculate_risk_result(
+        policy=build_risk_policy_v1(),
+        snapshot=snapshot,
+        policy_citations=(),
+    )
+    context = ReportDraftingContext(
+        assessment_id="asmt-test-09",
+        run_number=1,
+        vehicle_id=snapshot.vin,
+        risk_result=risk_result,
+        evidence_snapshot=snapshot,
+        policy_citations=(),
+    )
+
+    draft = await OfflineReportDraftingAdapter().draft_report(context)
+
+    policy_section = draft.sections.policy_citations
+    assert policy_section.citations == ()
+    assert policy_section.has_abstention is True
+    assert policy_section.abstention_notice is not None
+
+
+@pytest.mark.asyncio
 async def test_offline_drafting_is_purely_deterministic() -> None:
     """Verify drafting multiple times on identical context produces identical draft_hash."""
     _, snapshot = _make_sample_snapshot(ppsr_result="MATCH")
