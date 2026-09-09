@@ -83,6 +83,23 @@ All regulatory and risk evaluations are anchored in attributable New Zealand leg
 - `uv` package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Docker and Docker Compose (v2.20+)
 
+### Hosted-MCP Quickstart (No Sibling Repositories)
+
+For a fast demonstration, this repository can use the optional hosted Vehicle Intelligence MCP endpoint. Clone only this repository, then run:
+
+```bash
+cp .env.example .env
+bash scripts/smoke-quickstart.sh
+```
+
+The script checks `https://vehicle-mcp.chhlatbot.com/mcp`, starts `compose.quickstart.yaml`, seeds the Agent database, and runs the Agent API smoke journey. To use another compatible endpoint, set `QUICKSTART_MCP_SERVER_URL` explicitly:
+
+```bash
+QUICKSTART_MCP_SERVER_URL=https://example.invalid/mcp bash scripts/smoke-quickstart.sh
+```
+
+The hosted endpoint is optional, may be unavailable or rate-limited, and has no production SLA. The quickstart never silently switches to fake or local evidence. If the reachability check fails, clone the two sibling repositories beside this one and use the full-local path below.
+
 ### Environment Setup
 
 Copy example environment variables:
@@ -94,13 +111,17 @@ Key environment variables:
 - `DATABASE_URL`: PostgreSQL connection string (default: `postgresql+psycopg://postgres:postgres@localhost:54329/postgres`)
 - `ANTHROPIC_API_KEY`: Optional Anthropic API key for live report drafting (offline drafting adapter used when absent)
 - `LOG_LEVEL`: Logging verbosity (`INFO`, `DEBUG`)
-- `MCP_SERVER_URL`: Upstream vehicle intelligence MCP server (`http://localhost:8080`)
+- `MCP_SERVER_URL`: Upstream vehicle intelligence MCP server for the full-local Compose path (`http://localhost:8080`)
+- `QUICKSTART_MCP_SERVER_URL`: Optional hosted MCP URL override for `compose.quickstart.yaml` (defaults to `https://vehicle-mcp.chhlatbot.com/mcp`)
 
 ### Running Locally with Docker Compose
 
-Start all pinned services using `compose.yaml`:
+The full-local path remains the authoritative development setup. Clone the sibling services beside this repository if they are not already present:
+
 ```bash
-docker compose up -d
+git clone git@github.com:sovorn-c/vehicle-mcp-server.git ../vehicle-mcp-server
+git clone git@github.com:sovorn-c/nz-vehicle-data-pipeline.git ../nz-vehicle-data-pipeline
+docker compose up -d --build --wait
 ```
 
 Services started:
