@@ -1,43 +1,112 @@
 # Vehicle Risk Assessment Agent
 
-### An auditable decision workflow—not a vehicle lookup API.
-
 [![CI](https://github.com/sovorn-c/vehicle-risk-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/sovorn-c/vehicle-risk-agent/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-Stateful%20Orchestration-1C3C3C)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-336791?logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-445%20passing-success)
 
-This portfolio project turns vehicle evidence and policy into a reviewable risk
-assessment. It uses a typed LangGraph workflow, Model Context Protocol (MCP),
-policy RAG, deterministic scoring, and mandatory human approval.
+**A policy-grounded risk assessment service that evaluates vehicle evidence through typed LangGraph workflows, deterministic scoring, and human review gates.**
 
-> **Important:** This is a reference implementation for demonstration and
-> engineering discussion. It does not access live restricted registers and
-> must not be used to make production decisions from synthetic data.
+An MCP server can answer questions about a vehicle. A consequential risk system must do more: verify whether evidence is legally and empirically sufficient, retrieve and cite applicable policies, calculate deterministic risk scores without LLM hallucination, generate an auditable 9-section report, and halt at human approval checkpoints before release.
 
-## Why this project exists
+This service owns that decision layer. It sits downstream from data ingestion and MCP tool protocols to deliver an auditable, human-in-the-loop assessment workflow.
 
-An MCP server can answer questions about a vehicle. A risk system has to do
-more: decide whether the evidence is sufficient, apply a versioned policy,
-explain the result, preserve provenance, and stop for human review.
+> [!IMPORTANT]
+> This is a reference implementation for demonstration and engineering evaluation. It operates on synthetic fixtures, does not access live restricted-register data, and must not be used to make actual legal, financial, or purchase decisions.
 
-This repository owns that decision layer. It is deliberately separate from
-the services that ingest and expose vehicle data.
+---
 
 ## Three repositories, three responsibilities
 
 | Repository | Responsibility | Engineering focus |
-| --- | --- | --- |
-| [`nz-vehicle-data-pipeline`](https://github.com/sovorn-c/nz-vehicle-data-pipeline) | Ingests and reconciles vehicle data | Data pipelines and source authority |
-| [`vehicle-mcp-server`](https://github.com/sovorn-c/vehicle-mcp-server) | Exposes typed vehicle-intelligence tools | MCP contracts and service boundaries |
-| **`vehicle-risk-agent`** | Produces a policy-grounded, reviewable assessment | Workflow orchestration and decision safety |
-
-The system boundary is:
+|---|---|---|
+| [`nz-vehicle-data-pipeline`](https://github.com/sovorn-c/nz-vehicle-data-pipeline) | Ingests and reconciles vehicle data across disparate sources | Data pipelines, source authority, and canonical revisions |
+| [`vehicle-mcp-server`](https://github.com/sovorn-c/vehicle-mcp-server) | Exposes typed vehicle-intelligence tools over stdio and Streamable HTTP | MCP contracts, transport parity, and safe service boundaries |
+| **`vehicle-risk-agent`** | Produces policy-grounded, reviewable vehicle risk assessments | Typed workflow orchestration, policy RAG, deterministic scoring, and decision safety |
 
 ```text
-Pipeline  →  MCP Server  →  Vehicle Risk Agent  →  Human-approved report
-  data        capability       decision workflow       outcome
+Pipeline  ──>  MCP Server  ──>  Vehicle Risk Agent  ──>  Human-Approved Report
+  data          capability          decision workflow               outcome
 ```
 
-The Agent never calls the Pipeline database or API directly. MCP is the only
-vehicle-evidence boundary.
+The Agent never queries the pipeline database or API directly. The MCP server remains the only vehicle-evidence boundary.
+
+---
+
+## Scenario guide
+
+The test manifest seeds four standard scenarios that exercise each branch of the assessment workflow:
+
+| Scenario | VIN | Input context | Expected outcome | Review action |
+|---|---|---|---|---|
+| **Clean** | `1HGCR2F85HA000000` | Dealer purchase | `LOW_RISK` (Score: 12/100). Full evidence available, no register matches. | Reviewer `APPROVE` releases report. |
+| **Risky** | `1FA6P8CF8H5000000` | Private purchase | `HIGH_RISK` (Score: 88/100). Active PPSR interest, stolen listing, and statutory write-off. | Reviewer `REJECT` blocks release. |
+| **Incomplete evidence** | `JM0BL10F000000000` | Auction evaluation | `INCOMPLETE` (Score withheld). Missing required register records; policy sufficiency rule triggers. | Reviewer `APPROVE` requires explicit missing-evidence waiver. |
+| **Reinvestigation** | `1HGCR2F85HA000000` | Re-check registers | Run 1 flagged -> Reviewer requests targeted reinvestigation -> Run 2 created and completed. | Reviewer `APPROVE` releases Run 2 report. |
+
+### Inspect an assessment report
+
+When an assessment completes, the resulting draft contains nine structured sections with attribution citations, risk band, and synthetic notices:
+
+```json
+{
+  "id": "asmt_01J8N2Q1X...",
+  "vin": "1HGCR2F85HA000000",
+  "lifecycle_state": "RELEASED",
+  "current_run_number": 1,
+  "report": {
+    "status": "RELEASED",
+    "risk_score": 12,
+    "risk_band": "LOW_RISK",
+    "assessment_outcome": "SCORED",
+    "sections": [
+      {
+        "section_type": "EXECUTIVE_SUMMARY",
+        "title": "Executive Summary",
+        "content": "Vehicle 1HGCR2F85HA000000 exhibits low overall risk based on available evidence..."
+      },
+      {
+        "section_type": "MANDATORY_REVIEW_FINDINGS",
+        "title": "Mandatory Review Findings",
+        "content": "No statutory write-off, active stolen listing, or registered security interest detected."
+      },
+      {
+        "section_type": "POLICY_CITATIONS",
+        "title": "Applicable Policy Citations",
+        "citations": [
+          {
+            "citation_id": "pol_ppsr_clearance_v1",
+            "source_title": "PPSR Security Clearance Policy",
+            "section_reference": "Section 3.2: Clean Encumbrance Verification"
+          }
+        ]
+      },
+      {
+        "section_type": "SYNTHETIC_DATA_NOTICE",
+        "title": "Synthetic Data Notice",
+        "content": "This record represents no real vehicle, person, police report, insurance decision, or financial obligation."
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Engineering decisions
+
+| Decision | Rationale |
+|---|---|
+| **Deterministic scoring outside the LLM** | LLMs cannot calculate or adjust risk scores. Versioned weights, thresholds, and calculation hashes run in pure, testable Python code to guarantee auditability. |
+| **Mandatory human-in-the-loop approval** | Consequential risk assessments are never auto-released. Authorized reviewers must explicitly approve, reject, or request reinvestigation via serialized, idempotent endpoints. |
+| **Stateful LangGraph checkpointing** | LangGraph state transitions are strictly validated with Pydantic and persisted to PostgreSQL. This enables interruptible review checkpoints, multi-run reinvestigations, and crash recovery. |
+| **Hybrid Policy RAG with abstention** | Combines dense vector search (`pgvector`) and BM25 keyword search using Reciprocal Rank Fusion (RRF). Weak retrieval produces explicit abstention rather than hallucinated citations. |
+| **Sufficiency gate before risk scoring** | Missing or conflicting required evidence halts progression at `EVALUATING_SUFFICIENCY`, withholding scoring (`INCOMPLETE`) instead of assuming an unverified vehicle is clean. |
+| **Strict MCP protocol isolation** | The agent consumes vehicle intelligence strictly through MCP tool calls (`lookup_vehicle`, `explain_vehicle_field`). It has zero access to pipeline databases or internals. |
+
+---
 
 ## Architecture
 
@@ -58,7 +127,7 @@ vehicle-evidence boundary.
                          │ Typed LangGraph workflow │
                          └──────┬─────────┬────────┘
                                 │         │
-                    vehicle facts│         │policy passages
+                    vehicle facts│         │ policy passages
                                 ▼         ▼
                    ┌────────────────┐  ┌─────────────────┐
                    │ Vehicle MCP    │  │ PostgreSQL +     │
@@ -68,81 +137,36 @@ vehicle-evidence boundary.
                                 ┌──────────────┴──────────────┐
                                 ▼                             ▼
                     Deterministic risk engine       Report drafting adapter
-                    score and risk band              citations and explanation
+                    score and risk band             citations and explanation
                                 └──────────────┬──────────────┘
                                                ▼
                                   AWAITING_REVIEW checkpoint
                                                │
-                              approve / reject / reinvestigate
+                               approve / reject / reinvestigate
                                                ▼
                                     Released report or next run
 ```
 
-## The assessment lifecycle
+### The assessment lifecycle
 
-Each request becomes a persisted assessment with an explicit run state:
+Each evaluation follows an explicit, interruptible state machine:
 
 ```text
 PENDING
   → COLLECTING_EVIDENCE
   → EVALUATING_SUFFICIENCY
-      ├─ INCOMPLETE: withhold score and explain missing evidence
+      ├─ INCOMPLETE: withhold score, generate missing-evidence disclosure
       └─ COMPLETE
            → RETRIEVING_POLICY
            → EVALUATING_RISK
            → DRAFTING_REPORT
            → AWAITING_REVIEW
-                ├─ RELEASED
-                ├─ REJECTED
-                └─ IN_PROGRESS: additive reinvestigation, up to three runs
+                ├─ RELEASED: reviewer approved
+                ├─ REJECTED: reviewer rejected
+                └─ IN_PROGRESS: additive reinvestigation (up to 3 audited runs)
 ```
 
-The workflow is stateful and interruptible. It is not a single prompt wrapped
-in an HTTP endpoint.
-
-## What this demonstrates
-
-### Typed workflow orchestration
-
-- LangGraph state is explicit and validated.
-- Nodes are thin, asynchronous, and independently testable.
-- Evidence branches merge through deterministic reducers.
-- PostgreSQL-backed checkpoints support restart recovery.
-- Server-sent events expose safe progress without leaking internals.
-
-### Evidence-grounded reasoning
-
-- MCP responses are validated at the external boundary with Pydantic models.
-- Evidence snapshots preserve revision IDs, source observations, timestamps,
-  confidence, conflicts, material hashes, and synthetic notices.
-- Missing, unavailable, and conflicting evidence remain distinct outcomes.
-- No evidence is fabricated when a service fails.
-
-### Policy RAG with abstention
-
-- Policy passages are retrieved with dense search and keyword search.
-- Reciprocal Rank Fusion combines candidates before reranking.
-- Reports preserve policy source and section citations.
-- Weak or empty retrieval produces an explicit abstention instead of an
-  invented citation.
-
-### Deterministic risk decisions
-
-The language model can draft prose. It cannot calculate or override the risk
-score. The risk engine applies versioned weights and thresholds in ordinary,
-testable Python code and records a calculation hash.
-
-### Human approval as a safety boundary
-
-A completed draft is not a released report. An authorized reviewer must
-explicitly approve, reject, or request reinvestigation. Concurrent review
-actions are serialized and idempotent.
-
-### Deliberate scope
-
-The first release uses one typed workflow, not a swarm of autonomous personas.
-The engineering challenge is traceable state transition, evidence integrity, and
-safe review—not adding agents for visual complexity.
+---
 
 ## Quickstart
 
@@ -150,70 +174,48 @@ safe review—not adding agents for visual complexity.
 
 - Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/) package manager
-- `curl` for the hosted-MCP reachability check
 - Docker and Docker Compose v2.20+
+- `curl`
 
-### Option 1: hosted MCP quickstart
+### Option 1: Hosted MCP quickstart (fastest)
 
-This is the fastest way to try the Agent from a standalone clone. It starts
-only the Agent API, its PostgreSQL/pgvector database, and the seed job.
+The hosted quickstart evaluates the Agent against the hosted MCP demonstration endpoint. It boots only the Agent API, PostgreSQL with `pgvector`, and the seed worker:
 
 ```bash
 cp .env.example .env
 bash scripts/smoke-quickstart.sh
 ```
 
-The script performs a bounded `tools/list` probe against the default endpoint,
-`https://vehicle-mcp.chhlatbot.com/mcp`, then starts
-`compose.quickstart.yaml` and runs the Agent smoke journey.
+The script executes a bounded `tools/list` probe against `https://vehicle-mcp.chhlatbot.com/mcp`, launches `compose.quickstart.yaml`, and runs the full live smoke journey.
 
-To use another compatible HTTP(S) MCP endpoint:
+To point the quickstart at another compatible HTTP MCP endpoint:
 
 ```bash
 QUICKSTART_MCP_SERVER_URL=https://example.invalid/mcp \
   bash scripts/smoke-quickstart.sh
 ```
 
-The hosted endpoint is optional, may be rate-limited or unavailable, and has
-no production SLA. It may expose **synthetic fixtures**. Do not use hosted
-results for production decisions or infer access to **live restricted-register data**.
+> [!NOTE]
+> The hosted endpoint is optional and provides **synthetic fixtures** without production SLAs. It does not access **live restricted-register data**. If the hosted probe fails, clone the sibling repositories and use the **full-local** Compose path below.
 
-The quickstart never silently switches to fake or local evidence. If the
-hosted check fails, clone the sibling repositories and use the full-local path.
+### Option 2: Full-local Compose (authoritative)
 
-### Configuration
-
-Copy `.env.example` for local defaults. The main variables are:
-
-| Variable | Used by | Purpose |
-| --- | --- | --- |
-| `MCP_SERVER_URL` | Full-local Compose | Local MCP service, normally `http://localhost:8080` |
-| `QUICKSTART_MCP_SERVER_URL` | Hosted quickstart | Explicit hosted MCP `/mcp` override |
-| `DATABASE_URL` | Local tools | PostgreSQL connection, normally port `54329` |
-| `ANTHROPIC_API_KEY` | Optional drafting | Enables live model drafting; offline drafting remains available |
-
-The development bearer tokens in `.env.example` are for local demonstrations
-only. Do not use them as production credentials.
-
-### Option 2: full-local Compose
-
-The full-local path is the authoritative reproducible development setup. Clone
-the sibling services beside this repository:
+To run all three layers locally without external network dependencies, clone the sibling services side-by-side:
 
 ```bash
 git clone git@github.com:sovorn-c/vehicle-mcp-server.git ../vehicle-mcp-server
 git clone git@github.com:sovorn-c/nz-vehicle-data-pipeline.git ../nz-vehicle-data-pipeline
-docker compose up -d --build --wait
+docker compose -f compose.yaml up -d --build --wait
 ```
 
-Services:
+#### Services and local ports
 
 | Service | Purpose | Local address |
-| --- | --- | --- |
-| `db` | PostgreSQL 16 with pgvector | `localhost:54329` |
-| `pipeline` | Vehicle data pipeline | `localhost:8000` |
+|---|---|---|
+| `db` | PostgreSQL 16 with pgvector (psycopg driver) | `localhost:54329` |
+| `pipeline` | NZ Vehicle Data Pipeline | `localhost:8000` |
 | `mcp` | Vehicle Intelligence MCP server | `localhost:8080` |
-| `agent-api` | This service | `localhost:8001` |
+| `agent-api` | Vehicle Risk Assessment Agent | `localhost:8001` |
 
 Check service health:
 
@@ -222,16 +224,19 @@ curl -f http://localhost:8001/health
 curl -f http://localhost:8001/ready
 ```
 
-## API shape
+---
 
-The public API is asynchronous: create an assessment, observe its run, then
-let a reviewer decide what happens to the draft.
+## API reference
+
+The API uses role-based bearer tokens, strict request schemas, and idempotency keys on mutating routes.
+
+### Create an assessment
 
 ```bash
 curl -X POST http://localhost:8001/api/v1/assessments \
   -H 'Authorization: Bearer dev-requester-token' \
   -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: demo-assessment-001' \
+  -H 'Idempotency-Key: demo-asmt-001' \
   -d '{
     "vin": "1HGCR2F85HA000000",
     "context": {
@@ -242,135 +247,101 @@ curl -X POST http://localhost:8001/api/v1/assessments \
   }'
 ```
 
-The response contains an assessment ID. Use it with:
+### Endpoints
 
-| Operation | Endpoint |
-| --- | --- |
-| Read lifecycle state | `GET /api/v1/assessments/{assessment_id}` |
-| Stream progress | `GET /api/v1/assessments/{assessment_id}/events` |
-| Read audit history | `GET /api/v1/assessments/{assessment_id}/history` |
-| Read released report | `GET /api/v1/assessments/{assessment_id}/report` |
-| Approve draft | `POST /api/v1/assessments/{assessment_id}/review/approve` |
-| Reject draft | `POST /api/v1/assessments/{assessment_id}/review/reject` |
-| Request reinvestigation | `POST /api/v1/assessments/{assessment_id}/review/reinvestigate` |
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/v1/assessments` | Create a new risk assessment (`Idempotency-Key` required) |
+| `GET` | `/api/v1/assessments/{id}` | Retrieve lifecycle status, run history, and current phase |
+| `GET` | `/api/v1/assessments/{id}/events` | Stream real-time run progress via Server-Sent Events (SSE) |
+| `GET` | `/api/v1/assessments/{id}/history` | Audit trail of all runs, state transitions, and reviewer actions |
+| `GET` | `/api/v1/assessments/{id}/report` | Retrieve the final released report (404 until approved) |
+| `POST` | `/api/v1/assessments/{id}/review/approve` | Authorize and release a completed report draft |
+| `POST` | `/api/v1/assessments/{id}/review/reject` | Reject a draft with documented rationale |
+| `POST` | `/api/v1/assessments/{id}/review/reinvestigate` | Trigger an additive re-run with targeted evidence questions |
 
-Interactive OpenAPI documentation is available at
-`http://localhost:8001/docs` while the Agent is running.
+Interactive OpenAPI documentation is served at [http://localhost:8001/docs](http://localhost:8001/docs).
 
-## Demonstration scenarios
+---
 
-Run the complete local scenario suite:
+## Verification and smoke testing
 
-```bash
-bash scripts/smoke-local.sh
-```
+### Preflight quality gate
 
-Or run the Python smoke runner directly:
-
-```bash
-uv run python -m vehicle_risk_agent.cli.smoke
-```
-
-The scenarios demonstrate:
-
-1. A clean synthetic vehicle assessment completing normally.
-2. A risky synthetic vehicle producing explicit contributing findings.
-3. Incomplete evidence withholding the score and risk band.
-4. Reviewer approval releasing a report.
-5. Reviewer rejection preventing release.
-6. Additive reinvestigation creating a new audited run.
-7. Idempotent requests, SSE progress, restart behavior, and teardown.
-
-Seed the development database explicitly when needed:
-
-```bash
-uv run python -m vehicle_risk_agent.cli.seed
-```
-
-## Provenance and safety properties
-
-- Every evidence snapshot is point-in-time, immutable, and integrity-checked.
-- Evidence and policy versions are pinned to an assessment run.
-- Report claims retain evidence and policy references where available.
-- Synthetic data remains labelled through report generation.
-- Invalid, unavailable, or incomplete evidence cannot become a scored result.
-- Review actions have bounded rationale, role checks, idempotency, and hashes.
-- Errors are mapped to safe public categories without stack traces or prompts.
-- Telemetry redacts credentials and sensitive identifiers.
-- The database remains internal to the quickstart Compose network.
-
-## Security boundaries
-
-The project treats VINs, MCP responses, policy text, prompts, and assessment
-context as untrusted input. It uses strict Pydantic validation, bearer-token
-roles, bounded intake rate limits, safe error responses, timeouts, and
-structured redacted telemetry.
-
-Development tokens in `.env.example` are for local demonstrations only. Replace
-them with real secret management and identity controls before any deployment.
-
-## Quality and CI
-
-Run the local seven-stage preflight gate:
+Run the seven-stage verification gate before committing:
 
 ```bash
 bash scripts/check.sh
 ```
 
-It checks formatting, Ruff, strict mypy typing, database migrations, Compose
-contracts, the full pytest suite, and package building. The current local main
-branch passes all stages with **445 tests**.
+The gate enforces code formatting, Ruff linting, strict mypy type checking, database migrations, Compose contracts, the full pytest test suite (**445 passing tests**), and package building.
 
-GitHub Actions runs the same deterministic preflight on pushes and pull
-requests. It does not depend on public MCP uptime. An optional live model
-evaluation can be triggered manually and requires an `ANTHROPIC_API_KEY`
-secret; it is separate from the deterministic gate.
+### Automated smoke journeys
 
-## Repository map
+Run the end-to-end integration smoke runner against a running local stack:
 
-```text
-src/vehicle_risk_agent/
-├── api/             FastAPI routes, schemas, auth, and review boundaries
-├── workflow/        Typed LangGraph state, nodes, and runner
-├── evidence/        MCP contracts, snapshots, provenance, and sufficiency
-├── policy/          Policy sources, corpora, citations, and lifecycle
-├── retrieval/       Dense/keyword retrieval, fusion, and reranking
-├── risk/            Versioned deterministic scoring and policy rules
-├── reporting/       Grounded report models and drafting adapters
-├── review/          Approval, rejection, reinvestigation, and release
-├── persistence/     PostgreSQL repositories and event storage
-└── evaluation/      Labelled scenarios, graders, and release evidence
-
-tests/               Unit, integration, acceptance, security, and workflow tests
-compose.yaml         Full-local four-service stack
-compose.quickstart.yaml
-                     Standalone hosted-MCP demonstration stack
+```bash
+bash scripts/smoke-local.sh
 ```
+
+Or invoke the Python test runner directly:
+
+```bash
+uv run python -m vehicle_risk_agent.cli.smoke
+```
+
+Seed the database with versioned policies and test scenarios:
+
+```bash
+uv run python -m vehicle_risk_agent.cli.seed
+```
+
+---
+
+## Provenance and safety properties
+
+- **Immutable evidence snapshots:** Every MCP observation is hashed and frozen at collection time. Assessments evaluate point-in-time snapshots, never mutating live state.
+- **Strict deterministic scoring:** Scoring weights and thresholds are versioned. Calculation hashes ensure reproducibility and prevent arbitrary score inflation.
+- **Traceable policy citations:** Analytical statements link directly to policy IDs, section references, and source observation IDs.
+- **Human approval safety boundary:** Unreviewed reports remain in `AWAITING_REVIEW`. Consequential assessment decisions require active human authorization.
+- **Safe error boundaries and telemetry:** Exceptions, prompts, and stack traces never leak across API responses. Telemetry enforces automatic credential and VIN redaction.
+
+---
+
+## Security boundaries
+
+- Untrusted input (VINs, context payloads, policy text, MCP tool results) is validated against strict Pydantic schemas.
+- Role-based authorization isolates `requester` roles from `reviewer` approval routes.
+- Rate-limiting and request-size bounds protect intake endpoints.
+- Database access uses least-privilege configurations with parameterized queries.
+- Development tokens in `.env.example` are strictly for local testing.
+
+---
 
 ## Limitations
 
-- This is a portfolio/reference implementation, not a production deployment.
-- The hosted MCP endpoint is optional, externally dependent, and has no SLA.
-- Hosted and seeded scenarios may use synthetic fixtures.
-- The system does not access live restricted-register data.
-- No report is auto-approved or presented as professional legal, financial, or
-  insurance advice.
-- Provider, policy, retention, privacy, and operational controls need further
-  governance before production use.
+- **Reference implementation:** Designed for demonstration, technical evaluation, and portfolio audit. Not an active commercial vehicle registry.
+- **Synthetic data notice:** Operates on synthetic fixtures; does not connect to live NZTA, PPSR, or Police databases.
+- **No professional advice:** Output reports do not constitute formal legal, financial, or mechanical inspection advice.
+- **Hosted MCP availability:** The hosted demo endpoint operates without an SLA; local Compose remains the authoritative fallback.
+
+---
 
 ## Troubleshooting
 
 | Symptom | Resolution |
-| --- | --- |
-| Hosted MCP check fails | Use the documented sibling clone commands and full-local Compose path. |
-| `pgvector` is unavailable | Confirm the stack uses `pgvector/pgvector:pg16`. |
-| Port `54329` is busy | Stop the conflicting PostgreSQL service or change the full-local mapping. |
-| Drafting uses offline mode | Set `ANTHROPIC_API_KEY` only when live model drafting is required. |
-| Agent is unhealthy | Check `docker compose ps` and inspect the database/seed health dependencies. |
+|---|---|
+| Hosted MCP probe fails | Run `bash scripts/smoke-local.sh` using the full-local Compose stack. |
+| `pgvector` extension missing | Verify the database container runs `pgvector/pgvector:pg16`. |
+| Port `54329` collision | Free local port `54329` or update `.env` and `compose.yaml` port bindings. |
+| Report uses offline drafting fallback | Set `ANTHROPIC_API_KEY` in `.env` if live LLM drafting is desired; offline drafting remains default. |
+| Agent API reports unhealthy | Inspect logs with `docker compose logs agent-api` and verify database migrations ran cleanly. |
 
-## Cleanup
+---
 
-Remove the hosted quickstart containers, network, and volume:
+## Cleanup and teardown
+
+Remove the hosted quickstart stack, volumes, and networks:
 
 ```bash
 docker compose -p vehicle-risk-agent-quickstart -f compose.quickstart.yaml down -v
@@ -379,18 +350,15 @@ docker compose -p vehicle-risk-agent-quickstart -f compose.quickstart.yaml down 
 Remove the full-local stack:
 
 ```bash
-docker compose down -v
+docker compose -f compose.yaml down -v
 ```
 
-## Portfolio talking points
+---
 
-- **MCP integration:** separates vehicle-data capability from decision ownership.
-- **LangGraph:** models a resumable, observable workflow rather than a chat loop.
-- **RAG discipline:** retrieves and cites policy; it does not treat retrieved text
-  as executable instructions.
-- **Decision safety:** deterministic scoring, abstention, immutable snapshots,
-  and mandatory human approval prevent a fluent model response from becoming an
-  unreviewed consequential decision.
-- **Production thinking:** authentication, idempotency, concurrency control,
-  safe failures, observability, migrations, evaluation, and deterministic CI
-  are part of the feature—not afterthoughts.
+## Architectural guarantees
+
+- **MCP service boundary:** Isolates upstream vehicle intelligence from the assessment decision engine.
+- **LangGraph orchestration:** Coordinates multi-stage, stateful, resumable workflows rather than unbounded prompt loops.
+- **Grounded policy RAG:** Enforces evidence sufficiency and policy citations; abstains rather than inventing findings.
+- **Auditable review governance:** Deterministic calculations, immutable snapshots, and mandatory human checkpoints prevent unreviewed automated decisions.
+- **Enterprise rigor:** Strict typing, idempotency, concurrency controls, safe error boundaries, and 445 automated tests built into core implementation.
