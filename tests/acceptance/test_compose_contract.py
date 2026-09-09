@@ -128,6 +128,7 @@ def test_quickstart_compose_uses_hosted_mcp_without_sibling_repositories() -> No
     )
     assert "vehicle-mcp-server" not in content
     assert "nz-vehicle-data-pipeline" not in content
+    assert "ports" not in services["db"], "quickstart database must stay on the internal network"
     assert services["agent-seed"]["depends_on"]["db"]["condition"] == "service_healthy"
     assert services["agent-api"]["depends_on"]["agent-seed"]["condition"] == (
         "service_completed_successfully"
