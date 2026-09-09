@@ -32,6 +32,8 @@ def test_docs_is_a_branded_workflow_entrypoint() -> None:
         assert phrase in response.text
     assert '<main id="top">' in response.text
     assert 'aria-label="Documentation sections"' in response.text
+    assert 'id="ready-status" role="status" aria-live="polite"' in response.text
+    assert 'class="response" role="status" aria-live="polite"' in response.text
     assert "prefers-reduced-motion" in response.text
 
 
