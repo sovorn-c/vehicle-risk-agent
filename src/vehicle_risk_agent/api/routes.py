@@ -321,6 +321,7 @@ async def stream_assessment_events(
             # If already terminal and past events cover terminal phase, terminate cleanly
             if events and events[-1].phase in (
                 AssessmentRunPhase.COMPLETED,
+                AssessmentRunPhase.INCOMPLETE,
                 AssessmentRunPhase.FAILED,
             ):
                 return
@@ -339,6 +340,7 @@ async def stream_assessment_events(
                         last_seq = evt.sequence
                         if evt.phase in (
                             AssessmentRunPhase.COMPLETED,
+                            AssessmentRunPhase.INCOMPLETE,
                             AssessmentRunPhase.FAILED,
                         ):
                             break

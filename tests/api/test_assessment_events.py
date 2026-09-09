@@ -5,6 +5,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 import pytest_asyncio
@@ -13,6 +14,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from vehicle_risk_agent.api.app import create_app
+from vehicle_risk_agent.api.routes import stream_assessment_events
+from vehicle_risk_agent.auth import Principal, Role
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.domain.events import WorkflowProgressEvent
@@ -87,6 +90,60 @@ async def test_owner_can_stream_events(app_client: AsyncClient) -> None:
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers.get("content-type", "")
     assert "Assessment completed successfully" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_incomplete_terminal_event_closes_stream(app_client: AsyncClient) -> None:
+    """Verify an INCOMPLETE terminal event closes the replay stream."""
+    create_resp = await app_client.post(
+        "/api/v1/assessments",
+        json={"vin": "JM0BL10F000000000", "context": {"sale_type": "AUCTION"}},
+        headers={
+            "Authorization": "Bearer dev-requester-token",
+            "Idempotency-Key": "req-sse-incomplete-01",
+        },
+    )
+    assert create_resp.status_code == 201
+    assessment_id = create_resp.json()["id"]
+
+    transport = app_client._transport
+    assert isinstance(transport, ASGITransport)
+    app = transport.app
+    assert isinstance(app, FastAPI)
+    async with app.state.session_factory() as sess:
+        store = EventStore(sess, broadcaster=app.state.event_broadcaster)
+        await store.append_event(
+            WorkflowProgressEvent(
+                event_id="evt-incomplete-1",
+                sequence=1,
+                assessment_id=assessment_id,
+                run_number=1,
+                phase=AssessmentRunPhase.INCOMPLETE,
+                safe_message="Assessment is incomplete",
+                timestamp=datetime.now(UTC),
+            )
+        )
+        response = await stream_assessment_events(
+            assessment_id=assessment_id,
+            run_number=1,
+            last_event_id=None,
+            principal=Principal(
+                principal_id="principal-requester-1",
+                role=Role.REQUESTER,
+            ),
+            session=sess,
+            broadcaster=app.state.event_broadcaster,
+            settings=Settings(sse_heartbeat_interval_seconds=0.1),
+        )
+        assert response.media_type == "text/event-stream"
+        body_iterator = cast(AsyncIterator[str], response.body_iterator)
+        first_chunk = await body_iterator.__anext__()
+        heartbeat_chunk = await body_iterator.__anext__()
+        assert "Assessment is incomplete" in first_chunk
+        assert "INCOMPLETE" in first_chunk
+        assert heartbeat_chunk == ": heartbeat\n\n"
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(body_iterator.__anext__(), timeout=0.5)
 
 
 @pytest.mark.asyncio
