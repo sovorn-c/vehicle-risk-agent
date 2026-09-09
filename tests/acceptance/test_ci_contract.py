@@ -76,6 +76,27 @@ def test_alembic_explicit_url_is_authoritative() -> None:
     assert 'os.environ.get("DATABASE_URL"' not in content
 
 
+def test_optional_ml_imports_are_ignored_by_default_mypy_gate() -> None:
+    """Optional ML adapters must not break the default type-check dependency set."""
+    adapters_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "src"
+        / "vehicle_risk_agent"
+        / "retrieval"
+        / "adapters.py"
+    )
+    content = adapters_path.read_text(encoding="utf-8")
+
+    assert (
+        "from sentence_transformers import SentenceTransformer"
+        "  # type: ignore[import-not-found]"
+    ) in content
+    assert (
+        "from sentence_transformers import CrossEncoder"
+        "  # type: ignore[import-not-found]"
+    ) in content
+
+
 def test_ci_database_url_and_driver_contract() -> None:
     repo_root = Path(__file__).resolve().parent.parent.parent
     ci_path = repo_root / ".github" / "workflows" / "ci.yml"
