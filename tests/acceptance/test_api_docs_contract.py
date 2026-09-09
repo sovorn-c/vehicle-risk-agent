@@ -22,6 +22,7 @@ def test_docs_is_a_branded_workflow_entrypoint() -> None:
         "Vehicle Risk Assessment Agent",
         "Evidence → Policy → Risk → Review",
         "MCP-only evidence",
+        "Policy citations",
         "Deterministic risk",
         "Human approval",
         "Synthetic demonstration data",
