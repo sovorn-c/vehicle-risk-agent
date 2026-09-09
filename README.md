@@ -98,7 +98,7 @@ The script checks `https://vehicle-mcp.chhlatbot.com/mcp`, starts `compose.quick
 QUICKSTART_MCP_SERVER_URL=https://example.invalid/mcp bash scripts/smoke-quickstart.sh
 ```
 
-The hosted endpoint is optional, may be unavailable or rate-limited, and has no production SLA. The quickstart never silently switches to fake or local evidence. If the reachability check fails, clone the two sibling repositories beside this one and use the full-local path below.
+The hosted endpoint is optional, may be unavailable or rate-limited, and has no production SLA. The quickstart never silently switches to fake or local evidence. If the reachability check fails, clone the two sibling repositories beside this one and use the full-local path below. The script resolves the same Compose configuration as the Agent, so `QUICKSTART_MCP_SERVER_URL` and `VEHICLE_RISK_AGENT_QUICKSTART_PORT` work from either the shell or `.env`.
 
 ### Environment Setup
 
@@ -216,7 +216,12 @@ Approve             Reject           Request Reinvestigation
 
 ## 9. Cleanup & Teardown
 
-Stop and remove all containers, networks, and volumes:
+Stop and remove the hosted quickstart containers, network, and database volume:
+```bash
+docker compose -p vehicle-risk-agent-quickstart -f compose.quickstart.yaml down -v
+```
+
+If you exported a custom `COMPOSE_PROJECT_NAME` before running the quickstart script, use that same value with `-p`. For the full-local stack, use:
 ```bash
 docker compose down -v
 ```
