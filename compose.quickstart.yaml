@@ -1,3 +1,5 @@
+name: vehicle-risk-agent-quickstart
+
 services:
   db:
     image: pgvector/pgvector:pg16

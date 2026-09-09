@@ -2,6 +2,7 @@
 set -euo pipefail
 
 COMPOSE_FILE="compose.quickstart.yaml"
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-vehicle-risk-agent-quickstart}"
 MCP_URL="${QUICKSTART_MCP_SERVER_URL:-https://vehicle-mcp.chhlatbot.com/mcp}"
 
 print_local_fallback() {
@@ -35,5 +36,5 @@ if [[ ! "${status_code}" =~ ^2[0-9][0-9]$ ]]; then
 fi
 
 echo "Hosted MCP endpoint reachable (HTTP ${status_code})."
-docker compose -f "${COMPOSE_FILE}" up -d --build --wait
+docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_FILE}" up -d --build --wait
 uv run python -m vehicle_risk_agent.cli.smoke --base-url "http://localhost:${VEHICLE_RISK_AGENT_QUICKSTART_PORT:-8001}"
