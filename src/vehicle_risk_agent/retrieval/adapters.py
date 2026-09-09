@@ -98,7 +98,9 @@ class SentenceTransformersEmbeddingAdapter:
 
     def _get_model(self) -> Any:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import (  # type: ignore[import-not-found,unused-ignore]
+                SentenceTransformer,
+            )
 
             self._model = SentenceTransformer(self.model_name)
         return self._model

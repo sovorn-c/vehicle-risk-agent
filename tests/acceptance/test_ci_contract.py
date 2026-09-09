@@ -88,13 +88,18 @@ def test_optional_ml_imports_are_ignored_by_default_mypy_gate() -> None:
     content = adapters_path.read_text(encoding="utf-8")
 
     assert (
-        "from sentence_transformers import SentenceTransformer"
-        "  # type: ignore[import-not-found]"
+        "from sentence_transformers import (  # type: ignore[import-not-found,unused-ignore]"
     ) in content
-    assert (
-        "from sentence_transformers import CrossEncoder"
-        "  # type: ignore[import-not-found]"
-    ) in content
+
+    anthropic_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "src"
+        / "vehicle_risk_agent"
+        / "adapters"
+        / "anthropic_drafting.py"
+    )
+    anthropic_content = anthropic_path.read_text(encoding="utf-8")
+    assert "import anthropic  # type: ignore[import-not-found,unused-ignore]" in anthropic_content
 
 
 def test_ci_database_url_and_driver_contract() -> None:

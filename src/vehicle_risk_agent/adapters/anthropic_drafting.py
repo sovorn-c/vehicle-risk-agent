@@ -184,7 +184,7 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         import os  # noqa: PLC0415
 
         try:
-            import anthropic  # type: ignore[import-not-found]  # noqa: PLC0415
+            import anthropic  # type: ignore[import-not-found,unused-ignore]  # noqa: PLC0415
         except ImportError as err:
             raise DraftingFailureError("PROVIDER_UNAVAILABLE") from err
 
