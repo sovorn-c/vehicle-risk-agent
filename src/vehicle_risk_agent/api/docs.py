@@ -383,7 +383,7 @@ DOCS_HTML = r"""<!doctype html>
           <div class="hero-aside">
             <span class="mono">Evidence → Policy → Risk → Review</span>
             <p>The API orchestrates a typed workflow. It does not turn missing evidence into a clean result, or approval into purchase authorization.</p>
-            <div class="signal-row"><span class="signal"><strong>MCP-only evidence</strong></span><span class="signal"><strong>Deterministic risk</strong></span><span class="signal"><strong>Human approval</strong></span></div>
+            <div class="signal-row"><span class="signal"><strong>MCP-only evidence</strong></span><span class="signal"><strong>Policy citations</strong></span><span class="signal"><strong>Deterministic risk</strong></span><span class="signal"><strong>Human approval</strong></span></div>
           </div>
         </section>
 
