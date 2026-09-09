@@ -81,6 +81,7 @@ All regulatory and risk evaluations are anchored in attributable New Zealand leg
 
 - Python 3.12+
 - `uv` package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- `curl` (used by the hosted-MCP reachability check)
 - Docker and Docker Compose (v2.20+)
 
 ### Hosted-MCP Quickstart (No Sibling Repositories)
@@ -98,7 +99,7 @@ The script checks `https://vehicle-mcp.chhlatbot.com/mcp`, starts `compose.quick
 QUICKSTART_MCP_SERVER_URL=https://example.invalid/mcp bash scripts/smoke-quickstart.sh
 ```
 
-The hosted endpoint is optional, may be unavailable or rate-limited, and has no production SLA. The quickstart never silently switches to fake or local evidence. If the reachability check fails, clone the two sibling repositories beside this one and use the full-local path below. The script resolves the same Compose configuration as the Agent, so `QUICKSTART_MCP_SERVER_URL` and `VEHICLE_RISK_AGENT_QUICKSTART_PORT` work from either the shell or `.env`.
+The hosted endpoint is optional, may be unavailable or rate-limited, and has no production SLA. Hosted MCP may expose synthetic fixtures; do not use it to make production decisions or infer access to live restricted-register data. The quickstart never silently switches to fake or local evidence. If the reachability check fails, clone the two sibling repositories beside this one and use the full-local path below. The script resolves the same Compose configuration as the Agent, so `QUICKSTART_MCP_SERVER_URL` and `VEHICLE_RISK_AGENT_QUICKSTART_PORT` work from either the shell or `.env`.
 
 ### Environment Setup
 

@@ -3,7 +3,6 @@ set -euo pipefail
 
 COMPOSE_FILE="compose.quickstart.yaml"
 COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-vehicle-risk-agent-quickstart}"
-MCP_URL="${QUICKSTART_MCP_SERVER_URL:-https://vehicle-mcp.chhlatbot.com/mcp}"
 
 print_local_fallback() {
     cat <<'EOF'
