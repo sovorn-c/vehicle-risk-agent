@@ -92,8 +92,15 @@ class FakeRerankerAdapter:
 class SentenceTransformersEmbeddingAdapter:
     """Production SentenceTransformers embedding adapter with async thread pool execution."""
 
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
+    def __init__(
+        self,
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        revision: str = "main",
+        dimensions: int = 384,
+    ) -> None:
         self.model_name = model_name
+        self.revision = revision
+        self.dimensions = dimensions
         self._model: Any = None
 
     def _get_model(self) -> Any:
@@ -102,7 +109,7 @@ class SentenceTransformersEmbeddingAdapter:
                 SentenceTransformer,
             )
 
-            self._model = SentenceTransformer(self.model_name)
+            self._model = SentenceTransformer(self.model_name, revision=self.revision)
         return self._model
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
@@ -123,15 +130,20 @@ class SentenceTransformersEmbeddingAdapter:
 class CrossEncoderRerankerAdapter:
     """Production CrossEncoder reranker adapter with sigmoid normalized scoring."""
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2") -> None:
+    def __init__(
+        self,
+        model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        revision: str = "main",
+    ) -> None:
         self.model_name = model_name
+        self.revision = revision
         self._model: Any = None
 
     def _get_model(self) -> Any:
         if self._model is None:
             from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name)
+            self._model = CrossEncoder(self.model_name, revision=self.revision)
         return self._model
 
     async def rerank(self, query: str, texts: list[str]) -> list[float]:

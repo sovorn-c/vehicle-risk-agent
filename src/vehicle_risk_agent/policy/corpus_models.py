@@ -22,18 +22,22 @@ class RetrievalConfiguration(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    profile: str = "neural"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_dimensions: int = 384
-    dense_candidates: int = 20
-    keyword_candidates: int = 20
+    embedding_revision: str = "main"
+    embedding_dimensions: int = Field(default=384, gt=0)
+    normalize_embeddings: bool = True
+    dense_candidates: int = Field(default=20, gt=0)
+    keyword_candidates: int = Field(default=20, gt=0)
     fusion: str = "reciprocal-rank-fusion"
-    rrf_k: int = 60
-    fused_candidate_cap: int = 40
+    rrf_k: int = Field(default=60, gt=0)
+    fused_candidate_cap: int = Field(default=40, gt=0)
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_revision: str = "main"
     reranker_activation: str = "sigmoid"
-    rerank_candidate_cap: int = 20
-    final_passage_cap: int = 5
-    minimum_reranker_score: float = 0.35
+    rerank_candidate_cap: int = Field(default=20, gt=0)
+    final_passage_cap: int = Field(default=5, gt=0)
+    minimum_reranker_score: float = Field(default=0.35, ge=0.0, le=1.0)
 
 
 def compute_manifest_hash(

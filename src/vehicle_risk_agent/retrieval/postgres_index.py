@@ -42,16 +42,18 @@ class PostgresPolicyIndex:
         self._snapshot_ids = list(snapshot_ids)
         self._config = config or RetrievalConfiguration()
 
-    async def get_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+    async def get_source_metadata(self, source_id: str) -> tuple[str, ...] | None:
         """Resolve citation metadata from the authoritative source table."""
-        stmt = select(PolicySourceRecord.title, PolicySourceRecord.canonical_origin).where(
-            PolicySourceRecord.id == source_id
-        )
+        stmt = select(
+            PolicySourceRecord.title,
+            PolicySourceRecord.canonical_origin,
+            PolicySourceRecord.reuse_terms,
+        ).where(PolicySourceRecord.id == source_id)
         result = await self._session.execute(stmt)
         row = result.one_or_none()
         if row is None:
             return None
-        return str(row.title), str(row.canonical_origin)
+        return str(row.title), str(row.canonical_origin), str(row.reuse_terms)
 
     async def search_dense(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
         """Search passages by embedding cosine similarity using pgvector <=> operator."""

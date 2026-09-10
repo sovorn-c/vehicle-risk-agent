@@ -167,3 +167,6 @@ class PolicyCitation(BaseModel):
     heading: str = Field(min_length=1, max_length=256)
     source_title: str = Field(min_length=1, max_length=256)
     canonical_origin: str = Field(min_length=1, max_length=1024)
+    text: str | None = Field(default=None, max_length=1200)
+    content_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    reuse_terms: str | None = Field(default=None, max_length=512)

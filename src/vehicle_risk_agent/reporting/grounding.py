@@ -14,12 +14,11 @@ Design constraints (e04s03):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-# ClaimReference, RiskResult, and ReportSections are imported at runtime so
-# Pydantic can resolve type annotations and mypy can type-check correctly.
+from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.reporting.models import ClaimReference, ReportSections
 from vehicle_risk_agent.risk.models import RiskResult
 
@@ -49,7 +48,20 @@ class GroundingContext(BaseModel):
     assessment_id: str
     allowed_evidence_ids: tuple[str, ...] = Field(default_factory=tuple)
     allowed_citation_ids: tuple[str, ...] = Field(default_factory=tuple)
+    policy_citations: tuple[PolicyCitation, ...] = Field(default_factory=tuple)
     risk_result: RiskResult
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_allowed_citations_if_missing(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            citations = data.get("policy_citations")
+            allowed = data.get("allowed_citation_ids")
+            if citations and not allowed:
+                data["allowed_citation_ids"] = tuple(
+                    c.passage_id if hasattr(c, "passage_id") else c["passage_id"] for c in citations
+                )
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -95,10 +107,13 @@ class GroundingValidator:
         """
         allowed_ev = set(context.allowed_evidence_ids)
         allowed_cit = set(context.allowed_citation_ids)
+        unsupported_cit = {
+            c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
+        }
 
         ungrounded: list[ClaimReference] = []
         for claim in self._all_claims(draft):
-            if self._claim_is_ungrounded(claim, allowed_ev, allowed_cit):
+            if self._claim_is_ungrounded(claim, allowed_ev, allowed_cit, unsupported_cit):
                 ungrounded.append(claim)
 
         is_valid = len(ungrounded) == 0
@@ -123,9 +138,12 @@ class GroundingValidator:
         self._repair_count += 1
 
         allowed_ev = set(context.allowed_evidence_ids)
-        allowed_cit = set(context.allowed_citation_ids)
+        unsupported_cit = {
+            c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
+        }
+        valid_cit = set(context.allowed_citation_ids) - unsupported_cit
 
-        new_sections = self._repair_sections(draft.sections, allowed_ev, allowed_cit)
+        new_sections = self._repair_sections(draft.sections, allowed_ev, valid_cit)
         return draft.model_copy(update={"sections": new_sections})
 
     # ------------------------------------------------------------------
@@ -158,11 +176,16 @@ class GroundingValidator:
         claim: ClaimReference,
         allowed_ev: set[str],
         allowed_cit: set[str],
+        unsupported_cit: set[str] | None = None,
     ) -> bool:
-        """Return True if the claim references any ID outside the allowlists."""
+        """Return True if claim references IDs outside allowlists or unsupported citations."""
         if any(ref and ref not in allowed_ev for ref in claim.evidence_refs):
             return True
-        return any(ref and ref not in allowed_cit for ref in claim.policy_citation_refs)
+        if any(ref and ref not in allowed_cit for ref in claim.policy_citation_refs):
+            return True
+        if not unsupported_cit:
+            return False
+        return any(ref in unsupported_cit for ref in claim.policy_citation_refs)
 
     def _repair_sections(
         self,

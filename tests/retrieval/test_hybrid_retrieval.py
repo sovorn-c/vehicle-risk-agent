@@ -118,6 +118,10 @@ async def test_hybrid_retrieval_returns_stable_citations(
     assert result.citations[0].source_title == "PPSR Vehicle Guide"
     assert result.citations[0].canonical_origin == "https://ppsr.govt.nz/guide"
     assert isinstance(result.citations[0], PolicyCitation)
+    assert result.citations[0].text is not None
+    assert "registered security interest" in result.citations[0].text
+    assert result.citations[0].content_hash is not None
+    assert len(result.citations[0].content_hash) == 64
 
 
 @pytest.mark.asyncio

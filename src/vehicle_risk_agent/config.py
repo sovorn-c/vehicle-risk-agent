@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     mcp_max_retries: int = Field(default=3, ge=0, le=10)
     mcp_initial_backoff: float = Field(default=0.05, gt=0)
     snapshot_integrity_secret: SecretStr = SecretStr(DEFAULT_SNAPSHOT_INTEGRITY_SECRET)
+    retrieval_mode: str = "offline"
+
+    @field_validator("retrieval_mode")
+    @classmethod
+    def validate_retrieval_mode(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if cleaned not in {"offline", "live"}:
+            raise ValueError("retrieval_mode must be 'offline' or 'live'")
+        return cleaned
 
     @field_validator("mcp_server_url")
     @classmethod

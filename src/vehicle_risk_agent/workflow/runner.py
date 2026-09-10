@@ -23,10 +23,12 @@ from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
 from vehicle_risk_agent.reporting.repository import ReportDraftRepository
 from vehicle_risk_agent.retrieval.adapters import (
+    CrossEncoderRerankerAdapter,
     EmbeddingAdapter,
     FakeEmbeddingAdapter,
     FakeRerankerAdapter,
     RerankerAdapter,
+    SentenceTransformersEmbeddingAdapter,
 )
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
 from vehicle_risk_agent.retrieval.service import HybridRetrievalService
@@ -65,6 +67,7 @@ class AssessmentWorkflowRunner:
         embedding_adapter: EmbeddingAdapter | None = None,
         reranker_adapter: RerankerAdapter | None = None,
         integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
+        settings: Settings | None = None,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
@@ -73,6 +76,7 @@ class AssessmentWorkflowRunner:
         self.embedding_adapter = embedding_adapter
         self.reranker_adapter = reranker_adapter
         self.integrity_secret = integrity_secret
+        self.settings = settings
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
 
@@ -108,6 +112,7 @@ class AssessmentWorkflowRunner:
                     embedding_adapter=embedding_adapter,
                     reranker_adapter=reranker_adapter,
                     integrity_secret=settings.snapshot_integrity_secret.get_secret_value(),
+                    settings=settings,
                 )
             finally:
                 if dispose_engine and engine is not None:
@@ -179,8 +184,35 @@ class AssessmentWorkflowRunner:
                                 session
                             ).get_active_corpus()
                             if active_corpus is not None:
-                                embedder = self.embedding_adapter or FakeEmbeddingAdapter()
-                                reranker = self.reranker_adapter or FakeRerankerAdapter()
+                                retrieval_mode = (
+                                    getattr(self.settings, "retrieval_mode", "offline")
+                                    if self.settings is not None
+                                    else "offline"
+                                )
+                                is_live_retrieval = retrieval_mode.lower() == "live"
+                                if self.embedding_adapter is not None:
+                                    embedder = self.embedding_adapter
+                                elif is_live_retrieval:
+                                    embedder = SentenceTransformersEmbeddingAdapter(
+                                        model_name=active_corpus.retrieval_config.embedding_model,
+                                        revision=active_corpus.retrieval_config.embedding_revision,
+                                        dimensions=active_corpus.retrieval_config.embedding_dimensions,
+                                    )
+                                else:
+                                    embedder = FakeEmbeddingAdapter(
+                                        dimensions=active_corpus.retrieval_config.embedding_dimensions,
+                                    )
+
+                                if self.reranker_adapter is not None:
+                                    reranker = self.reranker_adapter
+                                elif is_live_retrieval:
+                                    reranker = CrossEncoderRerankerAdapter(
+                                        model_name=active_corpus.retrieval_config.reranker_model,
+                                        revision=active_corpus.retrieval_config.reranker_revision,
+                                    )
+                                else:
+                                    reranker = FakeRerankerAdapter()
+
                                 index = PostgresPolicyIndex(
                                     session,
                                     embedder,

@@ -350,3 +350,87 @@ def test_grounding_result_is_immutable_pydantic_model() -> None:
     )
     with pytest.raises((ValidationError, TypeError)):
         result.is_valid = False  # frozen=True raises ValidationError/TypeError at runtime
+
+
+def test_grounding_rejects_unsupported_citation_only_claims() -> None:
+    """A claim referencing a citation without text backing fails grounding and is repaired."""
+    from vehicle_risk_agent.policy.models import PolicyCitation
+    from vehicle_risk_agent.reporting.grounding import GroundingContext, GroundingValidator
+
+    cit_empty = PolicyCitation(
+        passage_id="pol-empty",
+        snapshot_id="snap1",
+        source_id="src1",
+        section_identifier="S1",
+        heading="Empty Citation",
+        source_title="Title",
+        canonical_origin="https://example.com",
+        text=None,
+    )
+    cit_supported = PolicyCitation(
+        passage_id="pol-supported",
+        snapshot_id="snap1",
+        source_id="src1",
+        section_identifier="S2",
+        heading="Supported Citation",
+        source_title="Title",
+        canonical_origin="https://example.com",
+        text="Valid verifiable passage text.",
+        content_hash="c" * 64,
+        reuse_terms="CC BY 4.0",
+    )
+
+    ctx = GroundingContext(
+        assessment_id="assess-ground-01",
+        allowed_evidence_ids=("obs-match-001", "obs-listed-001"),
+        allowed_citation_ids=("pol-match-001", "pol-listed-001", "pol-empty", "pol-supported"),
+        policy_citations=(
+            PolicyCitation(
+                passage_id="pol-match-001",
+                snapshot_id="snap1",
+                source_id="src1",
+                section_identifier="S0",
+                heading="Match",
+                source_title="Title",
+                canonical_origin="https://example.com",
+                text="Match text",
+            ),
+            PolicyCitation(
+                passage_id="pol-listed-001",
+                snapshot_id="snap1",
+                source_id="src1",
+                section_identifier="S00",
+                heading="Listed",
+                source_title="Title",
+                canonical_origin="https://example.com",
+                text="Listed text",
+            ),
+            cit_empty,
+            cit_supported,
+        ),
+        risk_result=_make_risk_result(),
+    )
+
+    validator = GroundingValidator()
+    claim_unsupported = ClaimReference(
+        claim_id="claim-empty-cit",
+        statement="Claim based on citation with no text",
+        evidence_refs=("obs-match-001",),
+        policy_citation_refs=("pol-empty",),
+    )
+    claim_supported = ClaimReference(
+        claim_id="claim-valid-cit",
+        statement="Claim based on citation with text",
+        evidence_refs=("obs-match-001",),
+        policy_citation_refs=("pol-supported",),
+    )
+
+    draft = _make_draft_with_claims((claim_unsupported, claim_supported))
+    res = validator.validate(draft, ctx)
+    assert not res.is_valid
+    assert len(res.ungrounded_claims) == 1
+    assert res.ungrounded_claims[0].claim_id == "claim-empty-cit"
+
+    repaired = validator.repair(draft, ctx)
+    res2 = GroundingValidator().validate(repaired, ctx)
+    assert res2.is_valid

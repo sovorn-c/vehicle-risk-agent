@@ -52,7 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     event_broadcaster = ProgressEventBroadcaster()
     embedding_adapter: EmbeddingAdapter
     reranker_adapter: RerankerAdapter
-    if settings.environment.lower() == "production":
+    if settings.retrieval_mode == "live" or settings.environment.lower() == "production":
         embedding_adapter = SentenceTransformersEmbeddingAdapter()
         reranker_adapter = CrossEncoderRerankerAdapter()
     else:
