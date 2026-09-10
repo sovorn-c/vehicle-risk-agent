@@ -401,10 +401,9 @@ class LiveEvaluationRunner:
 
         corpus_to_check = active_corpus if active_corpus is not _SENTINEL else self.active_corpus
         if corpus_to_check is None:
-            if self.config.require_neural_corpus:
-                raise LiveEvaluationCorpusError(
-                    "Live evaluation refused: active neural policy corpus is required."
-                )
+            raise LiveEvaluationCorpusError(
+                "Live evaluation refused: active neural policy corpus is required."
+            )
         else:
             state = getattr(corpus_to_check, "lifecycle_state", None)
             state_str = state.value if state is not None and hasattr(state, "value") else str(state)

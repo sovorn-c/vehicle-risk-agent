@@ -171,7 +171,7 @@ def test_refuses_when_active_corpus_missing() -> None:
     with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
         runner.validate_readiness(active_corpus=None)
 
-    # Config with explicit require_neural_corpus=False allows execution without corpus
+    # Explicitly disabling the flag cannot bypass the live corpus safety gate.
     permissive_runner = LiveEvaluationRunner(
         config=LiveEvaluationConfig(
             enable_live_eval=True,
@@ -179,7 +179,8 @@ def test_refuses_when_active_corpus_missing() -> None:
             require_neural_corpus=False,
         )
     )
-    permissive_runner.validate_readiness()
+    with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
+        permissive_runner.validate_readiness()
 
 
 def test_refuses_when_active_corpus_unready() -> None:
@@ -272,8 +273,8 @@ def test_cli_main_refuses_when_active_corpus_missing(capsys: pytest.CaptureFixtu
     assert "active neural policy corpus is required" in captured.err
 
 
-def test_cli_main_dry_run_success(capsys: pytest.CaptureFixture[str]) -> None:
-    """CLI --dry-run validates credentials when require-neural-corpus is disabled."""
+def test_cli_main_dry_run_rejects_corpus_bypass(capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI --dry-run rejects a live run that tries to disable corpus validation."""
     from vehicle_risk_agent.evaluation.live import main
 
     code = main(
@@ -285,9 +286,9 @@ def test_cli_main_dry_run_success(capsys: pytest.CaptureFixture[str]) -> None:
             "--dry-run",
         ]
     )
-    assert code == 0
+    assert code == 1
     captured = capsys.readouterr()
-    assert "validated successfully (dry run)" in captured.out
+    assert "active neural policy corpus is required" in captured.err
 
 
 def test_cli_main_dry_run_with_active_corpus(capsys: pytest.CaptureFixture[str]) -> None:
