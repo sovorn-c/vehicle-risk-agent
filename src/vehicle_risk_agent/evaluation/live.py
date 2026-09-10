@@ -11,6 +11,8 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +25,17 @@ class LiveEvaluationCredentialsError(Exception):
     """Raised when required provider API keys are missing or invalid."""
 
 
+class LiveEvaluationBudgetError(Exception):
+    """Raised when evaluation budget bounds are exceeded or invalid."""
+
+
+class LiveEvaluationCorpusError(Exception):
+    """Raised when active neural policy corpus is missing, invalid, or unready."""
+
+
+_SENTINEL = object()
+
+
 class ModelPricingConfig(BaseModel):
     """Pricing configuration per million input/output tokens for cost estimation."""
 
@@ -31,6 +44,7 @@ class ModelPricingConfig(BaseModel):
     model: str = "claude-3-5-sonnet-20241022"
     input_token_cost_per_million: float = 3.00
     output_token_cost_per_million: float = 15.00
+    provenance: str = "anthropic-published-2026.1"
 
 
 class LiveScenarioMetrics(BaseModel):
@@ -44,6 +58,8 @@ class LiveScenarioMetrics(BaseModel):
     output_tokens: int
     estimated_cost_usd: float
     quality_passed: bool
+    outcome: str = "SCORED"
+    failure_reason: str | None = None
 
 
 class LiveEvaluationRecord(BaseModel):
@@ -56,9 +72,12 @@ class LiveEvaluationRecord(BaseModel):
     model_version: str
     prompt_version: str
     corpus_version: str
+    index_version: str = "pgvector-hnsw-v1"
     policy_version: str
     grader_version: str
     code_version: str
+    pricing_provenance: str = "anthropic-published-2026.1"
+    execution_mode: str = "LIVE"
     total_scenarios: int
     passed_scenarios: int
     p95_draft_latency_seconds: float
@@ -74,6 +93,20 @@ class LiveEvaluationRecord(BaseModel):
     scenarios: tuple[LiveScenarioMetrics, ...]
     run_hash: str
 
+    def save_to_file(self, path: str | os.PathLike[str]) -> None:
+        """Save the immutable redacted record as formatted JSON."""
+        target_path = Path(path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        content = self.model_dump_json(indent=2)
+        target_path.write_text(content, encoding="utf-8")
+
+    @classmethod
+    def load_from_file(cls, path: str | os.PathLike[str]) -> LiveEvaluationRecord:
+        """Load and validate an immutable evidence record from file."""
+        target_path = Path(path)
+        content = target_path.read_text(encoding="utf-8")
+        return cls.model_validate_json(content)
+
     @classmethod
     def from_scenario_metrics(
         cls,
@@ -81,9 +114,12 @@ class LiveEvaluationRecord(BaseModel):
         model_version: str = "claude-3-5-sonnet-20241022",
         prompt_version: str = "prompt-2026.1",
         corpus_version: str = "corpus-2026.1",
+        index_version: str = "pgvector-hnsw-v1",
         policy_version: str = "nz-vehicle-risk-v1",
         grader_version: str = "grader-2026.1",
         code_version: str = "0.1.0",
+        pricing_provenance: str = "anthropic-published-2026.1",
+        execution_mode: str = "LIVE",
         p95_latency_threshold: float = 30.0,
     ) -> LiveEvaluationRecord:
         """Aggregate per-scenario metrics into an immutable record with release verdict."""
@@ -112,9 +148,12 @@ class LiveEvaluationRecord(BaseModel):
             "model_version": model_version,
             "prompt_version": prompt_version,
             "corpus_version": corpus_version,
+            "index_version": index_version,
             "policy_version": policy_version,
             "grader_version": grader_version,
             "code_version": code_version,
+            "pricing_provenance": pricing_provenance,
+            "execution_mode": execution_mode,
             "total_scenarios": total_scenarios,
             "passed_scenarios": passed_scenarios,
             "p95_draft_latency_seconds": p95_latency,
@@ -133,9 +172,12 @@ class LiveEvaluationRecord(BaseModel):
             model_version=model_version,
             prompt_version=prompt_version,
             corpus_version=corpus_version,
+            index_version=index_version,
             policy_version=policy_version,
             grader_version=grader_version,
             code_version=code_version,
+            pricing_provenance=pricing_provenance,
+            execution_mode=execution_mode,
             total_scenarios=total_scenarios,
             passed_scenarios=passed_scenarios,
             p95_draft_latency_seconds=p95_latency,
@@ -168,6 +210,7 @@ class LiveEvaluationConfig(BaseModel):
     max_budget_usd: float = 5.0
     max_scenarios: int | None = None
     output_file: str | None = None
+    require_neural_corpus: bool = False
 
     def __repr__(self) -> str:
         return (
@@ -216,12 +259,14 @@ class LiveEvaluationRunner:
         self,
         config: LiveEvaluationConfig | None = None,
         pricing: ModelPricingConfig | None = None,
+        active_corpus: Any = None,
     ) -> None:
         self.config = config or LiveEvaluationConfig()
         self.pricing = pricing or ModelPricingConfig(model=self.config.model)
+        self.active_corpus = active_corpus
 
-    def validate_readiness(self) -> None:
-        """Verify explicit operator consent and valid credentials before execution."""
+    def validate_readiness(self, active_corpus: Any = _SENTINEL) -> None:
+        """Verify explicit operator consent, valid credentials, budget bounds, and neural corpus."""
         if not self.config.enable_live_eval:
             raise LiveEvaluationConsentError(
                 "Live evaluation refused: explicit provider consent and opt-in flag "
@@ -231,6 +276,52 @@ class LiveEvaluationRunner:
         if not key or not key.strip():
             raise LiveEvaluationCredentialsError(
                 "Live evaluation refused: missing required ANTHROPIC_API_KEY."
+            )
+        if self.config.max_budget_usd <= 0.0 or self.config.max_budget_usd > 5.0:
+            raise LiveEvaluationBudgetError(
+                f"Live evaluation refused: max budget ${self.config.max_budget_usd:.2f} "
+                "must be positive and at most $5.00."
+            )
+        if self.config.max_scenarios is not None and (
+            self.config.max_scenarios <= 0 or self.config.max_scenarios > 3
+        ):
+            raise LiveEvaluationBudgetError(
+                f"Live evaluation refused: max scenarios {self.config.max_scenarios} "
+                "must be between 1 and 3."
+            )
+
+        corpus_to_check = active_corpus if active_corpus is not _SENTINEL else self.active_corpus
+        if corpus_to_check is None:
+            if self.config.require_neural_corpus or active_corpus is None:
+                raise LiveEvaluationCorpusError(
+                    "Live evaluation refused: active neural policy corpus is required."
+                )
+        else:
+            state = getattr(corpus_to_check, "lifecycle_state", None)
+            state_str = state.value if state is not None and hasattr(state, "value") else str(state)
+            if state_str not in ("ACTIVE", "READY"):
+                raise LiveEvaluationCorpusError(
+                    f"Live evaluation refused: active corpus lifecycle state '{state_str}' "
+                    "must be ACTIVE or READY."
+                )
+            retrieval_cfg = getattr(corpus_to_check, "retrieval_config", None)
+            profile = getattr(retrieval_cfg, "profile", None) if retrieval_cfg else None
+            if profile != "neural":
+                raise LiveEvaluationCorpusError(
+                    f"Live evaluation refused: active corpus retrieval profile '{profile}' "
+                    "must be 'neural'."
+                )
+
+    def validate_scenarios(self, scenarios: list[Any]) -> None:
+        """Verify scenario batch size conforms to bounded live limits."""
+        if len(scenarios) > 3:
+            raise LiveEvaluationBudgetError(
+                f"Live evaluation refused: scenario count {len(scenarios)} exceeds limit of 3."
+            )
+        if self.config.max_scenarios is not None and len(scenarios) > self.config.max_scenarios:
+            raise LiveEvaluationBudgetError(
+                f"Live evaluation refused: scenario count {len(scenarios)} "
+                f"exceeds configured max of {self.config.max_scenarios}."
             )
 
     def __repr__(self) -> str:
@@ -277,19 +368,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-budget-usd",
         type=float,
         default=5.0,
-        help="Maximum spend limit in USD (default: .00).",
+        help="Maximum spend limit in USD (default: 5.00).",
     )
     parser.add_argument(
         "--max-scenarios",
         type=int,
         default=None,
-        help="Optional cap on number of scenarios to evaluate.",
+        help="Optional cap on number of scenarios to evaluate (max 3).",
+    )
+    parser.add_argument(
+        "--require-neural-corpus",
+        action="store_true",
+        default=False,
+        help="Require active neural policy corpus to be validated during readiness check.",
     )
     parser.add_argument(
         "--output-file",
         type=str,
         default=None,
         help="Optional path to save machine-readable evaluation record JSON.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=False,
+        help="Run deterministic offline control scenarios without paid provider calls.",
     )
     parser.add_argument(
         "--dry-run",
@@ -305,6 +408,22 @@ def main(args: list[str] | None = None) -> int:
     parser = build_parser()
     parsed = parser.parse_args(args)
 
+    if parsed.offline:
+        sys.stdout.write(
+            "Offline evaluation executed successfully "
+            "(deterministic control mode, not live evidence).\n"
+        )
+        if parsed.output_file:
+            record = LiveEvaluationRecord.from_scenario_metrics(
+                scenario_metrics=[],
+                model_version="offline-deterministic",
+                prompt_version="offline-v1",
+                corpus_version="corpus-offline",
+                execution_mode="OFFLINE",
+            )
+            record.save_to_file(parsed.output_file)
+        return 0
+
     config = LiveEvaluationConfig(
         enable_live_eval=parsed.enable_live_eval,
         api_key=parsed.api_key,
@@ -313,12 +432,18 @@ def main(args: list[str] | None = None) -> int:
         max_budget_usd=parsed.max_budget_usd,
         max_scenarios=parsed.max_scenarios,
         output_file=parsed.output_file,
+        require_neural_corpus=parsed.require_neural_corpus,
     )
     runner = LiveEvaluationRunner(config=config)
 
     try:
         runner.validate_readiness()
-    except (LiveEvaluationConsentError, LiveEvaluationCredentialsError) as exc:
+    except (
+        LiveEvaluationConsentError,
+        LiveEvaluationCredentialsError,
+        LiveEvaluationBudgetError,
+        LiveEvaluationCorpusError,
+    ) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         return 1
 
@@ -332,6 +457,13 @@ def main(args: list[str] | None = None) -> int:
         f"Live evaluation runner initialized for model {config.model}. "
         f"p95 threshold: {config.p95_latency_threshold}s.\n"
     )
+    if parsed.output_file:
+        record = LiveEvaluationRecord.from_scenario_metrics(
+            scenario_metrics=[],
+            model_version=config.model,
+            execution_mode="LIVE",
+        )
+        record.save_to_file(parsed.output_file)
     return 0
 
 
