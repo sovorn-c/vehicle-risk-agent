@@ -659,7 +659,13 @@ async def test_live_evaluation_runner_executes_bounded_acceptance_with_real_mcp_
         max_budget_usd=5.0,
         max_scenarios=1,
     )
-    runner = LiveEvaluationRunner(config=config)
+    from types import SimpleNamespace
+
+    valid_corpus = SimpleNamespace(
+        lifecycle_state="ACTIVE",
+        retrieval_config=SimpleNamespace(profile="neural"),
+    )
+    runner = LiveEvaluationRunner(config=config, active_corpus=valid_corpus)
 
     scenarios = [
         {

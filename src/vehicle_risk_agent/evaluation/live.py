@@ -210,7 +210,7 @@ class LiveEvaluationConfig(BaseModel):
     max_budget_usd: float = 5.0
     max_scenarios: int | None = None
     output_file: str | None = None
-    require_neural_corpus: bool = False
+    require_neural_corpus: bool = True
 
     def __repr__(self) -> str:
         return (
@@ -401,7 +401,7 @@ class LiveEvaluationRunner:
 
         corpus_to_check = active_corpus if active_corpus is not _SENTINEL else self.active_corpus
         if corpus_to_check is None:
-            if self.config.require_neural_corpus or active_corpus is None:
+            if self.config.require_neural_corpus:
                 raise LiveEvaluationCorpusError(
                     "Live evaluation refused: active neural policy corpus is required."
                 )
@@ -468,6 +468,16 @@ class LiveEvaluationRunner:
         from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
         if self.config.enable_live_eval:
+            if self.active_corpus is None and session_factory is not None:
+                try:
+                    from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
+
+                    async with session_factory() as session:
+                        db_corpus = await CorpusLifecycleManager(session).get_active_corpus()
+                        if db_corpus is not None:
+                            self.active_corpus = db_corpus
+                except Exception:
+                    pass
             self.validate_readiness()
 
         scenarios_to_run = scenarios
@@ -731,9 +741,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--require-neural-corpus",
-        action="store_true",
-        default=False,
-        help="Require active neural policy corpus to be validated during readiness check.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require active neural policy corpus during readiness check (default: True).",
     )
     parser.add_argument(
         "--output-file",
@@ -794,7 +804,26 @@ def main(args: list[str] | None = None) -> int:
         output_file=parsed.output_file,
         require_neural_corpus=parsed.require_neural_corpus,
     )
-    runner = LiveEvaluationRunner(config=config)
+    active_corpus = None
+    if parsed.enable_live_eval and parsed.require_neural_corpus:
+        try:
+            from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+            from vehicle_risk_agent.config import Settings
+            from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
+
+            async def _resolve_corpus() -> Any:
+                settings = Settings()
+                engine = create_async_engine(settings.database_url, echo=False)
+                sm = async_sessionmaker(engine, expire_on_commit=False)
+                async with sm() as sess:
+                    return await CorpusLifecycleManager(sess).get_active_corpus()
+
+            active_corpus = asyncio.run(_resolve_corpus())
+        except Exception:
+            active_corpus = None
+
+    runner = LiveEvaluationRunner(config=config, active_corpus=active_corpus)
 
     try:
         runner.validate_readiness()

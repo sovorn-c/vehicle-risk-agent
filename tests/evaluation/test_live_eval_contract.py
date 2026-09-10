@@ -44,13 +44,30 @@ def test_refuses_without_api_key() -> None:
             runner.validate_readiness()
 
 
-def test_accepts_when_consent_and_api_key_present() -> None:
-    """Runner validates readiness successfully when consent and credentials are provided."""
+def test_refuses_when_active_corpus_missing_by_default() -> None:
+    """Runner strictly refuses live readiness when active neural corpus is missing by default."""
     config = LiveEvaluationConfig(
         enable_live_eval=True,
         api_key="sk-ant-test-valid-key",
     )
     runner = LiveEvaluationRunner(config=config)
+    with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
+        runner.validate_readiness()
+
+
+def test_accepts_when_consent_api_key_and_neural_corpus_present() -> None:
+    """Runner validates readiness when consent, key, and neural corpus are provided."""
+    from types import SimpleNamespace
+
+    valid_corpus = SimpleNamespace(
+        lifecycle_state="ACTIVE",
+        retrieval_config=SimpleNamespace(profile="neural"),
+    )
+    config = LiveEvaluationConfig(
+        enable_live_eval=True,
+        api_key="sk-ant-test-valid-key",
+    )
+    runner = LiveEvaluationRunner(config=config, active_corpus=valid_corpus)
     # Does not raise
     runner.validate_readiness()
 
@@ -81,6 +98,7 @@ def test_live_evaluation_config_provider_bounds() -> None:
     assert config.timeout_seconds == 30.0
     assert config.max_repairs == 1
     assert config.max_budget_usd == 5.0
+    assert config.require_neural_corpus is True
 
 
 def test_refuses_budget_exceeding_limit() -> None:
@@ -141,24 +159,27 @@ def test_refuses_scenario_batch_exceeding_cap() -> None:
 
 
 def test_refuses_when_active_corpus_missing() -> None:
-    """Runner refuses readiness when neural corpus is required but missing."""
-    # Explicit None passed to validate_readiness
+    """Runner refuses readiness when neural corpus is missing by default."""
+    # Omitted active_corpus with default config
     runner = LiveEvaluationRunner(
         config=LiveEvaluationConfig(enable_live_eval=True, api_key="sk-ant-test-key")
     )
     with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
+        runner.validate_readiness()
+
+    # Explicit None passed to validate_readiness
+    with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
         runner.validate_readiness(active_corpus=None)
 
-    # Config has require_neural_corpus=True
-    strict_runner = LiveEvaluationRunner(
+    # Config with explicit require_neural_corpus=False allows execution without corpus
+    permissive_runner = LiveEvaluationRunner(
         config=LiveEvaluationConfig(
             enable_live_eval=True,
             api_key="sk-ant-test-key",
-            require_neural_corpus=True,
+            require_neural_corpus=False,
         )
     )
-    with pytest.raises(LiveEvaluationCorpusError, match="active neural policy corpus is required"):
-        strict_runner.validate_readiness()
+    permissive_runner.validate_readiness()
 
 
 def test_refuses_when_active_corpus_unready() -> None:
@@ -241,11 +262,51 @@ def test_cli_main_refuses_without_consent(capsys: pytest.CaptureFixture[str]) ->
     assert "Live evaluation refused" in captured.err
 
 
-def test_cli_main_dry_run_success(capsys: pytest.CaptureFixture[str]) -> None:
-    """CLI --dry-run validates credentials without executing paid calls."""
+def test_cli_main_refuses_when_active_corpus_missing(capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI exits with error code 1 when active neural corpus is missing."""
     from vehicle_risk_agent.evaluation.live import main
 
     code = main(["--enable-live-eval", "--api-key", "sk-ant-test-key", "--dry-run"])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "active neural policy corpus is required" in captured.err
+
+
+def test_cli_main_dry_run_success(capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI --dry-run validates credentials when require-neural-corpus is disabled."""
+    from vehicle_risk_agent.evaluation.live import main
+
+    code = main(
+        [
+            "--enable-live-eval",
+            "--api-key",
+            "sk-ant-test-key",
+            "--no-require-neural-corpus",
+            "--dry-run",
+        ]
+    )
     assert code == 0
     captured = capsys.readouterr()
     assert "validated successfully (dry run)" in captured.out
+
+
+def test_cli_main_dry_run_with_active_corpus(capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI --dry-run validates configuration successfully when active neural corpus is present."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from vehicle_risk_agent.evaluation.live import main
+
+    valid_corpus = SimpleNamespace(
+        lifecycle_state="ACTIVE",
+        retrieval_config=SimpleNamespace(profile="neural"),
+    )
+    with patch(
+        "vehicle_risk_agent.policy.corpus_lifecycle.CorpusLifecycleManager.get_active_corpus",
+        new_callable=AsyncMock,
+    ) as mock_get:
+        mock_get.return_value = valid_corpus
+        code = main(["--enable-live-eval", "--api-key", "sk-ant-test-key", "--dry-run"])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "validated successfully (dry run)" in captured.out
