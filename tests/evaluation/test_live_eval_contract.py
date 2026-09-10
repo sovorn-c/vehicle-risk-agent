@@ -68,3 +68,13 @@ def test_security_isolation_no_key_leaked_in_repr_or_errors() -> None:
 
     dump = config.model_dump_json()
     assert sensitive_key not in dump
+
+
+def test_live_evaluation_config_provider_bounds() -> None:
+    """Config enforces claude-sonnet-4-6 default, 2048 token cap, 30s timeout, 1 repair."""
+    config = LiveEvaluationConfig()
+    assert config.model == "claude-sonnet-4-6"
+    assert config.max_output_tokens == 2048
+    assert config.timeout_seconds == 30.0
+    assert config.max_repairs == 1
+    assert config.max_budget_usd == 5.0

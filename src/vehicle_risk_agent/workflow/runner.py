@@ -11,6 +11,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
 from vehicle_risk_agent.adapters.mcp import VehicleMcpClientAdapter, create_mcp_adapter
 from vehicle_risk_agent.api.models import AssessmentContext
 from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Settings
@@ -21,6 +22,8 @@ from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
+from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
+from vehicle_risk_agent.reporting.protocol import ReportDraftingProtocol
 from vehicle_risk_agent.reporting.repository import ReportDraftRepository
 from vehicle_risk_agent.retrieval.adapters import (
     CrossEncoderRerankerAdapter,
@@ -68,6 +71,7 @@ class AssessmentWorkflowRunner:
         reranker_adapter: RerankerAdapter | None = None,
         integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
         settings: Settings | None = None,
+        drafting_adapter: ReportDraftingProtocol | None = None,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
@@ -77,6 +81,7 @@ class AssessmentWorkflowRunner:
         self.reranker_adapter = reranker_adapter
         self.integrity_secret = integrity_secret
         self.settings = settings
+        self.drafting_adapter = drafting_adapter
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
 
@@ -90,6 +95,7 @@ class AssessmentWorkflowRunner:
         mcp_adapter: VehicleMcpClientAdapter | None = None,
         embedding_adapter: EmbeddingAdapter | None = None,
         reranker_adapter: RerankerAdapter | None = None,
+        drafting_adapter: ReportDraftingProtocol | None = None,
     ) -> AsyncIterator["AssessmentWorkflowRunner"]:
         """Create and initialize a runner with AsyncPostgresSaver and optional session factory."""
         conn_string = settings.database_url.replace("+psycopg", "")
@@ -113,6 +119,7 @@ class AssessmentWorkflowRunner:
                     reranker_adapter=reranker_adapter,
                     integrity_secret=settings.snapshot_integrity_secret.get_secret_value(),
                     settings=settings,
+                    drafting_adapter=drafting_adapter,
                 )
             finally:
                 if dispose_engine and engine is not None:
@@ -224,6 +231,43 @@ class AssessmentWorkflowRunner:
                                     reranker,
                                     active_corpus.retrieval_config,
                                 )
+
+                        if "drafting_adapter" not in configurable:
+                            if self.drafting_adapter is not None:
+                                configurable["drafting_adapter"] = self.drafting_adapter
+                            else:
+                                drafting_mode = (
+                                    getattr(self.settings, "drafting_mode", "offline").lower()
+                                    if self.settings is not None
+                                    else "offline"
+                                )
+                                if drafting_mode == "live":
+                                    api_key = (
+                                        self.settings.anthropic_api_key.get_secret_value()
+                                        if self.settings and self.settings.anthropic_api_key
+                                        else None
+                                    )
+                                    configurable["drafting_adapter"] = AnthropicDraftingAdapter(
+                                        model=(
+                                            self.settings.drafting_model
+                                            if self.settings
+                                            else "claude-sonnet-4-6"
+                                        ),
+                                        max_tokens=(
+                                            self.settings.drafting_max_tokens
+                                            if self.settings
+                                            else 2048
+                                        ),
+                                        timeout_seconds=(
+                                            int(self.settings.drafting_timeout_seconds)
+                                            if self.settings
+                                            else 30
+                                        ),
+                                        api_key=api_key,
+                                    )
+                                else:
+                                    drafter = OfflineReportDraftingAdapter()
+                                    configurable["drafting_adapter"] = drafter
 
                         run_config["configurable"] = configurable
                         assessment_repo = configurable.get("assessment_repo")

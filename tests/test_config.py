@@ -61,3 +61,41 @@ def test_mcp_server_url_normalizes_to_mcp_endpoint() -> None:
 
     settings_already_mcp = Settings(mcp_server_url="http://localhost:8080/mcp")
     assert settings_already_mcp.mcp_server_url == "http://localhost:8080/mcp"
+
+
+def test_settings_drafting_configuration_defaults() -> None:
+    """Settings provides safe offline defaults and claude-sonnet-4-6 provider config."""
+    settings = Settings()
+    assert settings.drafting_mode == "offline"
+    assert settings.drafting_model == "claude-sonnet-4-6"
+    assert settings.drafting_max_tokens == 2048
+    assert settings.drafting_timeout_seconds == 30.0
+    assert settings.drafting_max_repairs == 1
+    assert settings.live_budget_usd == 5.0
+    assert settings.enable_live_drafting is False
+
+
+def test_settings_drafting_mode_live_validation() -> None:
+    """Live drafting requires explicit opt-in and an API key; invalid modes are rejected."""
+    from pydantic import SecretStr
+
+    # Invalid mode
+    with pytest.raises(ValidationError):
+        Settings(drafting_mode="unsupported_mode")
+
+    # Live mode without opt-in
+    with pytest.raises(ValidationError, match="requires explicit opt-in"):
+        Settings(drafting_mode="live")
+
+    # Live mode with opt-in but no API key
+    with pytest.raises(ValidationError, match="requires anthropic_api_key"):
+        Settings(drafting_mode="live", enable_live_drafting=True)
+
+    # Valid live configuration
+    valid_live = Settings(
+        drafting_mode="live",
+        enable_live_drafting=True,
+        anthropic_api_key=SecretStr("sk-ant-api03-test-valid-key"),
+    )
+    assert valid_live.drafting_mode == "live"
+    assert valid_live.enable_live_drafting is True

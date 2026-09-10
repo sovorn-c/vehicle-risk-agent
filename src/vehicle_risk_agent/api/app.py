@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
 from vehicle_risk_agent.api.docs import DOCS_HTML
 from vehicle_risk_agent.api.evidence_routes import router as evidence_router
@@ -26,6 +27,8 @@ from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.observability.failures import classify_safe_failure
 from vehicle_risk_agent.observability.logging import get_logger, setup_logging
 from vehicle_risk_agent.observability.telemetry import init_telemetry, instrument_app
+from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
+from vehicle_risk_agent.reporting.protocol import ReportDraftingProtocol
 from vehicle_risk_agent.retrieval.adapters import (
     CrossEncoderRerankerAdapter,
     EmbeddingAdapter,
@@ -61,6 +64,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     mcp_adapter = create_mcp_adapter(settings)
 
+    drafting_adapter: ReportDraftingProtocol
+    if settings.drafting_mode == "live":
+        api_key = (
+            settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
+        )
+        drafting_adapter = AnthropicDraftingAdapter(
+            model=settings.drafting_model,
+            max_tokens=settings.drafting_max_tokens,
+            timeout_seconds=int(settings.drafting_timeout_seconds),
+            api_key=api_key,
+        )
+    else:
+        drafting_adapter = OfflineReportDraftingAdapter()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with AssessmentWorkflowRunner.create(
@@ -70,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             mcp_adapter=mcp_adapter,
             embedding_adapter=embedding_adapter,
             reranker_adapter=reranker_adapter,
+            drafting_adapter=drafting_adapter,
         ) as runner:
             app.state.workflow_runner = runner
             try:

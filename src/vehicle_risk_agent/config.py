@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     mcp_initial_backoff: float = Field(default=0.05, gt=0)
     snapshot_integrity_secret: SecretStr = SecretStr(DEFAULT_SNAPSHOT_INTEGRITY_SECRET)
     retrieval_mode: str = "offline"
+    drafting_mode: str = "offline"
+    drafting_model: str = "claude-sonnet-4-6"
+    drafting_max_tokens: int = Field(default=2048, gt=0, le=4096)
+    drafting_timeout_seconds: float = Field(default=30.0, gt=0)
+    drafting_max_repairs: int = Field(default=1, ge=0, le=2)
+    anthropic_api_key: SecretStr | None = None
+    live_budget_usd: float = Field(default=5.0, gt=0)
+    enable_live_drafting: bool = False
 
     @field_validator("retrieval_mode")
     @classmethod
@@ -38,6 +46,14 @@ class Settings(BaseSettings):
         cleaned = value.strip().lower()
         if cleaned not in {"offline", "live"}:
             raise ValueError("retrieval_mode must be 'offline' or 'live'")
+        return cleaned
+
+    @field_validator("drafting_mode")
+    @classmethod
+    def validate_drafting_mode(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if cleaned not in {"offline", "live"}:
+            raise ValueError("drafting_mode must be 'offline' or 'live'")
         return cleaned
 
     @field_validator("mcp_server_url")
@@ -84,4 +100,11 @@ class Settings(BaseSettings):
                 )
             ):
                 raise ValueError("development bearer tokens are not allowed in production")
+        if self.drafting_mode == "live":
+            if not self.enable_live_drafting:
+                raise ValueError(
+                    "drafting_mode='live' requires explicit opt-in enable_live_drafting=True"
+                )
+            if not self.anthropic_api_key or not self.anthropic_api_key.get_secret_value().strip():
+                raise ValueError("drafting_mode='live' requires anthropic_api_key")
         return self

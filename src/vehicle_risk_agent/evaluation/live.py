@@ -160,8 +160,11 @@ class LiveEvaluationConfig(BaseModel):
 
     enable_live_eval: bool = False
     api_key: str = Field(default="", exclude=True)
-    model: str = "claude-3-5-sonnet-20241022"
+    model: str = "claude-sonnet-4-6"
     p95_latency_threshold: float = 30.0
+    timeout_seconds: float = 30.0
+    max_output_tokens: int = 2048
+    max_repairs: int = 1
     max_budget_usd: float = 5.0
     max_scenarios: int | None = None
     output_file: str | None = None
@@ -261,7 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         type=str,
-        default="claude-3-5-sonnet-20241022",
+        default="claude-sonnet-4-6",
         help="Anthropic model to evaluate.",
     )
     parser.add_argument(

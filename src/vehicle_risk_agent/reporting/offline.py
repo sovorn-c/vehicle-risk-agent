@@ -104,7 +104,7 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
             outcome=outcome,
             sections=sections,
             draft_hash=draft_hash,
-            metadata={"drafter_id": self.drafter_version, **context.metadata},
+            metadata={"drafter_id": self.drafter_version, "mode": "offline", **context.metadata},
         )
 
     # -------------------------------------------------------------------------
