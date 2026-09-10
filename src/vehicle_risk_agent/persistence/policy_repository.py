@@ -178,6 +178,18 @@ class PolicyRepository:
         if existing is not None:
             return existing
 
+        meta_dict = dict(snapshot.metadata)
+        if self._embedder is not None and "embedding_profile" not in meta_dict:
+            default_model = "sentence-transformers/all-MiniLM-L6-v2"
+            model_name = getattr(self._embedder, "model_name", default_model)
+            revision = getattr(self._embedder, "revision", "main")
+            dim = getattr(self._embedder, "dimensions", 384)
+            meta_dict["embedding_profile"] = {
+                "model": model_name,
+                "revision": revision,
+                "dimensions": dim,
+            }
+
         snapshot_record = PolicySnapshotRecord(
             id=snapshot.id,
             source_id=snapshot.source_id,
@@ -188,7 +200,7 @@ class PolicyRepository:
             raw_content=snapshot.raw_content,
             parser_version=snapshot.parser_version,
             validation_outcome=str(snapshot.validation_outcome),
-            metadata_json=json.dumps(snapshot.metadata),
+            metadata_json=json.dumps(meta_dict),
             created_at=snapshot.retrieved_at,
         )
         embeddings: list[list[float] | None] = [None] * len(snapshot.passages)

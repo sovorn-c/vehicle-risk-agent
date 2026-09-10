@@ -2,6 +2,7 @@
 
 # story: e02s03
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from vehicle_risk_agent.observability.telemetry import trace_boundary
@@ -37,15 +38,15 @@ class HybridRetrievalService:
         index: PolicyIndex,
         reranker: RerankerAdapter,
         config: RetrievalConfiguration | None = None,
-        source_metadata: dict[str, tuple[str, str]]
-        | None = None,  # source_id -> (title, canonical_origin)
+        source_metadata: Mapping[str, tuple[str, ...]]
+        | None = None,  # source_id -> (title, canonical_origin, [reuse_terms])
     ) -> None:
         self.index = index
         self.reranker = reranker
         self.config = config or RetrievalConfiguration()
         self.source_metadata = source_metadata
 
-    async def _resolve_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+    async def _resolve_source_metadata(self, source_id: str) -> tuple[str, ...] | None:
         """Resolve citation metadata from explicit test data or the index's source table."""
         if self.source_metadata is not None:
             return self.source_metadata.get(source_id)
@@ -154,7 +155,9 @@ class HybridRetrievalService:
                     raise PolicyRetrievalError(
                         f"Missing authoritative source metadata for source {p.source_id}"
                     )
-                title, origin = meta
+                title = meta[0]
+                origin = meta[1]
+                reuse_terms = meta[2] if len(meta) > 2 else None
                 citations.append(
                     PolicyCitation(
                         passage_id=p.id,
@@ -164,6 +167,9 @@ class HybridRetrievalService:
                         heading=p.heading,
                         source_title=title,
                         canonical_origin=origin,
+                        text=p.text,
+                        content_hash=p.content_hash,
+                        reuse_terms=reuse_terms,
                     )
                 )
 

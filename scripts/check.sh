@@ -5,6 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# Isolate local .env during preflight to avoid environmental pollution of tests
+if [ -f .env ]; then
+  ENV_TEMP="$(mktemp -d)"
+  mv .env "${ENV_TEMP}/.env"
+  cleanup_env() {
+    if [ -f "${ENV_TEMP}/.env" ]; then
+      mv "${ENV_TEMP}/.env" .env
+      rm -rf "${ENV_TEMP}"
+    fi
+  }
+  trap cleanup_env EXIT INT TERM
+fi
+
 echo "=================================================================="
 echo " Vehicle Risk Agent — Local Preflight Verification"
 echo "=================================================================="

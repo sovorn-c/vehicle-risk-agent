@@ -250,7 +250,8 @@ async def node_incomplete(
     ):
         draft = await drafter.draft_report(draft_context)
         # Offline drafting has no provider usage; provider adapters record actual usage.
-        record_model_tokens(0, 0, model=type(drafter).__name__)
+        if type(drafter).__name__ == "OfflineReportDraftingAdapter":
+            record_model_tokens(0, 0, model=type(drafter).__name__)
 
     draft_repo = configurable.get("draft_repo")
     if draft_repo is not None:
@@ -392,7 +393,8 @@ async def node_drafting_report(
     ):
         draft = await drafter.draft_report(draft_context)
         # Offline drafting has no provider usage; provider adapters record actual usage.
-        record_model_tokens(0, 0, model=type(drafter).__name__)
+        if type(drafter).__name__ == "OfflineReportDraftingAdapter":
+            record_model_tokens(0, 0, model=type(drafter).__name__)
     draft_repo = configurable.get("draft_repo")
     if draft_repo is not None:
         await draft_repo.save_draft_and_transition_assessment(

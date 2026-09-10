@@ -113,9 +113,10 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
 
     def __init__(
         self,
-        model: str = "claude-3-5-sonnet-20241022",
-        max_tokens: int = 4096,
+        model: str = "claude-sonnet-4-6",
+        max_tokens: int = 2048,
         timeout_seconds: int = 30,
+        api_key: str | None = None,
     ) -> None:
         if max_tokens > _MAX_TOKENS_HARD_CAP:
             raise ValueError(f"max_tokens={max_tokens} exceeds hard cap {_MAX_TOKENS_HARD_CAP}")
@@ -126,6 +127,7 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         self.model = model
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
+        self._api_key = api_key
 
     # ------------------------------------------------------------------
     # ReportDraftingProtocol implementation
@@ -142,13 +144,38 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
 
         # 1. Call the API (mockable boundary)
         raw = await self._safe_api_call(context)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        # 2. Parse and validate the model output schema
-        validated = self._parse_and_validate(raw)
+        # 2. Extract usage and parse/validate schema
+        input_tokens = 0
+        output_tokens = 0
+        if isinstance(raw, dict) and "input_tokens" in raw and "text" in raw:
+            raw_text = raw["text"]
+            input_tokens = int(raw["input_tokens"])
+            output_tokens = int(raw["output_tokens"])
+            validated = self._parse_and_validate(raw_text)
+        elif isinstance(raw, dict) and raw.get("fail_unknown_usage") is True:
+            raise DraftingFailureError("UNKNOWN_USAGE")
+        else:
+            validated = self._parse_and_validate(raw)
+            if isinstance(raw, dict) and "usage" in raw:
+                usage_val = raw["usage"]
+                if usage_val is None:
+                    raise DraftingFailureError("UNKNOWN_USAGE")
+                if isinstance(usage_val, dict):
+                    input_tokens = int(usage_val.get("input_tokens", 0))
+                    output_tokens = int(usage_val.get("output_tokens", 0))
+            elif isinstance(context.metadata, dict) and "input_tokens" in context.metadata:
+                input_tokens = int(context.metadata.get("input_tokens", 0))
+                output_tokens = int(context.metadata.get("output_tokens", 0))
 
         # 3. Build a ReportDraft — score/band sourced from risk_result only
         draft = await self._assemble_draft(
-            context, validated, elapsed_ms=int((time.monotonic() - start) * 1000)
+            context,
+            validated,
+            elapsed_ms=elapsed_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
         # 4. Grounding validation + bounded repair
@@ -188,7 +215,7 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         except ImportError as err:
             raise DraftingFailureError("PROVIDER_UNAVAILABLE") from err
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = self._api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             raise DraftingFailureError("PROVIDER_UNAVAILABLE")
 
@@ -206,17 +233,27 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
             raise DraftingFailureError("PROVIDER_UNAVAILABLE") from exc
 
         usage = getattr(message, "usage", None)
+        if usage is None:
+            raise DraftingFailureError("UNKNOWN_USAGE")
         if isinstance(usage, dict):
+            if "input_tokens" not in usage or "output_tokens" not in usage:
+                raise DraftingFailureError("UNKNOWN_USAGE")
             input_tokens = int(usage.get("input_tokens", 0))
             output_tokens = int(usage.get("output_tokens", 0))
         else:
+            if not hasattr(usage, "input_tokens") or not hasattr(usage, "output_tokens"):
+                raise DraftingFailureError("UNKNOWN_USAGE")
             input_tokens = int(getattr(usage, "input_tokens", 0))
             output_tokens = int(getattr(usage, "output_tokens", 0))
         record_model_tokens(input_tokens, output_tokens, model=self.model)
 
         # Extract text block
         text = message.content[0].text if message.content else ""
-        return text
+        return {
+            "text": text,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
 
     def _extract_allowed_evidence_ids(self, context: ReportDraftingContext) -> tuple[str, ...]:
         """Extract all valid observation IDs from items, snapshot provenance, and risk result."""
@@ -238,21 +275,42 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
     def _build_system_prompt(self, context: ReportDraftingContext) -> str:
         """Build a grounding-aware system prompt.  Never stored or returned."""
         allowed_ev = list(self._extract_allowed_evidence_ids(context))
+        allowed_cit = [c.passage_id for c in context.policy_citations]
         return (
             "You are a vehicle risk report drafting assistant. "
             "Your output must be valid JSON matching the required schema. "
-            "You MUST only reference these evidence IDs: "
-            f"{allowed_ev}. "
+            f"You MUST only reference these evidence IDs: {allowed_ev} "
+            f"and policy citation IDs: {allowed_cit}. "
             "Do NOT include score_override, band_override, or any field not in the schema."
         )
 
     def _build_user_prompt(self, context: ReportDraftingContext) -> str:
-        """Build the user prompt.  Never stored or returned."""
-        return (
+        """Build the user prompt with minimized evidence and retrieved passages."""
+        parts = [
             f"Draft a structured risk report for assessment {context.assessment_id}, "
-            f"run {context.run_number}. Vehicle: {context.vin}. "
+            f"run {context.run_number}. Vehicle: {context.vin}."
+        ]
+        if context.risk_result:
+            rr = context.risk_result
+            parts.append(
+                f"Deterministic Risk Result: outcome={rr.outcome.value}, "
+                f"score={rr.score}, band={rr.band.value if rr.band else 'NONE'}."
+            )
+        if context.policy_citations:
+            parts.append("Retrieved Policy Passages:")
+            for cit in context.policy_citations:
+                text_snippet = (cit.text or "").strip()
+                sec = getattr(cit, "section_identifier", "")
+                parts.append(f"- [{cit.passage_id}] {cit.source_id} ({sec}): {text_snippet}")
+        if context.evidence_items:
+            parts.append("Evidence Items:")
+            for item in context.evidence_items:
+                if item.observation_id:
+                    parts.append(f"- [{item.observation_id}] {item.field_name}: {item.value}")
+        parts.append(
             "Return valid JSON with keys: assessment_id, run_number, outcome, sections, claim_refs."
         )
+        return "\n".join(parts)
 
     def _parse_and_validate(self, raw: Any) -> _ModelOutputSchema:
         """Parse raw model output into the strict schema.
@@ -281,12 +339,18 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         context: ReportDraftingContext,
         validated: _ModelOutputSchema,
         elapsed_ms: int,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
     ) -> ReportDraft:
         """Build a ReportDraft using the offline adapter for structure integrity.
 
         Score, band, and findings are always sourced from context.risk_result.
         The model's narrative text supplements section content only.
         """
+        from vehicle_risk_agent.evaluation.live import (
+            ModelPricingConfig,
+            calculate_estimated_cost,
+        )
         from vehicle_risk_agent.reporting.offline import (
             OfflineReportDraftingAdapter,  # noqa: PLC0415
         )
@@ -315,11 +379,22 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         )
         new_sections = base_draft.sections.model_copy(update={"executive_summary": new_exec})
 
+        pricing = ModelPricingConfig(model=self.model)
+        estimated_cost = calculate_estimated_cost(input_tokens, output_tokens, pricing)
+
         # Metadata: telemetry only — never prompt, credentials, or raw response
         metadata = {
             "adapter_id": "anthropic-v1",
+            "mode": "live",
             "model": self.model,
             "elapsed_ms": elapsed_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "estimated_cost_usd": estimated_cost,
+            "pricing_provenance": (
+                f"model={self.model}, input=${pricing.input_token_cost_per_million}/M, "
+                f"output=${pricing.output_token_cost_per_million}/M"
+            ),
             **context.metadata,
         }
 

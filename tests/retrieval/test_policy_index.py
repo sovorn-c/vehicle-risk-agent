@@ -1,5 +1,10 @@
 """Tests for policy passage indexing, dense candidate retrieval, and full-text keyword retrieval."""
 
+# story: e10s01
+# scenario: SC-e10s01-P0-01
+# scenario: SC-e10s01-P0-02
+# scenario: SC-e10s01-P0-04
+
 import hashlib
 
 import pytest
@@ -96,3 +101,43 @@ async def test_index_candidate_bounds(sample_passages: list[PolicyPassage]) -> N
 
     results = await index.search_dense(query="vehicle", top_k=1)
     assert len(results) == 1
+
+
+def test_neural_adapters_configuration_and_isolation() -> None:
+    """Neural adapters accept model, revision, and dimensions parameters."""
+    from vehicle_risk_agent.retrieval.adapters import (
+        CrossEncoderRerankerAdapter,
+        SentenceTransformersEmbeddingAdapter,
+    )
+
+    embedder = SentenceTransformersEmbeddingAdapter(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        revision="main",
+        dimensions=384,
+    )
+    assert embedder.model_name == "sentence-transformers/all-MiniLM-L6-v2"
+    assert embedder.revision == "main"
+    assert embedder.dimensions == 384
+
+    reranker = CrossEncoderRerankerAdapter(
+        model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        revision="main",
+    )
+    assert reranker.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    assert reranker.revision == "main"
+
+
+def test_settings_retrieval_mode_validation() -> None:
+    """Settings validate retrieval_mode as 'offline' or 'live'."""
+    from pydantic import ValidationError
+
+    from vehicle_risk_agent.config import Settings
+
+    s_offline = Settings(retrieval_mode="offline")
+    assert s_offline.retrieval_mode == "offline"
+
+    s_live = Settings(retrieval_mode="live")
+    assert s_live.retrieval_mode == "live"
+
+    with pytest.raises(ValidationError):
+        Settings(retrieval_mode="unsupported-mode")

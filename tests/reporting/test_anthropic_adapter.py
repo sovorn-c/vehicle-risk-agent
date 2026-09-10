@@ -6,6 +6,12 @@ These tests drive the creation of:
 All Anthropic API calls are mocked — no live network calls are made.
 """
 
+# story: e10s02
+# scenario: SC-e10s02-P0-01
+# scenario: SC-e10s02-P0-02
+# scenario: SC-e10s02-P0-03
+# scenario: SC-e10s02-P0-04
+
 from __future__ import annotations
 
 from typing import Any
@@ -228,6 +234,88 @@ async def test_anthropic_adapter_includes_telemetry_without_prompt(
     assert "prompt" not in meta
     assert "messages" not in meta
     assert "system" not in meta
+
+
+def test_anthropic_adapter_default_model_is_sonnet_4_6() -> None:
+    """Default model is claude-sonnet-4-6 with 2048 token cap and 30s timeout."""
+    from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+
+    adapter = AnthropicDraftingAdapter()
+    assert adapter.model == "claude-sonnet-4-6"
+    assert adapter.max_tokens == 2048
+    assert adapter.timeout_seconds == 30
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_prompt_includes_passage_text(
+    drafting_context: ReportDraftingContext,
+) -> None:
+    """Grounded prompt includes retrieved passage text and section references."""
+    from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+    from vehicle_risk_agent.policy.models import PolicyCitation
+
+    adapter = AnthropicDraftingAdapter()
+    citation = PolicyCitation(
+        passage_id="fta-s9-001",
+        snapshot_id="snap-fta-01",
+        source_id="nz-fta-1986",
+        section_identifier="Section 9",
+        heading="Misleading and deceptive conduct generally",
+        source_title="Fair Trading Act 1986",
+        canonical_origin="https://www.legislation.govt.nz",
+        text="No person shall engage in conduct that is misleading or deceptive.",
+    )
+    ctx = drafting_context.model_copy(update={"policy_citations": (citation,)})
+    prompt = adapter._build_user_prompt(ctx)
+    assert "fta-s9-001" in prompt
+    assert "Section 9" in prompt
+    assert "misleading or deceptive" in prompt
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_rejects_unknown_usage(
+    drafting_context: ReportDraftingContext,
+) -> None:
+    """Missing or unknown usage raises DraftingFailureError('UNKNOWN_USAGE')."""
+    from vehicle_risk_agent.adapters.anthropic_drafting import (
+        AnthropicDraftingAdapter,
+        DraftingFailureError,
+    )
+
+    adapter = AnthropicDraftingAdapter()
+    with patch.object(adapter, "_call_anthropic_api", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = {"fail_unknown_usage": True}
+        with pytest.raises(DraftingFailureError) as exc_info:
+            await adapter.draft_report(drafting_context)
+    assert exc_info.value.safe_category == "UNKNOWN_USAGE"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_records_usage_cost_and_provenance(
+    drafting_context: ReportDraftingContext,
+) -> None:
+    """Draft metadata includes live mode, tokens, cost, and pricing provenance."""
+    import json
+
+    from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+
+    adapter = AnthropicDraftingAdapter()
+    valid_resp = _build_valid_structured_response(drafting_context)
+    with patch.object(adapter, "_call_anthropic_api", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = {
+            "text": json.dumps(valid_resp),
+            "input_tokens": 1500,
+            "output_tokens": 350,
+        }
+        draft = await adapter.draft_report(drafting_context)
+
+    meta = draft.metadata
+    assert meta.get("mode") == "live"
+    assert meta.get("input_tokens") == 1500
+    assert meta.get("output_tokens") == 350
+    assert meta.get("estimated_cost_usd") is not None
+    assert meta["estimated_cost_usd"] > 0
+    assert "pricing_provenance" in meta
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from vehicle_risk_agent.policy.models import (
     AuthorityClassification,
     PolicySource,
 )
+from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -43,7 +44,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 @pytest_asyncio.fixture
 async def seeded_snapshots(session_factory: async_sessionmaker[AsyncSession]) -> list[str]:
     async with session_factory() as session:
-        repo = PolicyRepository(session)
+        repo = PolicyRepository(session, embedder=FakeEmbeddingAdapter(dimensions=384))
         source = PolicySource(
             id="nz-legislation-fta-1986",
             title="Fair Trading Act 1986",
@@ -196,3 +197,120 @@ async def test_concurrent_activation_enforces_single_active_invariant(
         active_res = await session.execute(active_stmt)
         active_rows = active_res.scalars().all()
         assert len(active_rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_and_mark_ready_rejects_missing_vectors(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A corpus containing snapshots with missing passage vectors fails validation."""
+    async with session_factory() as session:
+        repo = PolicyRepository(session)  # no embedder -> missing vectors
+        source = PolicySource(
+            id="nz-fta-no-vec",
+            title="Fair Trading Act 1986",
+            issuing_authority="Parliament of NZ",
+            jurisdiction="NZ",
+            canonical_origin="https://example.com",
+            authority_classification=AuthorityClassification.PRIMARY_LEGISLATION,
+            reuse_terms="CC BY 4.0",
+            expected_update_cadence="ADHOC",
+        )
+        await repo.create_or_update_source(source)
+        snap = ingest_policy_source(
+            source=source,
+            raw_content="# FTA\n## S9\nText without vectors",
+            parser=PolicyParser(),
+        )
+        saved_snap = await repo.create_snapshot(snap)
+
+        mgr = CorpusLifecycleManager(session)
+        await mgr.create_corpus("corpus-no-vec", "No Vec", "Desc", [saved_snap.id])
+        with pytest.raises(CorpusLifecycleError, match="missing embedding vector"):
+            await mgr.validate_and_mark_ready("corpus-no-vec")
+
+
+@pytest.mark.asyncio
+async def test_validate_and_mark_ready_rejects_zero_placeholder_vectors(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A corpus containing all-zero placeholder vectors fails validation."""
+    from sqlalchemy import select
+
+    from vehicle_risk_agent.persistence.models import PolicyPassageRecord
+
+    async with session_factory() as session:
+        repo = PolicyRepository(session, embedder=FakeEmbeddingAdapter(dimensions=384))
+        source = PolicySource(
+            id="nz-fta-zero-vec",
+            title="Fair Trading Act 1986",
+            issuing_authority="Parliament of NZ",
+            jurisdiction="NZ",
+            canonical_origin="https://example.com",
+            authority_classification=AuthorityClassification.PRIMARY_LEGISLATION,
+            reuse_terms="CC BY 4.0",
+            expected_update_cadence="ADHOC",
+        )
+        await repo.create_or_update_source(source)
+        snap = ingest_policy_source(
+            source=source,
+            raw_content="# FTA\n## S9\nText with zero vector",
+            parser=PolicyParser(),
+        )
+        saved_snap = await repo.create_snapshot(snap)
+
+        # Mutate the passage embedding to all zeros
+        stmt = select(PolicyPassageRecord).where(PolicyPassageRecord.snapshot_id == saved_snap.id)
+        res = await session.execute(stmt)
+        p = res.scalar_one()
+        p.embedding = [0.0] * 384
+        await session.commit()
+
+        mgr = CorpusLifecycleManager(session)
+        await mgr.create_corpus("corpus-zero-vec", "Zero Vec", "Desc", [saved_snap.id])
+        with pytest.raises(CorpusLifecycleError, match="placeholder zero embedding vector"):
+            await mgr.validate_and_mark_ready("corpus-zero-vec")
+
+
+@pytest.mark.asyncio
+async def test_validate_and_mark_ready_rejects_wrong_dimension_vectors(
+    session_factory: async_sessionmaker[AsyncSession],
+    seeded_snapshots: list[str],
+) -> None:
+    """A corpus configured with incompatible vector dimensions fails validation."""
+    from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
+
+    async with session_factory() as session:
+        mgr = CorpusLifecycleManager(session)
+        config = RetrievalConfiguration(embedding_dimensions=512)
+        await mgr.create_corpus(
+            "corpus-wrong-dim",
+            "Wrong Dim",
+            "Desc",
+            seeded_snapshots,
+            retrieval_config=config,
+        )
+        with pytest.raises(CorpusLifecycleError, match="embedding dimension"):
+            await mgr.validate_and_mark_ready("corpus-wrong-dim")
+
+
+@pytest.mark.asyncio
+async def test_validate_and_mark_ready_rejects_mismatched_profile_revision(
+    session_factory: async_sessionmaker[AsyncSession],
+    seeded_snapshots: list[str],
+) -> None:
+    """A corpus whose configured revision differs from snapshot metadata fails validation."""
+    from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
+
+    async with session_factory() as session:
+        mgr = CorpusLifecycleManager(session)
+        config = RetrievalConfiguration(embedding_revision="incompatible-pinned-rev")
+        await mgr.create_corpus(
+            "corpus-wrong-rev",
+            "Wrong Rev",
+            "Desc",
+            seeded_snapshots,
+            retrieval_config=config,
+        )
+        with pytest.raises(CorpusLifecycleError, match="does not match corpus revision"):
+            await mgr.validate_and_mark_ready("corpus-wrong-rev")

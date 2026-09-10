@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from vehicle_risk_agent.persistence.models import (
     PolicyCorpusRecord,
     PolicyCorpusSnapshotRecord,
+    PolicyPassageRecord,
     PolicySnapshotRecord,
 )
 from vehicle_risk_agent.policy.corpus_models import (
@@ -162,7 +163,10 @@ class CorpusLifecycleManager:
         if not snapshot_ids:
             raise CorpusLifecycleError("Corpus must include at least one snapshot")
 
-        # Verify all snapshots exist in database and are VALID
+        retrieval_data = json.loads(record.retrieval_config_json)
+        retrieval_config = RetrievalConfiguration(**retrieval_data)
+
+        # Verify all snapshots exist in database, are VALID, and contain compatible vectors
         for snap_id in snapshot_ids:
             snap_stmt = select(PolicySnapshotRecord).where(PolicySnapshotRecord.id == snap_id)
             snap_res = await self._session.execute(snap_stmt)
@@ -174,6 +178,61 @@ class CorpusLifecycleManager:
                     f"Referenced snapshot {snap_id} has invalid validation outcome: "
                     f"{snap_rec.validation_outcome}"
                 )
+
+            # Profile compatibility and vector checks for neural retrieval
+            if retrieval_config.profile != "offline":
+                snap_meta = json.loads(snap_rec.metadata_json) if snap_rec.metadata_json else {}
+                emb_profile = snap_meta.get("embedding_profile")
+                if emb_profile:
+                    if (
+                        emb_profile.get("model")
+                        and emb_profile["model"] != retrieval_config.embedding_model
+                    ):
+                        raise CorpusLifecycleError(
+                            f"Snapshot {snap_id} embedding model {emb_profile['model']} "
+                            f"does not match corpus model {retrieval_config.embedding_model}"
+                        )
+                    if (
+                        emb_profile.get("revision")
+                        and emb_profile["revision"] != retrieval_config.embedding_revision
+                    ):
+                        raise CorpusLifecycleError(
+                            f"Snapshot {snap_id} embedding revision {emb_profile['revision']} "
+                            f"does not match corpus revision {retrieval_config.embedding_revision}"
+                        )
+                    if (
+                        emb_profile.get("dimensions")
+                        and emb_profile["dimensions"] != retrieval_config.embedding_dimensions
+                    ):
+                        raise CorpusLifecycleError(
+                            f"Snapshot {snap_id} embedding dimensions {emb_profile['dimensions']} "
+                            f"does not match corpus {retrieval_config.embedding_dimensions}"
+                        )
+
+                passage_stmt = select(PolicyPassageRecord).where(
+                    PolicyPassageRecord.snapshot_id == snap_id
+                )
+                passage_res = await self._session.execute(passage_stmt)
+                passages = passage_res.scalars().all()
+                if not passages:
+                    raise CorpusLifecycleError(
+                        f"Referenced snapshot {snap_id} contains no passages"
+                    )
+                for p in passages:
+                    if p.embedding is None:
+                        raise CorpusLifecycleError(
+                            f"Passage {p.id} in snapshot {snap_id} has missing embedding vector"
+                        )
+                    if len(p.embedding) != retrieval_config.embedding_dimensions:
+                        raise CorpusLifecycleError(
+                            f"Passage {p.id} in snapshot {snap_id} has invalid embedding dimension "
+                            f"{len(p.embedding)} (expected {retrieval_config.embedding_dimensions})"
+                        )
+                    if not any(abs(x) > 1e-7 for x in p.embedding):
+                        raise CorpusLifecycleError(
+                            f"Passage {p.id} in snapshot {snap_id} has "
+                            "placeholder zero embedding vector"
+                        )
 
         record.lifecycle_state = CorpusLifecycleState.READY.value
         await self._session.commit()

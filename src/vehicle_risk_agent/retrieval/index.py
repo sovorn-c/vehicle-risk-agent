@@ -41,7 +41,7 @@ class PolicyIndex(Protocol):
         """Return full-text candidates ordered by descending relevance."""
         ...
 
-    async def get_source_metadata(self, source_id: str) -> tuple[str, str] | None:
+    async def get_source_metadata(self, source_id: str) -> tuple[str, ...] | None:
         """Resolve authoritative source title and origin for citation grounding."""
         ...
 
@@ -111,8 +111,8 @@ class InMemoryPolicyIndex:
             for idx, (pid, score) in enumerate(top_candidates)
         ]
 
-    async def get_source_metadata(self, _source_id: str) -> tuple[str, str] | None:
-        """In-memory indexes have no authoritative source registry."""
+    async def get_source_metadata(self, _source_id: str) -> tuple[str, ...] | None:
+        """Stub method for in-memory index tests; metadata is usually injected in test."""
         return None
 
     async def search_keyword(self, query: str, top_k: int = 20) -> list[RankedCandidate]:

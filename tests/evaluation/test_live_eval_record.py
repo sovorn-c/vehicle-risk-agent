@@ -3,6 +3,8 @@
 # story: e06s04
 # task: e06s04-t02
 
+from pathlib import Path
+
 import pytest
 
 from vehicle_risk_agent.evaluation.live import (
@@ -80,9 +82,89 @@ def test_live_eval_record_contains_version_stamps_and_metrics() -> None:
     assert record.model_version == "claude-3-5-sonnet-20241022"
     assert record.prompt_version == "prompt-2026.1"
     assert record.corpus_version == "corpus-2026.1"
+    assert record.index_version == "pgvector-hnsw-v1"
     assert record.policy_version == "nz-vehicle-risk-v1"
     assert record.grader_version == "grader-2026.1"
     assert record.code_version == "0.1.0"
+    assert record.pricing_provenance == "anthropic-published-2026.1"
+    assert record.execution_mode == "LIVE"
+    assert len(record.run_hash) == 64
+    assert record.scenarios[0].outcome == "SCORED"
+    assert record.scenarios[1].outcome == "SCORED"
+
+
+def test_pricing_config_provenance_default() -> None:
+    """ModelPricingConfig includes authoritative pricing provenance."""
+    pricing = ModelPricingConfig()
+    assert pricing.provenance == "anthropic-published-2026.1"
+
+
+def test_live_eval_record_save_and_load_roundtrip(tmp_path: Path) -> None:
+    """LiveEvaluationRecord serializes to JSON file and deserializes identically."""
+
+    scenario_metrics = [
+        LiveScenarioMetrics(
+            scenario_id="scn-scored",
+            draft_latency_seconds=2.1,
+            input_tokens=1500,
+            output_tokens=400,
+            estimated_cost_usd=0.0105,
+            quality_passed=True,
+            outcome="SCORED",
+        ),
+        LiveScenarioMetrics(
+            scenario_id="scn-incomplete",
+            draft_latency_seconds=1.8,
+            input_tokens=1100,
+            output_tokens=300,
+            estimated_cost_usd=0.0078,
+            quality_passed=True,
+            outcome="WITHHELD",
+        ),
+        LiveScenarioMetrics(
+            scenario_id="scn-failed",
+            draft_latency_seconds=0.5,
+            input_tokens=500,
+            output_tokens=0,
+            estimated_cost_usd=0.0015,
+            quality_passed=False,
+            outcome="FAILED",
+            failure_reason="PROVIDER_UNAVAILABLE",
+        ),
+    ]
+
+    record = LiveEvaluationRecord.from_scenario_metrics(
+        scenario_metrics=scenario_metrics,
+        model_version="claude-sonnet-4-6",
+        prompt_version="prompt-2026.1",
+        corpus_version="corpus-2026.1",
+        index_version="pgvector-hnsw-v1",
+        policy_version="nz-vehicle-risk-v1",
+        grader_version="grader-2026.1",
+        code_version="0.1.0",
+        pricing_provenance="anthropic-published-2026.1",
+        execution_mode="LIVE",
+        p95_latency_threshold=30.0,
+    )
+
+    out_file = Path(str(tmp_path)) / "evidence" / "live_evaluation_record.json"
+    record.save_to_file(out_file)
+
+    assert out_file.exists()
+    loaded = LiveEvaluationRecord.load_from_file(out_file)
+
+    assert loaded == record
+    assert loaded.record_id == record.record_id
+    assert loaded.index_version == "pgvector-hnsw-v1"
+    assert loaded.pricing_provenance == "anthropic-published-2026.1"
+    assert loaded.execution_mode == "LIVE"
+    assert loaded.release_verdict == "FAIL"  # Because one scenario failed quality
+    assert loaded.total_scenarios == 3
+    assert loaded.passed_scenarios == 2
+    assert loaded.scenarios[0].outcome == "SCORED"
+    assert loaded.scenarios[1].outcome == "WITHHELD"
+    assert loaded.scenarios[2].outcome == "FAILED"
+    assert loaded.scenarios[2].failure_reason == "PROVIDER_UNAVAILABLE"
 
 
 def test_release_verdict_fails_when_p95_latency_exceeds_threshold() -> None:
@@ -104,6 +186,7 @@ def test_release_verdict_fails_when_p95_latency_exceeds_threshold() -> None:
         model_version="claude-3-5-sonnet-20241022",
         prompt_version="prompt-2026.1",
         corpus_version="corpus-2026.1",
+        index_version="pgvector-hnsw-v1",
         policy_version="nz-vehicle-risk-v1",
         grader_version="grader-2026.1",
         code_version="0.1.0",
@@ -132,6 +215,7 @@ def test_security_isolation_no_prompts_or_secrets_in_record() -> None:
         model_version="claude-3-5-sonnet-20241022",
         prompt_version="prompt-2026.1",
         corpus_version="corpus-2026.1",
+        index_version="pgvector-hnsw-v1",
         policy_version="nz-vehicle-risk-v1",
         grader_version="grader-2026.1",
         code_version="0.1.0",

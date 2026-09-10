@@ -308,6 +308,22 @@ uv run python -m vehicle_risk_agent.cli.seed
 uv run python -m vehicle_risk_agent.cli.smoke
 ```
 
+### Evaluation commands
+
+Explicit evaluation commands distinguish deterministic offline control from credential-gated live runs:
+
+```bash
+# Deterministic offline control (credential-free, no external network calls):
+uv run python -m vehicle_risk_agent.evaluation.live --offline
+
+# Bounded live evaluation (credential-gated, budget capped at $5.00, max 3 scenarios):
+ANTHROPIC_API_KEY="sk-ant-..." uv run python -m vehicle_risk_agent.evaluation.live \
+  --enable-live-eval \
+  --require-neural-corpus \
+  --output-file evidence/live_eval_record.json
+```
+
+
 Coverage includes workflow transitions, MCP contract failures, evidence integrity, retrieval abstention, deterministic scoring, grounded drafting, concurrent review actions, checkpoint recovery, authorization, telemetry redaction, Docker delivery, and API contracts.
 
 ## Audit and safety properties
