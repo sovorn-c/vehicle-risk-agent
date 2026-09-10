@@ -1,5 +1,10 @@
 """Tests for policy passage indexing, dense candidate retrieval, and full-text keyword retrieval."""
 
+# story: e10s01
+# scenario: SC-e10s01-P0-01
+# scenario: SC-e10s01-P0-02
+# scenario: SC-e10s01-P0-04
+
 import hashlib
 
 import pytest

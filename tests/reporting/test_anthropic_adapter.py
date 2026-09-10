@@ -6,6 +6,12 @@ These tests drive the creation of:
 All Anthropic API calls are mocked — no live network calls are made.
 """
 
+# story: e10s02
+# scenario: SC-e10s02-P0-01
+# scenario: SC-e10s02-P0-02
+# scenario: SC-e10s02-P0-03
+# scenario: SC-e10s02-P0-04
+
 from __future__ import annotations
 
 from typing import Any

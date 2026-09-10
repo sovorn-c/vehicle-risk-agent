@@ -10,33 +10,46 @@ Asserts:
 
 # story: e10s03
 # task: e10s03-t02
+# scenario: SC-e10s03-P0-01
+# scenario: SC-e10s03-P0-02
+# scenario: SC-e10s03-P1-03
+# scenario: SC-e10s03-P1-04
 
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from mcp import types
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from vehicle_risk_agent.adapters.anthropic_drafting import (
     AnthropicDraftingAdapter,
     DraftingFailureError,
 )
-from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
+from vehicle_risk_agent.adapters.mcp import (
+    FakeVehicleMcpAdapter,
+    StreamableHttpVehicleMcpAdapter,
+)
 from vehicle_risk_agent.api.models import AssessmentContext, AssessmentCreateRequest, SaleType
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState, AssessmentRunPhase
+from vehicle_risk_agent.evaluation.live import LiveEvaluationConfig, LiveEvaluationRunner
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     ConfidenceBand,
+    FieldExplanationResult,
+    FieldOutcome,
     ProvenanceLink,
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.evidence.sufficiency import SufficiencyOutcome
-from vehicle_risk_agent.persistence.models import Base
+from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 from vehicle_risk_agent.reporting.models import ReportDraftStatus
 from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
@@ -561,4 +574,133 @@ async def test_bounded_offline_control_scenario_labelled_offline(
     # Offline report draft is explicitly labelled as offline
     assert draft.metadata.get("mode") == "offline"
     assert draft.metadata.get("drafter_id") == "offline-v1"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_live_evaluation_runner_executes_bounded_acceptance_with_real_mcp_adapter(
+    session: AsyncSession,
+) -> None:
+    """Bounded live evaluation runner coordinates real MCP adapter and provider drafting."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    policy_repo = RiskPolicyRepository(session)
+    policy = build_risk_policy_v1(policy_id="risk-policy-v1")
+    await policy_repo.create_policy(policy)
+    service = RiskPolicyService(session)
+    await service.validate_and_mark_ready(policy.id)
+    await service.activate_policy(policy.id, operator_id="admin")
+
+    # Set up real MCP adapter with patched _call_once returning valid tool response
+    mcp_adapter = StreamableHttpVehicleMcpAdapter(
+        server_url="http://localhost:8000/mcp",
+        timeout_seconds=5,
+        max_retries=0,
+    )
+    clean_rev = _build_clean_vehicle_revision("1HGCR2F85HA000000")
+
+    async def fake_mcp_call(tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        if tool_name == "lookup_vehicle":
+            return types.CallToolResult(
+                content=[],
+                structured_content=clean_rev.model_dump(mode="json"),
+            )
+        elif tool_name == "explain_vehicle_field":
+            field_name = arguments["field_name"]
+            vin = arguments["vin"]
+            explanation = FieldExplanationResult(
+                vin=vin,
+                revision_number=1,
+                field_name=field_name,
+                outcome=FieldOutcome.RESOLVED,
+                value=clean_rev.canonical_fields.get(field_name),
+            )
+            return types.CallToolResult(
+                content=[],
+                structured_content=explanation.model_dump(mode="json"),
+            )
+        return types.CallToolResult(content=[], structured_content={})
+
+    # Set up live drafter with mocked provider API returning grounded payload
+    live_drafter = AnthropicDraftingAdapter(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        timeout_seconds=30,
+        api_key="sk-ant-test-key",
+    )
+    mock_payload = {
+        "text": json.dumps(
+            {
+                "assessment_id": "placeholder",
+                "run_number": 1,
+                "outcome": "SCORED",
+                "sections": {
+                    "executive_summary": "Clean vehicle assessment completed.",
+                    "vehicle_identity": "2017 HONDA ACCORD VIN 1HGCR2F85HA000000 plate NZACC1.",
+                    "risk_score": "Deterministic risk score 0 (LOW).",
+                    "mandatory_review": "No mandatory review triggers detected.",
+                    "contributing_factors": "All risk factors clear.",
+                    "evidence_summary": "Verified across NZTA and Police.",
+                    "limitations": "Standard limitations apply.",
+                    "synthetic_notice": "Production NZTA rules applied.",
+                },
+                "claim_refs": [],
+            }
+        ),
+        "input_tokens": 1250,
+        "output_tokens": 320,
+    }
+
+    config = LiveEvaluationConfig(
+        enable_live_eval=True,
+        api_key="sk-ant-test-key",
+        model="claude-sonnet-4-6",
+        max_budget_usd=5.0,
+        max_scenarios=1,
+    )
+    runner = LiveEvaluationRunner(config=config)
+
+    scenarios = [
+        {
+            "scenario_id": "scn-eval-live-01",
+            "vin": "1HGCR2F85HA000000",
+            "sale_type": SaleType.DEALER,
+            "expected_outcome": "SCORED",
+        }
+    ]
+
+    with (
+        patch.object(mcp_adapter, "_call_once", side_effect=fake_mcp_call),
+        patch.object(live_drafter, "_call_anthropic_api", new_callable=AsyncMock) as mock_api,
+    ):
+        mock_api.return_value = mock_payload
+        record = await runner.run_bounded_acceptance(
+            session_factory=session_factory,
+            mcp_adapter=mcp_adapter,
+            drafting_adapter=live_drafter,
+            scenarios=scenarios,
+        )
+
+    assert record.execution_mode == "LIVE"
+    assert record.total_scenarios <= 3
+    assert record.total_estimated_cost_usd <= 5.0
+    assert len(record.scenarios) == 1
+    assert record.scenarios[0].outcome == "SCORED"
+    assert record.scenarios[0].quality_passed is True
+    assert record.verdict_passed is True
+
+    # Verify persisted draft and lifecycle state in database
+    async with session_factory() as sess:
+        draft_repo = ReportDraftRepository(sess)
+        stmt = select(AssessmentRecord).where(AssessmentRecord.vin == "1HGCR2F85HA000000")
+        asmt_record = (await sess.execute(stmt)).scalars().first()
+        assert asmt_record is not None
+        assert asmt_record.lifecycle_state == AssessmentLifecycleState.AWAITING_REVIEW.value
+
+        persisted_draft = await draft_repo.get_draft(asmt_record.id, 1)
+        assert persisted_draft is not None
+        assert persisted_draft.status == ReportDraftStatus.DRAFT
+        assert persisted_draft.score is not None
+
     await engine.dispose()

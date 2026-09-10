@@ -252,6 +252,115 @@ def compute_p50_latency(latencies: list[float]) -> float:
     return round(sorted_l[max(0, idx)], 3)
 
 
+def _build_default_offline_mcp_adapter() -> Any:
+    from datetime import UTC, datetime
+
+    from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
+    from vehicle_risk_agent.evidence.models import (
+        ConfidenceAssessment,
+        ConfidenceBand,
+        ProvenanceLink,
+        VehicleRevisionResponse,
+    )
+
+    now = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+    clean_rev = VehicleRevisionResponse(
+        vin="1HGCR2F85HA000000",
+        revision_id="rev-clean-01",
+        revision_number=1,
+        material_hash="e" * 64,
+        canonical_fields={
+            "vin": "1HGCR2F85HA000000",
+            "make": "HONDA",
+            "model": "ACCORD",
+            "year": 2017,
+            "plate": "NZACC1",
+            "ppsr_result": "NO_FINANCE_REGISTERED",
+            "stolen_status": "NOT_STOLEN",
+            "writeoff_status": "NOT_WRITTEN_OFF",
+        },
+        field_provenance={
+            "vin": [
+                ProvenanceLink(
+                    observation_id="obs-vin",
+                    source_system="NZTA",
+                    source_record_id="rec-vin",
+                    retrieved_at=now,
+                )
+            ],
+            "ppsr_result": [
+                ProvenanceLink(
+                    observation_id="obs-ppsr",
+                    source_system="PPSR",
+                    source_record_id="rec-ppsr",
+                    retrieved_at=now,
+                )
+            ],
+            "stolen_status": [
+                ProvenanceLink(
+                    observation_id="obs-police",
+                    source_system="POLICE",
+                    source_record_id="rec-police",
+                    retrieved_at=now,
+                )
+            ],
+            "writeoff_status": [
+                ProvenanceLink(
+                    observation_id="obs-writeoff",
+                    source_system="NZTA",
+                    source_record_id="rec-writeoff",
+                    retrieved_at=now,
+                )
+            ],
+        },
+        conflicts=(),
+        confidence=ConfidenceAssessment(
+            score=95,
+            band=ConfidenceBand.HIGH,
+            rule_version="v1",
+            explanation="Clean verified record",
+        ),
+        as_of=now,
+        published_at=now,
+    )
+    inc_rev = VehicleRevisionResponse(
+        vin="JM0BL10F000000000",
+        revision_id="rev-inc-01",
+        revision_number=1,
+        material_hash="f" * 64,
+        canonical_fields={
+            "vin": "JM0BL10F000000000",
+            "make": "MAZDA",
+            "model": "AXELA",
+            "year": 2016,
+            "plate": "AXL100",
+        },
+        field_provenance={
+            "vin": [
+                ProvenanceLink(
+                    observation_id="obs-vin",
+                    source_system="NZTA",
+                    source_record_id="rec-vin",
+                    retrieved_at=now,
+                )
+            ],
+        },
+        conflicts=(),
+        confidence=ConfidenceAssessment(
+            score=50,
+            band=ConfidenceBand.MEDIUM,
+            rule_version="v1",
+            explanation="Partial unverified record",
+        ),
+        as_of=now,
+        published_at=now,
+    )
+    adapter = FakeVehicleMcpAdapter()
+    adapter.seed_vehicle(clean_rev)
+    adapter.seed_vehicle(inc_rev)
+    return adapter
+
+
 class LiveEvaluationRunner:
     """Coordinates credential validation, scenario execution, and release verdict."""
 
@@ -323,6 +432,250 @@ class LiveEvaluationRunner:
                 f"Live evaluation refused: scenario count {len(scenarios)} "
                 f"exceeds configured max of {self.config.max_scenarios}."
             )
+
+    async def run_bounded_acceptance(
+        self,
+        session_factory: Any | None = None,
+        mcp_adapter: Any | None = None,
+        drafting_adapter: Any | None = None,
+        settings: Any | None = None,
+        scenarios: list[dict[str, Any]] | None = None,
+    ) -> LiveEvaluationRecord:
+        """Execute bounded acceptance scenarios through the normal workflow and emit evidence."""
+        import time
+        from uuid import uuid4
+
+        from pydantic import SecretStr
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+        from vehicle_risk_agent.adapters.mcp import StreamableHttpVehicleMcpAdapter
+        from vehicle_risk_agent.api.models import (
+            AssessmentContext,
+            AssessmentCreateRequest,
+            SaleType,
+        )
+        from vehicle_risk_agent.config import Settings
+        from vehicle_risk_agent.domain.assessment import (
+            AssessmentLifecycleState,
+            AssessmentRunPhase,
+        )
+        from vehicle_risk_agent.persistence.repository import AssessmentRepository
+        from vehicle_risk_agent.reporting.models import ReportDraftStatus
+        from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
+        from vehicle_risk_agent.reporting.repository import ReportDraftRepository
+        from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
+        from vehicle_risk_agent.workflow.state import AssessmentGraphState
+
+        if self.config.enable_live_eval:
+            self.validate_readiness()
+
+        scenarios_to_run = scenarios
+        if scenarios_to_run is None:
+            scenarios_to_run = [
+                {
+                    "scenario_id": "scn-01-scored",
+                    "vin": "1HGCR2F85HA000000",
+                    "sale_type": SaleType.DEALER,
+                    "expected_outcome": "SCORED",
+                },
+                {
+                    "scenario_id": "scn-02-incomplete",
+                    "vin": "JM0BL10F000000000",
+                    "sale_type": SaleType.PRIVATE,
+                    "expected_outcome": "WITHHELD",
+                },
+                {
+                    "scenario_id": "scn-03-abstention",
+                    "vin": "1HGCR2F85HA000000",
+                    "sale_type": SaleType.AUCTION,
+                    "questions": ["What is the salvage liability for maritime cargo containers?"],
+                    "expected_outcome": "SCORED",
+                },
+            ]
+            if self.config.max_scenarios is not None:
+                scenarios_to_run = scenarios_to_run[: self.config.max_scenarios]
+
+        self.validate_scenarios(scenarios_to_run)
+
+        effective_settings: Settings = settings or Settings(
+            drafting_mode="live" if self.config.enable_live_eval else "offline",
+            enable_live_drafting=self.config.enable_live_eval,
+            anthropic_api_key=SecretStr(
+                self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+            )
+            if self.config.enable_live_eval
+            else None,
+        )
+
+        if session_factory is None:
+            engine = create_async_engine(effective_settings.database_url, echo=False)
+            async with engine.begin() as conn:
+                from vehicle_risk_agent.persistence.models import Base
+
+                await conn.run_sync(Base.metadata.create_all)
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        effective_mcp = mcp_adapter
+        if effective_mcp is None:
+            if self.config.enable_live_eval:
+                effective_mcp = StreamableHttpVehicleMcpAdapter(
+                    server_url=effective_settings.mcp_server_url or "http://localhost:8000/mcp",
+                    timeout_seconds=int(self.config.timeout_seconds),
+                )
+            else:
+                effective_mcp = _build_default_offline_mcp_adapter()
+
+        effective_drafter = drafting_adapter
+        if effective_drafter is None:
+            if self.config.enable_live_eval:
+                key = self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+                effective_drafter = AnthropicDraftingAdapter(
+                    model=self.config.model,
+                    max_tokens=self.config.max_output_tokens,
+                    timeout_seconds=int(self.config.timeout_seconds),
+                    api_key=key,
+                )
+            else:
+                effective_drafter = OfflineReportDraftingAdapter()
+
+        scenario_metrics: list[LiveScenarioMetrics] = []
+        cumulative_cost = 0.0
+
+        for scn in scenarios_to_run:
+            scenario_id = scn["scenario_id"]
+            vin = scn["vin"]
+            sale_type = scn.get("sale_type", SaleType.DEALER)
+            questions = scn.get("questions", [])
+            expected_outcome = scn.get("expected_outcome", "SCORED")
+
+            start_t = time.monotonic()
+            outcome = expected_outcome
+            failure_reason: str | None = None
+            quality_passed = False
+            input_tokens = 0
+            output_tokens = 0
+
+            try:
+                async with session_factory() as session:
+                    asmt_repo = AssessmentRepository(session)
+                    asmt = await asmt_repo.create_assessment(
+                        requester_id="eval-operator",
+                        idempotency_key=f"eval-{scenario_id}-{uuid4()}",
+                        request=AssessmentCreateRequest(
+                            vin=vin,
+                            context=AssessmentContext(
+                                sale_type=sale_type,
+                                questions=questions,
+                            ),
+                        ),
+                    )
+
+                async with AssessmentWorkflowRunner.create(
+                    settings=effective_settings,
+                    session_factory=session_factory,
+                    mcp_adapter=effective_mcp,
+                    drafting_adapter=effective_drafter,
+                ) as wf_runner:
+                    initial_state: AssessmentGraphState = {
+                        "assessment_id": asmt.id,
+                        "run_number": 1,
+                        "vin": vin,
+                        "context": asmt.context,
+                        "phase": AssessmentRunPhase.PENDING,
+                        "visited_phases": [AssessmentRunPhase.PENDING],
+                        "events": [],
+                    }
+                    final_state = await wf_runner.run(initial_state=initial_state)
+
+                async with session_factory() as session:
+                    asmt_repo = AssessmentRepository(session)
+                    draft_repo = ReportDraftRepository(session)
+                    persisted_asmt = await asmt_repo.get_assessment(asmt.id)
+                    persisted_draft = await draft_repo.get_draft(asmt.id, run_number=1)
+
+                is_awaiting_review = (
+                    persisted_asmt is not None
+                    and persisted_asmt.lifecycle_state == AssessmentLifecycleState.AWAITING_REVIEW
+                )
+
+                if final_state.get("phase") == AssessmentRunPhase.FAILED:
+                    outcome = "FAILED"
+                    failure_reason = str(final_state.get("mcp_error") or "WORKFLOW_FAILED")
+                    quality_passed = False
+                elif persisted_draft is not None:
+                    if persisted_draft.metadata:
+                        input_tokens = int(persisted_draft.metadata.get("input_tokens", 0))
+                        output_tokens = int(persisted_draft.metadata.get("output_tokens", 0))
+
+                    if expected_outcome == "WITHHELD":
+                        quality_passed = (
+                            is_awaiting_review
+                            and persisted_draft.status == ReportDraftStatus.DRAFT
+                            and persisted_draft.score is None
+                        )
+                        outcome = "WITHHELD"
+                    else:
+                        quality_passed = (
+                            is_awaiting_review
+                            and persisted_draft.status == ReportDraftStatus.DRAFT
+                            and persisted_draft.score is not None
+                        )
+                        outcome = "SCORED"
+                else:
+                    outcome = "FAILED"
+                    failure_reason = "MISSING_PERSISTED_DRAFT"
+                    quality_passed = False
+
+            except Exception as exc:
+                outcome = "FAILED"
+                failure_reason = str(exc)
+                quality_passed = False
+
+            latency = round(time.monotonic() - start_t, 3)
+            cost = calculate_estimated_cost(input_tokens, output_tokens, self.pricing)
+            cumulative_cost += cost
+
+            if cumulative_cost > self.config.max_budget_usd:
+                raise LiveEvaluationBudgetError(
+                    f"Live evaluation budget exceeded: ${cumulative_cost:.4f} > "
+                    f"${self.config.max_budget_usd:.2f}"
+                )
+
+            scenario_metrics.append(
+                LiveScenarioMetrics(
+                    scenario_id=scenario_id,
+                    draft_latency_seconds=latency,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    estimated_cost_usd=cost,
+                    quality_passed=quality_passed,
+                    outcome=outcome,
+                    failure_reason=failure_reason,
+                )
+            )
+
+        execution_mode = "LIVE" if self.config.enable_live_eval else "OFFLINE"
+        record = LiveEvaluationRecord.from_scenario_metrics(
+            scenario_metrics=scenario_metrics,
+            model_version=self.config.model
+            if self.config.enable_live_eval
+            else "offline-deterministic",
+            prompt_version="prompt-2026.1" if self.config.enable_live_eval else "offline-v1",
+            corpus_version="corpus-2026.1" if self.config.enable_live_eval else "corpus-offline",
+            index_version="pgvector-hnsw-v1",
+            policy_version="nz-vehicle-risk-v1",
+            grader_version="grader-2026.1",
+            code_version="0.1.0",
+            pricing_provenance=self.pricing.provenance,
+            execution_mode=execution_mode,
+            p95_latency_threshold=self.config.p95_latency_threshold,
+        )
+
+        if self.config.output_file:
+            record.save_to_file(self.config.output_file)
+
+        return record
 
     def __repr__(self) -> str:
         return f"LiveEvaluationRunner(model={self.config.model!r})"
@@ -405,24 +758,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: list[str] | None = None) -> int:
     """Command-line interface entry point for live evaluation."""
+    import asyncio
+
     parser = build_parser()
     parsed = parser.parse_args(args)
 
     if parsed.offline:
         sys.stdout.write(
-            "Offline evaluation executed successfully "
-            "(deterministic control mode, not live evidence).\n"
+            "Offline evaluation starting (deterministic control mode, not live evidence)...\n"
         )
-        if parsed.output_file:
-            record = LiveEvaluationRecord.from_scenario_metrics(
-                scenario_metrics=[],
-                model_version="offline-deterministic",
-                prompt_version="offline-v1",
-                corpus_version="corpus-offline",
-                execution_mode="OFFLINE",
+        config = LiveEvaluationConfig(
+            enable_live_eval=False,
+            output_file=parsed.output_file,
+            max_scenarios=parsed.max_scenarios,
+        )
+        runner = LiveEvaluationRunner(config=config)
+        try:
+            record = asyncio.run(runner.run_bounded_acceptance())
+            sys.stdout.write(
+                f"Offline evaluation complete: {record.passed_scenarios}/{record.total_scenarios} "
+                f"passed. Verdict: {record.release_verdict}.\n"
             )
-            record.save_to_file(parsed.output_file)
-        return 0
+            return 0 if record.verdict_passed else 1
+        except Exception as exc:
+            sys.stderr.write(f"Offline evaluation failed: {exc}\n")
+            return 1
 
     config = LiveEvaluationConfig(
         enable_live_eval=parsed.enable_live_eval,
@@ -454,17 +814,22 @@ def main(args: list[str] | None = None) -> int:
         return 0
 
     sys.stdout.write(
-        f"Live evaluation runner initialized for model {config.model}. "
-        f"p95 threshold: {config.p95_latency_threshold}s.\n"
+        f"Live evaluation starting for model {config.model}. "
+        f"p95 threshold: {config.p95_latency_threshold}s, "
+        f"budget cap: ${config.max_budget_usd:.2f}...\n"
     )
-    if parsed.output_file:
-        record = LiveEvaluationRecord.from_scenario_metrics(
-            scenario_metrics=[],
-            model_version=config.model,
-            execution_mode="LIVE",
+    try:
+        record = asyncio.run(runner.run_bounded_acceptance())
+        sys.stdout.write(
+            f"Live evaluation complete: {record.passed_scenarios}/{record.total_scenarios} passed. "
+            f"p95 latency: {record.p95_draft_latency_seconds}s, "
+            f"total cost: ${record.total_estimated_cost_usd:.4f}. "
+            f"Verdict: {record.release_verdict}.\n"
         )
-        record.save_to_file(parsed.output_file)
-    return 0
+        return 0 if record.verdict_passed else 1
+    except Exception as exc:
+        sys.stderr.write(f"Live evaluation failed: {exc}\n")
+        return 1
 
 
 if __name__ == "__main__":
