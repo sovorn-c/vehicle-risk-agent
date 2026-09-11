@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ml = ["sentence-transformers>=3.0.0"]
+live = ["anthropic>=1.4,<2"]
 
 [project.scripts]
 vehicle-risk-agent = "vehicle_risk_agent.__main__:main"
