@@ -486,7 +486,13 @@ def proposal_json_schema() -> dict[str, Any]:
                     "type": "object",
                     "additionalProperties": False,
                     "required": ["revision_number"],
-                    "properties": {"revision_number": {"type": "integer", "minimum": 1}},
+                    "properties": {
+                        "revision_number": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                        }
+                    },
                 },
             },
         },

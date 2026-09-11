@@ -163,7 +163,7 @@ class AssessmentWorkflowRunner:
             configurable["mcp_adapter"] = self.mcp_adapter
         if "investigation_provider" not in configurable and self.investigation_provider is not None:
             configurable["investigation_provider"] = self.investigation_provider
-        if self.investigation_provider is not None and initial_state is not None:
+        if configurable.get("investigation_provider") is not None and initial_state is not None:
             initial_state = {**initial_state, "investigation_enabled": True}
 
         with trace_boundary(
