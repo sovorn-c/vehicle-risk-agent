@@ -33,7 +33,7 @@ class FakeVehicleClient:
 
 
 class FakePolicyRetriever:
-    async def retrieve(self, query: str):
+    async def retrieve(self, _query: str):
         return type(
             "Retrieved",
             (),
