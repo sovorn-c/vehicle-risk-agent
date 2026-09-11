@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+from typing import Any, cast
 
 from vehicle_risk_agent.investigation.models import (
     InvestigationContext,
     ProviderProposalResult,
+    ProviderReadiness,
     SubmitInvestigationToolResponse,
     proposal_json_schema,
 )
@@ -45,6 +46,38 @@ class AnthropicInvestigationAdapter(InvestigationProvider):
         self.max_output_tokens = max_output_tokens
         self._api_key = api_key
         self._client = client
+
+    async def readiness(self) -> ProviderReadiness:
+        """Check configuration and strict-call guarantees without a paid request."""
+        has_credentials = bool(self._api_key or os.environ.get("ANTHROPIC_API_KEY"))
+        if self._client is None:
+            try:
+                import anthropic  # type: ignore[import-not-found]  # noqa: F401
+            except Exception:
+                return ProviderReadiness(
+                    ready=False,
+                    model=self.model,
+                    strict_schema=True,
+                    token_counting=True,
+                    max_retries=self.max_retries,
+                    failure_code="SDK_UNAVAILABLE",
+                )
+        if not has_credentials and self._client is None:
+            return ProviderReadiness(
+                ready=False,
+                model=self.model,
+                strict_schema=True,
+                token_counting=True,
+                max_retries=self.max_retries,
+                failure_code="CREDENTIALS_UNAVAILABLE",
+            )
+        return ProviderReadiness(
+            ready=True,
+            model=self.model,
+            strict_schema=True,
+            token_counting=True,
+            max_retries=self.max_retries,
+        )
 
     async def count_input_tokens(self, context: InvestigationContext) -> int:
         """Ask the official SDK for token count before paid execution."""
@@ -116,7 +149,7 @@ class AnthropicInvestigationAdapter(InvestigationProvider):
         if not api_key:
             raise InvestigationProviderError("CREDENTIALS_UNAVAILABLE")
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic
 
             self._client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=0)
             return self._client
@@ -148,14 +181,17 @@ class AnthropicInvestigationAdapter(InvestigationProvider):
     @staticmethod
     def _response_payload(response: Any) -> dict[str, Any]:
         if isinstance(response, dict):
-            return response
+            return cast(dict[str, Any], response)
         if hasattr(response, "model_dump"):
-            return response.model_dump()
+            dumped = response.model_dump()
+            return dumped if isinstance(dumped, dict) else {}
         content = getattr(response, "content", None)
         usage = getattr(response, "usage", None)
         stop_reason = getattr(response, "stop_reason", None)
         blocks = [
             block.model_dump() if hasattr(block, "model_dump") else block for block in content or []
         ]
-        usage_data = usage.model_dump() if hasattr(usage, "model_dump") else usage
+        usage_data = (
+            usage.model_dump() if usage is not None and hasattr(usage, "model_dump") else usage
+        )
         return {"content": blocks, "usage": usage_data, "stop_reason": stop_reason}

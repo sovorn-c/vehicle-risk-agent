@@ -89,6 +89,27 @@ async def test_reservation_commits_before_io_and_completed_result_replays(
 
 
 @pytest.mark.asyncio
+async def test_proposal_and_retry_reservations_are_monotonic(session: AsyncSession) -> None:
+    repo = InvestigationLedgerRepository(session)
+    await repo.ensure_ledger(
+        assessment_id="asmt-ledger-2",
+        run_number=1,
+        vin="1HGCR2F85HA000000",
+        pins={},
+        limits=InvestigationLimits.final(),
+    )
+    proposal = await repo.reserve_proposal("asmt-ledger-2", 1)
+    assert proposal.status == InvestigationLedgerStatus.COUNTING
+    ready = await repo.complete_proposal("asmt-ledger-2", 1, 10, 5)
+    assert ready.status == InvestigationLedgerStatus.READY
+    action = await repo.reserve_action("asmt-ledger-2", 1, "c" * 64, 0.01)
+    assert action.supplementary_attempts == 1
+    retry = await repo.reserve_retry("asmt-ledger-2", 1, "c" * 64, 0.01)
+    assert retry.supplementary_attempts == 2
+    assert retry.supplementary_retries == 1
+
+
+@pytest.mark.asyncio
 async def test_inflight_recovery_is_terminal_and_does_not_repeat_io(
     session: AsyncSession,
 ) -> None:

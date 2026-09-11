@@ -23,6 +23,7 @@ def test_valid_proposals_are_strict_and_action_specific() -> None:
             "arguments": {"field_name": "odometer_reading"},
         }
     )
+    assert not isinstance(request, NoActionProposal)
     assert request.action == InvestigationAction.EXPLAIN_VEHICLE_FIELD
     assert isinstance(request.arguments, ExplainVehicleFieldArguments)
 

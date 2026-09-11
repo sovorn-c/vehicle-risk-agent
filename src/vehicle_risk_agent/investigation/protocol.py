@@ -10,6 +10,7 @@ from vehicle_risk_agent.investigation.models import (
     InvestigationProposal,
     ProposalValue,
     ProviderProposalResult,
+    ProviderReadiness,
     ProviderUsage,
 )
 
@@ -25,6 +26,10 @@ class InvestigationProvider(Protocol):
 
     async def count_input_tokens(self, context: InvestigationContext) -> int:
         """Count provider input tokens before a paid proposal call."""
+        ...
+
+    async def readiness(self) -> ProviderReadiness:
+        """Return safe provider readiness without exposing credentials."""
         ...
 
 
@@ -57,3 +62,12 @@ class FakeInvestigationProvider:
     async def count_input_tokens(self, context: InvestigationContext) -> int:
         values = (*context.questions, *context.evidence_summaries)
         return sum(len(value) for value in values) // 4 + 1
+
+    async def readiness(self) -> ProviderReadiness:
+        return ProviderReadiness(
+            ready=True,
+            model="fake-investigation-provider",
+            strict_schema=True,
+            token_counting=True,
+            max_retries=0,
+        )

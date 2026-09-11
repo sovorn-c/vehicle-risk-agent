@@ -45,14 +45,17 @@ class InvestigationDispatcher:
         self,
         vehicle: InvestigationVehicleClient,
         policy: InvestigationPolicyRetriever,
-        history_limit: int = 20,
+        history_limit: int = 5,
     ) -> None:
         self.vehicle = vehicle
         self.policy = policy
-        self.history_limit = min(max(history_limit, 1), 20)
+        self.history_limit = min(max(history_limit, 1), 5)
 
     async def dispatch(
-        self, vin: str, proposal: ProposalValue | InvestigationProposal
+        self,
+        vin: str,
+        proposal: ProposalValue | InvestigationProposal,
+        current_revision: int | None = None,
     ) -> InvestigationResult:
         """Execute only the proposal's allow-listed action, never model arguments for VIN."""
         typed = (
@@ -70,10 +73,18 @@ class InvestigationDispatcher:
         assert typed.action is not None
         try:
             if typed.action == InvestigationAction.EXPLAIN_VEHICLE_FIELD:
-                arguments = typed.arguments
-                assert arguments is not None
-                field_name = str(arguments["field_name"])
-                raw = await self.vehicle.explain_vehicle_field(vin, field_name)
+                field_arguments = typed.arguments
+                assert field_arguments is not None
+                field_name = field_arguments.field_name
+                bounded_call = getattr(self.vehicle, "bounded_investigation_call", None)
+                if bounded_call is not None:
+                    raw = await bounded_call(
+                        "explain_vehicle_field",
+                        {"vin": vin, "field_name": field_name},
+                        max_retries=0,
+                    )
+                else:
+                    raw = await self.vehicle.explain_vehicle_field(vin, field_name)
                 result = FieldExplanationResult.model_validate(raw)
                 if result.vin != vin or result.field_name != field_name:
                     raise ValueError("vehicle response does not match request")
@@ -87,9 +98,28 @@ class InvestigationDispatcher:
                 )
 
             if typed.action == InvestigationAction.GET_VEHICLE_HISTORY:
-                raw_history = await self.vehicle.get_vehicle_history(vin, limit=self.history_limit)
+                bounded_call = getattr(self.vehicle, "bounded_investigation_call", None)
+                if bounded_call is not None:
+                    history_arguments: dict[str, Any] = {"vin": vin, "limit": self.history_limit}
+                    if current_revision is not None:
+                        history_arguments["before_revision"] = current_revision
+                    raw_history = await bounded_call(
+                        "get_vehicle_history", history_arguments, max_retries=0
+                    )
+                else:
+                    raw_history = await self.vehicle.get_vehicle_history(
+                        vin,
+                        limit=self.history_limit,
+                        before_revision=current_revision,
+                    )
+                by_revision = {
+                    item.revision_number: VehicleRevisionResponse.model_validate(item)
+                    for item in raw_history
+                }
                 history = tuple(
-                    VehicleRevisionResponse.model_validate(item) for item in raw_history
+                    sorted(by_revision.values(), key=lambda item: item.revision_number)[
+                        : self.history_limit
+                    ]
                 )
                 if any(item.vin != vin for item in history):
                     raise ValueError("vehicle history response does not match request")
@@ -102,12 +132,19 @@ class InvestigationDispatcher:
                 )
 
             if typed.action == InvestigationAction.GET_VEHICLE_REVISION:
-                arguments = typed.arguments
-                assert arguments is not None
-                revision_number = int(arguments["revision_number"])
-                revision = VehicleRevisionResponse.model_validate(
-                    await self.vehicle.get_vehicle_revision(vin, revision_number)
-                )
+                revision_arguments = typed.arguments
+                assert revision_arguments is not None
+                revision_number = revision_arguments.revision_number
+                bounded_call = getattr(self.vehicle, "bounded_investigation_call", None)
+                if bounded_call is not None:
+                    raw_revision = await bounded_call(
+                        "get_vehicle_revision",
+                        {"vin": vin, "revision_number": revision_number},
+                        max_retries=0,
+                    )
+                else:
+                    raw_revision = await self.vehicle.get_vehicle_revision(vin, revision_number)
+                revision = VehicleRevisionResponse.model_validate(raw_revision)
                 if revision.vin != vin or revision.revision_number != revision_number:
                     raise ValueError("vehicle revision response does not match request")
                 return InvestigationResult(
@@ -119,9 +156,9 @@ class InvestigationDispatcher:
                     dispatched=True,
                 )
 
-            arguments = typed.arguments
-            assert arguments is not None
-            query = str(arguments["query"])
+            search_arguments = typed.arguments
+            assert search_arguments is not None
+            query = search_arguments.query
             retrieved = await self.policy.retrieve(query)
             citations = tuple(
                 PolicyCitation.model_validate(item) for item in retrieved.citations[:20]

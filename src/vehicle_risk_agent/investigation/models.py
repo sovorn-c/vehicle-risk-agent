@@ -85,7 +85,7 @@ class RevisionArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    revision_number: int = Field(ge=1)
+    revision_number: int = Field(ge=1, le=1000)
 
 
 class SearchPolicyArguments(BaseModel):
@@ -238,6 +238,19 @@ class InvestigationProposal(BaseModel):
         if self.action == InvestigationAction.SEARCH_POLICY:
             return SearchPolicyArguments.model_validate(self.arguments)
         return None
+
+
+class ProviderReadiness(BaseModel):
+    """Safe preflight result for paid investigation execution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ready: bool
+    model: str
+    strict_schema: bool
+    token_counting: bool
+    max_retries: int = Field(ge=0)
+    failure_code: str | None = None
 
 
 class ProviderUsage(BaseModel):
@@ -493,4 +506,8 @@ def proposal_json_schema() -> dict[str, Any]:
             },
         },
     ]
-    return {"type": "object", "oneOf": variants}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "oneOf": variants,
+    }

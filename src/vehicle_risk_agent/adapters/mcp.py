@@ -220,9 +220,12 @@ class StreamableHttpVehicleMcpAdapter:
                 message="MCP result did not contain structured JSON",
             ) from None
 
-    async def _call_with_retry(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    async def _call_with_retry(
+        self, tool_name: str, arguments: dict[str, Any], retry_limit: int | None = None
+    ) -> Any:
         backoff = self.initial_backoff
-        for attempt in range(self.max_retries + 1):
+        retries = self.max_retries if retry_limit is None else min(max(retry_limit, 0), 2)
+        for attempt in range(retries + 1):
             try:
                 result = await asyncio.wait_for(
                     self._call_once(tool_name, arguments), timeout=self.timeout_seconds
@@ -231,17 +234,17 @@ class StreamableHttpVehicleMcpAdapter:
             except asyncio.CancelledError:
                 raise
             except McpAdapterError as exc:
-                if not exc.retryable or attempt == self.max_retries:
+                if not exc.retryable or attempt == retries:
                     raise
             except TimeoutError as exc:
-                if attempt == self.max_retries:
+                if attempt == retries:
                     raise McpAdapterError(
                         category=SafeErrorCategory.PIPELINE_TIMEOUT,
                         message="MCP call timed out",
                         retryable=True,
                     ) from exc
             except Exception as exc:
-                if attempt == self.max_retries:
+                if attempt == retries:
                     raise McpAdapterError(
                         category=SafeErrorCategory.PIPELINE_UNAVAILABLE,
                         message="MCP transport failed",
@@ -252,6 +255,12 @@ class StreamableHttpVehicleMcpAdapter:
             backoff *= 2.0
 
         raise AssertionError("MCP retry loop exhausted without a result")
+
+    async def bounded_investigation_call(
+        self, tool_name: str, arguments: dict[str, Any], max_retries: int = 2
+    ) -> Any:
+        """Run a supplementary MCP call under the final retry ceiling."""
+        return await self._call_with_retry(tool_name, arguments, retry_limit=max_retries)
 
     @staticmethod
     def _require_contract(condition: bool) -> None:

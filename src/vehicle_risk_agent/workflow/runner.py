@@ -18,7 +18,9 @@ from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Setting
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
+from vehicle_risk_agent.investigation.budget import InvestigationLimits
 from vehicle_risk_agent.investigation.protocol import InvestigationProvider
+from vehicle_risk_agent.investigation.repository import InvestigationLedgerRepository
 from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
@@ -195,6 +197,33 @@ class AssessmentWorkflowRunner:
                             configurable["draft_repo"] = ReportDraftRepository(session)
                         if "assessment_repo" not in configurable:
                             configurable["assessment_repo"] = AssessmentRepository(session)
+                        if configurable.get("investigation_provider") is not None:
+                            ledger_repo = configurable.get("investigation_ledger")
+                            if ledger_repo is None:
+                                ledger_repo = InvestigationLedgerRepository(session)
+                                configurable["investigation_ledger"] = ledger_repo
+                            if initial_state is not None:
+                                pins = dict(configurable.get("investigation_pins", {}))
+                                provider = configurable["investigation_provider"]
+                                pins.setdefault("provider", "anthropic")
+                                pins.setdefault("model", getattr(provider, "model", "unknown"))
+                                pins.setdefault("prompt_version", "investigation-prompt-v1")
+                                pins.setdefault("index_version", "pgvector-hnsw-v1")
+                                pins.setdefault("retrieval_version", "retrieval-v1")
+                                pins.setdefault("grader_version", "grader-e11-v1")
+                                pins.setdefault("code_version", "0.1.0")
+                                await ledger_repo.ensure_ledger(
+                                    assessment_id=asmt_id,
+                                    run_number=run_num,
+                                    vin=initial_state["vin"],
+                                    pins=pins,
+                                    limits=InvestigationLimits.final(),
+                                    intent_questions=tuple(initial_state["context"].questions),
+                                    intent_targets=tuple(
+                                        configurable.get("investigation_targets", ())
+                                    ),
+                                    prior_report_id=configurable.get("prior_report_id"),
+                                )
                         if "retrieval_service" not in configurable:
                             active_corpus = await CorpusLifecycleManager(
                                 session

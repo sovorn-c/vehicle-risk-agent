@@ -19,6 +19,7 @@ class InvestigationLimits(BaseModel):
     max_input_tokens: int = Field(ge=1, le=100_000, default=3072)
     max_output_tokens: int = Field(ge=1, le=20_000, default=512)
     max_cost_usd: Decimal = Field(gt=Decimal("0"), le=Decimal("100"), default=Decimal("0.20"))
+    max_model_tokens: int = Field(ge=1, le=200_000, default=3_584)
 
     @classmethod
     def first_slice(cls) -> InvestigationLimits:
@@ -30,6 +31,20 @@ class InvestigationLimits(BaseModel):
             max_input_tokens=3072,
             max_output_tokens=512,
             max_cost_usd=Decimal("0.20"),
+            max_model_tokens=3_584,
+        )
+
+    @classmethod
+    def final(cls) -> InvestigationLimits:
+        return cls(
+            max_duration_seconds=30,
+            max_proposal_rounds=2,
+            max_supplementary_attempts=3,
+            max_supplementary_retries=2,
+            max_input_tokens=3072,
+            max_output_tokens=512,
+            max_cost_usd=Decimal("1.00"),
+            max_model_tokens=7_168,
         )
 
     def projected_cost(self, input_tokens: int, output_tokens: int) -> Decimal:

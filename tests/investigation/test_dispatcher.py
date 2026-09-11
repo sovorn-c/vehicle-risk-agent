@@ -1,6 +1,7 @@
 """Dispatcher tests prove proposals do not gain execution authority."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -19,21 +20,23 @@ class FakeVehicleClient:
         self.revision = revision
         self.calls: list[tuple[str, tuple[object, ...]]] = []
 
-    async def explain_vehicle_field(self, vin: str, field_name: str):
+    async def explain_vehicle_field(self, vin: str, field_name: str) -> Any:
         self.calls.append(("explain", (vin, field_name)))
         return {"not": "a validated result"}
 
-    async def get_vehicle_history(self, vin: str, limit: int = 20, before_revision=None):
+    async def get_vehicle_history(
+        self, vin: str, limit: int = 20, before_revision: int | None = None
+    ) -> Any:
         self.calls.append(("history", (vin, limit, before_revision)))
         return [self.revision]
 
-    async def get_vehicle_revision(self, vin: str, revision_number: int):
+    async def get_vehicle_revision(self, vin: str, revision_number: int) -> Any:
         self.calls.append(("revision", (vin, revision_number)))
         return self.revision
 
 
 class FakePolicyRetriever:
-    async def retrieve(self, _query: str):
+    async def retrieve(self, _query: str) -> Any:
         return type(
             "Retrieved",
             (),
@@ -84,7 +87,7 @@ async def test_dispatcher_owns_vin_and_tool_arguments() -> None:
     )
     result = await dispatcher.dispatch("1HGCM82633A004352", proposal)
     assert result.completed is True
-    assert vehicle.calls == [("history", ("1HGCM82633A004352", 20, None))]
+    assert vehicle.calls == [("history", ("1HGCM82633A004352", 5, None))]
 
 
 @pytest.mark.asyncio

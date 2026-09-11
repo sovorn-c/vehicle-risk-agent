@@ -420,6 +420,7 @@ class InvestigationLedgerRecord(Base):
     run_number: Mapped[int] = mapped_column(Integer, nullable=False)
     vin: Mapped[str] = mapped_column(String(17), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="READY")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     proposal_rounds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     supplementary_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -429,10 +430,14 @@ class InvestigationLedgerRecord(Base):
     projected_cost: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
     actual_cost: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
     current_request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     references_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     limits_json: Mapped[str] = mapped_column(Text, nullable=False)
     pins_json: Mapped[str] = mapped_column(Text, nullable=False)
+    intent_questions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    intent_targets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    prior_report_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
