@@ -18,6 +18,7 @@ from vehicle_risk_agent.config import DEFAULT_SNAPSHOT_INTEGRITY_SECRET, Setting
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceRepository
+from vehicle_risk_agent.investigation.protocol import InvestigationProvider
 from vehicle_risk_agent.observability.telemetry import trace_boundary
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
@@ -72,6 +73,7 @@ class AssessmentWorkflowRunner:
         integrity_secret: str = DEFAULT_SNAPSHOT_INTEGRITY_SECRET,
         settings: Settings | None = None,
         drafting_adapter: ReportDraftingProtocol | None = None,
+        investigation_provider: InvestigationProvider | None = None,
     ) -> None:
         self.checkpointer = checkpointer
         self.session_factory = session_factory
@@ -82,6 +84,7 @@ class AssessmentWorkflowRunner:
         self.integrity_secret = integrity_secret
         self.settings = settings
         self.drafting_adapter = drafting_adapter
+        self.investigation_provider = investigation_provider
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile(checkpointer=self.checkpointer)  # type: ignore[type-arg]
 
@@ -96,6 +99,7 @@ class AssessmentWorkflowRunner:
         embedding_adapter: EmbeddingAdapter | None = None,
         reranker_adapter: RerankerAdapter | None = None,
         drafting_adapter: ReportDraftingProtocol | None = None,
+        investigation_provider: InvestigationProvider | None = None,
     ) -> AsyncIterator["AssessmentWorkflowRunner"]:
         """Create and initialize a runner with AsyncPostgresSaver and optional session factory."""
         conn_string = settings.database_url.replace("+psycopg", "")
@@ -120,6 +124,7 @@ class AssessmentWorkflowRunner:
                     integrity_secret=settings.snapshot_integrity_secret.get_secret_value(),
                     settings=settings,
                     drafting_adapter=drafting_adapter,
+                    investigation_provider=investigation_provider,
                 )
             finally:
                 if dispose_engine and engine is not None:
@@ -154,6 +159,10 @@ class AssessmentWorkflowRunner:
         configurable["thread_id"] = thread_id
         if "mcp_adapter" not in configurable and self.mcp_adapter is not None:
             configurable["mcp_adapter"] = self.mcp_adapter
+        if "investigation_provider" not in configurable and self.investigation_provider is not None:
+            configurable["investigation_provider"] = self.investigation_provider
+        if self.investigation_provider is not None and initial_state is not None:
+            initial_state = {**initial_state, "investigation_enabled": True}
 
         with trace_boundary(
             "workflow.execute",
@@ -314,9 +323,11 @@ class AssessmentRunner:
         self,
         mcp_adapter: VehicleMcpClientAdapter | None = None,
         evidence_repo: VehicleEvidenceRepository | None = None,
+        investigation_provider: InvestigationProvider | None = None,
     ) -> None:
         self.mcp_adapter = mcp_adapter
         self.evidence_repo = evidence_repo
+        self.investigation_provider = investigation_provider
         self._graph = build_assessment_graph()
         self._app: CompiledStateGraph = self._graph.compile()  # type: ignore[type-arg]
 
@@ -333,8 +344,11 @@ class AssessmentRunner:
             "configurable": {
                 "mcp_adapter": self.mcp_adapter,
                 "evidence_repo": self.evidence_repo,
+                "investigation_provider": self.investigation_provider,
             }
         }
+        if self.investigation_provider is not None:
+            initial_state["investigation_enabled"] = True
         with trace_boundary(
             "workflow.execute",
             boundary="workflow",

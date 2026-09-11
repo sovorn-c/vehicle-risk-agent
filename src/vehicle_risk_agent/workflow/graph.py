@@ -24,6 +24,13 @@ from vehicle_risk_agent.evidence.sufficiency import (
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
+from vehicle_risk_agent.investigation.context import build_investigation_context
+from vehicle_risk_agent.investigation.dispatcher import InvestigationDispatcher
+from vehicle_risk_agent.investigation.models import (
+    InvestigationLimitation,
+    InvestigationResult,
+)
+from vehicle_risk_agent.investigation.protocol import InvestigationProvider
 from vehicle_risk_agent.observability.telemetry import (
     record_model_tokens,
     trace_boundary,
@@ -179,6 +186,62 @@ async def node_evaluating_sufficiency(
         **progress,
         "sufficiency_result": sufficiency_result,
     }
+
+
+async def node_investigating(
+    state: AssessmentGraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Run optional bounded supplementary investigation after mandatory evidence."""
+    progress = await _emit_progress(
+        state,
+        AssessmentRunPhase.INVESTIGATING,
+        "Running bounded supplementary investigation",
+        config,
+    )
+    configurable = config.get("configurable", {}) if config else {}
+    provider: InvestigationProvider | None = configurable.get("investigation_provider")
+    dispatcher = configurable.get("investigation_dispatcher")
+    snapshot = state.get("evidence_snapshot")
+    if provider is None or snapshot is None:
+        return {**progress, "investigation_result": None}
+    if dispatcher is None:
+        dispatcher = InvestigationDispatcher(
+            vehicle=configurable.get("mcp_adapter"),
+            policy=configurable.get("retrieval_service"),
+        )
+    revision = VehicleRevisionResponse(
+        vin=snapshot.vin,
+        revision_id=snapshot.revision_id,
+        revision_number=snapshot.revision_number,
+        material_hash=snapshot.material_hash,
+        canonical_fields=dict(snapshot.canonical_fields),
+        field_provenance=dict(snapshot.field_provenance),
+        conflicts=tuple(snapshot.conflicts),
+        confidence=snapshot.confidence,
+        as_of=snapshot.as_of,
+        published_at=snapshot.published_at,
+        synthetic_notice=snapshot.synthetic_notice,
+    )
+    context = build_investigation_context(
+        revision=revision,
+        questions=state["context"].questions,
+        evidence_targets=tuple(snapshot.canonical_fields)[:5],
+        prior_results=tuple(snapshot.field_explanations.values()),
+    )
+    try:
+        proposal = (await provider.propose(context)).proposal
+        result = await dispatcher.dispatch(snapshot.vin, proposal)
+    except Exception:
+        result = InvestigationResult(
+            summary="Supplementary investigation was not completed.",
+            limitation=InvestigationLimitation(
+                code="INVESTIGATION_UNAVAILABLE",
+                message="The optional investigation provider was unavailable.",
+            ),
+            completed=False,
+            dispatched=False,
+        )
+    return {**progress, "investigation_result": result}
 
 
 async def _resolve_policy(configurable: dict[str, Any]) -> RiskPolicy:
@@ -430,7 +493,7 @@ def route_after_evidence(
 
 def route_after_sufficiency(
     state: AssessmentGraphState,
-) -> Literal["node_incomplete", "node_failed", "node_retrieving_policy"]:
+) -> Literal["node_incomplete", "node_failed", "node_investigating", "node_retrieving_policy"]:
     """Route strictly based on evidence sufficiency outcome."""
     result = state.get("sufficiency_result")
     if result is None or result.outcome == SufficiencyOutcome.UNAVAILABLE:
@@ -438,6 +501,8 @@ def route_after_sufficiency(
     if result.outcome == SufficiencyOutcome.INCOMPLETE:
         return "node_incomplete"
     if result.outcome == SufficiencyOutcome.COMPLETE:
+        if state.get("investigation_enabled", False):
+            return "node_investigating"
         return "node_retrieving_policy"
     return "node_failed"
 
@@ -449,6 +514,7 @@ def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
     builder.add_node("collecting_evidence", node_collecting_evidence)
     builder.add_node("evaluating_sufficiency", node_evaluating_sufficiency)
     builder.add_node("incomplete", node_incomplete)
+    builder.add_node("investigating", node_investigating)
     builder.add_node("failed", node_failed)
     builder.add_node("retrieving_policy", node_retrieving_policy)
     builder.add_node("evaluating_risk", node_evaluating_risk)
@@ -470,10 +536,12 @@ def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
         {
             "node_incomplete": "incomplete",
             "node_failed": "failed",
+            "node_investigating": "investigating",
             "node_retrieving_policy": "retrieving_policy",
         },
     )
     builder.add_edge("incomplete", END)
+    builder.add_edge("investigating", "retrieving_policy")
     builder.add_edge("failed", END)
     builder.add_edge("retrieving_policy", "evaluating_risk")
     builder.add_edge("evaluating_risk", "drafting_report")
