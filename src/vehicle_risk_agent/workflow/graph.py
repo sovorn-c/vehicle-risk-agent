@@ -375,6 +375,13 @@ async def node_retrieving_policy(
                 )
                 retrieval_result = await retrieval_service.retrieve(query)
                 citations = tuple(retrieval_result.citations)
+    investigation_result = state.get("investigation_result")
+    if investigation_result is not None:
+        merged: dict[str, Any] = {citation.passage_id: citation for citation in citations}
+        merged.update(
+            {citation.passage_id: citation for citation in investigation_result.policy_citations}
+        )
+        citations = tuple(merged.values())
     return {
         **progress,
         "policy_citations": citations,
@@ -444,6 +451,11 @@ async def node_drafting_report(
         risk_result=risk_result,
         evidence_snapshot=snapshot,
         policy_citations=tuple(policy_citations),
+        metadata=(
+            {"investigation": state["investigation_result"].safe_metadata()}
+            if state.get("investigation_result") is not None
+            else {}
+        ),
     )
     configurable = config.get("configurable", {}) if config else {}
     drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()

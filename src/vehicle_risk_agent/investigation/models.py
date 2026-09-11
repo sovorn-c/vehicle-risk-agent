@@ -394,6 +394,20 @@ class InvestigationResult(BaseModel):
     dispatched: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    def safe_metadata(self) -> dict[str, Any]:
+        """Return a bounded report projection without raw upstream payloads."""
+        return {
+            "action": self.action.value if self.action else None,
+            "summary": self.summary,
+            "references": list(self.references[:50]),
+            "policy_citation_refs": [
+                citation.passage_id for citation in self.policy_citations[:20]
+            ],
+            "completed": self.completed,
+            "dispatched": self.dispatched,
+            "limitation": self.limitation.model_dump() if self.limitation else None,
+        }
+
 
 class ProviderProposalResult(BaseModel):
     """Provider proposal plus usage needed by the durable ledger."""

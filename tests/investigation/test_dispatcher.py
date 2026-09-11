@@ -95,3 +95,4 @@ async def test_dispatcher_returns_no_action_without_external_calls() -> None:
     result = await dispatcher.dispatch("1HGCM82633A004352", proposal)
     assert result.dispatched is False
     assert vehicle.calls == []
+    assert "evidence_result" not in result.safe_metadata()
