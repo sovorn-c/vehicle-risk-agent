@@ -535,6 +535,7 @@ class LiveEvaluationRunner:
             e11_scenarios,
             grade_scenario,
         )
+        from vehicle_risk_agent.investigation.repository import InvestigationLedgerRepository
         from vehicle_risk_agent.persistence.repository import AssessmentRepository
         from vehicle_risk_agent.reporting.models import ReportDraftStatus
         from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
@@ -542,19 +543,20 @@ class LiveEvaluationRunner:
         from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
         from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
-        if self.config.enable_live_eval:
-            if self.active_corpus is None and session_factory is not None:
-                try:
-                    from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
+        if (
+            self.config.enable_live_eval
+            and self.active_corpus is None
+            and session_factory is not None
+        ):
+            try:
+                from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
 
-                    async with session_factory() as session:
-                        db_corpus = await CorpusLifecycleManager(session).get_active_corpus()
-                        if db_corpus is not None:
-                            self.active_corpus = db_corpus
-                except Exception:
-                    pass
-            self.validate_readiness()
-
+                async with session_factory() as session:
+                    db_corpus = await CorpusLifecycleManager(session).get_active_corpus()
+                    if db_corpus is not None:
+                        self.active_corpus = db_corpus
+            except Exception:
+                pass
         scenarios_to_run = scenarios
         if scenarios_to_run is None and self.config.suite == "e11-investigation":
             scenarios_to_run = [
@@ -638,6 +640,11 @@ class LiveEvaluationRunner:
             return record
 
         effective_settings: Settings = settings or Settings(
+            retrieval_mode=(
+                "live"
+                if self.config.enable_live_eval and self.config.suite == "e11-investigation"
+                else "offline"
+            ),
             drafting_mode="live" if self.config.enable_live_eval else "offline",
             enable_live_drafting=self.config.enable_live_eval,
             anthropic_api_key=SecretStr(
@@ -655,6 +662,21 @@ class LiveEvaluationRunner:
 
                 await conn.run_sync(Base.metadata.create_all)
             session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        if (
+            self.config.enable_live_eval
+            and self.active_corpus is None
+            and session_factory is not None
+        ):
+            try:
+                from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
+
+                async with session_factory() as session:
+                    self.active_corpus = await CorpusLifecycleManager(session).get_active_corpus()
+            except Exception:
+                pass
+        if self.config.enable_live_eval:
+            self.validate_readiness()
 
         effective_mcp = mcp_adapter
         if effective_mcp is None:
@@ -726,6 +748,7 @@ class LiveEvaluationRunner:
             report_draft_id: str | None = None
             report_status: str | None = None
             assessment_state: str | None = None
+            investigation_ledger = None
 
             try:
                 async with session_factory() as session:
@@ -765,6 +788,9 @@ class LiveEvaluationRunner:
                     draft_repo = ReportDraftRepository(session)
                     persisted_asmt = await asmt_repo.get_assessment(asmt.id)
                     persisted_draft = await draft_repo.get_draft(asmt.id, run_number=1)
+                    investigation_ledger = await InvestigationLedgerRepository(session).get_ledger(
+                        asmt.id, 1
+                    )
 
                 is_awaiting_review = (
                     persisted_asmt is not None
@@ -787,7 +813,11 @@ class LiveEvaluationRunner:
                     if usage is not None:
                         input_tokens = usage.input_tokens
                         output_tokens = usage.output_tokens
-                    proposal_valid = investigation_result is not None
+                    proposal_valid = (
+                        investigation_result is not None
+                        and usage is not None
+                        and investigation_provider is not None
+                    )
                     provider_marker = investigation_provider is not None
                     mcp_marker = (
                         self.config.enable_live_eval
@@ -825,14 +855,19 @@ class LiveEvaluationRunner:
                         and is_awaiting_review
                     )
                     outcome = "SCORED" if quality_passed else "FAILED"
-                    if investigation_result is not None:
+                    if investigation_ledger is not None:
+                        proposal_rounds = investigation_ledger.proposal_rounds
+                        supplementary_attempts = investigation_ledger.supplementary_attempts
+                        supplementary_retries = investigation_ledger.supplementary_retries
+                        termination_reason = investigation_ledger.status.value
+                    if investigation_result is not None and termination_reason is None:
                         proposal_rounds = 1
                         supplementary_attempts = int(investigation_result.dispatched)
-                    termination_reason = (
-                        "COMPLETED" if quality_passed else "INVESTIGATION_SCENARIO_FAILED"
-                    )
                     if not quality_passed:
+                        termination_reason = "INVESTIGATION_SCENARIO_FAILED"
                         failure_reason = "INVESTIGATION_SCENARIO_FAILED"
+                    elif termination_reason is None:
+                        termination_reason = "COMPLETED"
                 elif final_state.get("phase") == AssessmentRunPhase.FAILED:
                     outcome = "FAILED"
                     failure_reason = "WORKFLOW_FAILED"

@@ -27,7 +27,6 @@ from vehicle_risk_agent.evidence.sufficiency import (
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
-from vehicle_risk_agent.investigation.budget import InvestigationLimits
 from vehicle_risk_agent.investigation.context import build_investigation_context
 from vehicle_risk_agent.investigation.dispatcher import InvestigationDispatcher
 from vehicle_risk_agent.investigation.models import (
@@ -207,8 +206,22 @@ async def node_investigating(
     provider: InvestigationProvider | None = configurable.get("investigation_provider")
     dispatcher = configurable.get("investigation_dispatcher")
     snapshot = state.get("evidence_snapshot")
+    ledger = configurable.get("investigation_ledger")
     if provider is None or snapshot is None:
         return {**progress, "investigation_result": None}
+    if ledger is None:
+        return {
+            **progress,
+            "investigation_result": InvestigationResult(
+                summary="Supplementary investigation was not completed.",
+                limitation=InvestigationLimitation(
+                    code="INVESTIGATION_LEDGER_UNAVAILABLE",
+                    message="The supplementary investigation ledger was unavailable.",
+                ),
+                completed=False,
+                dispatched=False,
+            ),
+        }
     if dispatcher is None:
         vehicle = configurable.get("mcp_adapter")
         policy = configurable.get("retrieval_service")
@@ -246,8 +259,7 @@ async def node_investigating(
         prior_results=tuple(snapshot.field_explanations.values()),
     )
     provider_usage = None
-    ledger = configurable.get("investigation_ledger")
-    limits = ledger.limits if ledger is not None else InvestigationLimits.final()
+    limits = ledger.limits
     reservation_hash: str | None = None
     if ledger is not None:
         existing = await ledger.get_ledger(state["assessment_id"], state["run_number"])
