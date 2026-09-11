@@ -12,7 +12,7 @@ from vehicle_risk_agent.investigation.repository import (
     InvestigationLedgerRepository,
     InvestigationLedgerStatus,
 )
-from vehicle_risk_agent.persistence.models import Base
+from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 
 TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
@@ -25,6 +25,23 @@ async def session() -> AsyncIterator[AsyncSession]:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
+        session.add_all(
+            [
+                AssessmentRecord(
+                    id="asmt-ledger-1",
+                    requester_id="tester",
+                    vin="1HGCR2F85HA000000",
+                    context_json="{}",
+                ),
+                AssessmentRecord(
+                    id="asmt-ledger-2",
+                    requester_id="tester",
+                    vin="1HGCR2F85HA000000",
+                    context_json="{}",
+                ),
+            ]
+        )
+        await session.commit()
         yield session
     await engine.dispose()
 
