@@ -9,7 +9,6 @@ from vehicle_risk_agent.investigation.models import (
     InvestigationContext,
     InvestigationProposal,
     NoActionProposal,
-    SearchPolicyArguments,
     SubmitInvestigationToolResponse,
 )
 
@@ -28,9 +27,7 @@ def test_valid_proposals_are_strict_and_action_specific() -> None:
     assert isinstance(request.arguments, ExplainVehicleFieldArguments)
 
     with pytest.raises(ValidationError):
-        InvestigationProposal.from_tool_input(
-            {"kind": "NO_ACTION", "arguments": None}
-        )
+        InvestigationProposal.from_tool_input({"kind": "NO_ACTION", "arguments": None})
     with pytest.raises(ValidationError):
         InvestigationProposal.from_tool_input(
             {
