@@ -247,6 +247,8 @@ class ComparativeMetric(BaseModel):
     quality_passed: bool
     deterministic_risk_passed: bool
     retrieval_relevance: float = Field(ge=0.0, le=1.0)
+    retrieval_precision: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_mrr: float = Field(default=0.0, ge=0.0, le=1.0)
     citation_grounding: float = Field(ge=0.0, le=1.0)
     claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
     abstention_correct: bool
@@ -410,8 +412,8 @@ def build_comparative_report(
         sum(row.deterministic_risk_passed for row in deterministic) / count if count else 0.0
     )
     retrieval = sum(row.retrieval_relevance for row in rows) / len(rows) if rows else 0.0
-    precision = sum(row.retrieval_relevance for row in rows) / len(rows) if rows else 0.0
-    mrr = precision
+    precision = sum(row.retrieval_precision for row in rows) / len(rows) if rows else 0.0
+    mrr = sum(row.retrieval_mrr for row in rows) / len(rows) if rows else 0.0
     claim_support = sum(row.claim_support for row in rows) / len(rows) if rows else 0.0
     citations = sum(row.citation_grounding for row in rows) / len(rows) if rows else 0.0
     abstention = sum(row.abstention_correct for row in rows) / len(rows) if rows else 0.0
@@ -547,6 +549,8 @@ async def build_offline_comparative_report(
                 quality_passed=evaluation.passed,
                 deterministic_risk_passed=evaluation.passed,
                 retrieval_relevance=retrieval_score,
+                retrieval_precision=retrieval_score,
+                retrieval_mrr=retrieval_score,
                 citation_grounding=retrieval_score,
                 claim_support=1.0 if evaluation.passed else 0.0,
                 abstention_correct=retrieval_score == 1.0,
