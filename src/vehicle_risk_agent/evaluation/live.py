@@ -63,6 +63,18 @@ class LiveScenarioMetrics(BaseModel):
     output_tokens: int
     estimated_cost_usd: float
     quality_passed: bool
+    deterministic_risk_passed: bool = False
+    retrieval_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_precision: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
+    citation_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
+    abstention_correct: bool = False
+    useful_tool_selection: float = Field(default=0.0, ge=0.0, le=1.0)
+    missed_findings: int = Field(default=0, ge=0)
+    false_positive_citations: int = Field(default=0, ge=0)
+    unauthorized_dispatches: int = Field(default=0, ge=0)
+    automatic_approval: bool = False
     outcome: str = "SCORED"
     failure_reason: str | None = None
     expected_action: str | None = None
@@ -83,8 +95,6 @@ class LiveScenarioMetrics(BaseModel):
     report_draft_id: str | None = None
     report_status: str | None = None
     assessment_state: str | None = None
-    unauthorized_dispatches: int = 0
-    automatic_approval: bool = False
 
 
 class LiveEvaluationRecord(BaseModel):
@@ -442,6 +452,7 @@ class LiveEvaluationRunner:
         self.pricing = pricing or ModelPricingConfig(model=self.config.model)
         self.active_corpus = active_corpus
         self._allow_custom_investigation = False
+        self._comparative_metrics = False
 
     def validate_readiness(self, active_corpus: Any = _SENTINEL) -> None:
         """Verify explicit consent, environment credentials, suite caps, and corpus readiness."""
@@ -788,6 +799,18 @@ class LiveEvaluationRunner:
             outcome = expected_outcome
             failure_reason: str | None = None
             quality_passed = False
+            deterministic_risk_passed = False
+            retrieval_relevance = 0.0
+            retrieval_precision = 0.0
+            retrieval_mrr = 0.0
+            claim_support = 0.0
+            citation_grounding = 0.0
+            abstention_correct = False
+            useful_tool_selection = 0.0
+            missed_findings = 0
+            false_positive_citations = 0
+            unauthorized_dispatches = 0
+            automatic_approval = False
             input_tokens = 0
             output_tokens = 0
             expected_action = scn.get("expected_action")
@@ -940,14 +963,43 @@ class LiveEvaluationRunner:
                     mcp_marker = self.config.enable_live_eval and isinstance(
                         effective_mcp, StreamableHttpVehicleMcpAdapter
                     )
+                    if self._comparative_metrics:
+                        from vehicle_risk_agent.evaluation.comparative import (
+                            deterministic_labels_match,
+                            measure_report_draft_labels,
+                        )
 
-                    if expected_outcome == "WITHHELD":
+                        draft_measurement = measure_report_draft_labels(
+                            scn.get("expected_labels"),
+                            expected_action or "",
+                            persisted_draft,
+                        )
+                        deterministic_risk_passed = deterministic_labels_match(
+                            scn.get("expected_labels"), persisted_draft
+                        )
+                        retrieval_relevance = float(draft_measurement["retrieval_relevance"])
+                        retrieval_precision = float(draft_measurement["retrieval_precision"])
+                        retrieval_mrr = float(draft_measurement["retrieval_mrr"])
+                        claim_support = float(draft_measurement["claim_support"])
+                        citation_grounding = float(draft_measurement["citation_grounding"])
+                        abstention_correct = bool(draft_measurement["abstention_correct"])
+                        useful_tool_selection = float(draft_measurement["useful_tool_selection"])
+                        missed_findings = int(draft_measurement["missed_findings"])
+                        false_positive_citations = int(
+                            draft_measurement["false_positive_citations"]
+                        )
+                    automatic_approval = (
+                        assessment_state == AssessmentLifecycleState.RELEASED.value
+                        or report_status == ReportDraftStatus.RELEASED.value
+                    )
+
+                    if expected_outcome in {"WITHHELD", "INCOMPLETE"}:
                         quality_passed = (
                             is_awaiting_review
                             and persisted_draft.status == ReportDraftStatus.DRAFT
                             and persisted_draft.score is None
                         )
-                        outcome = "WITHHELD"
+                        outcome = expected_outcome
                     else:
                         quality_passed = (
                             is_awaiting_review
@@ -986,6 +1038,18 @@ class LiveEvaluationRunner:
                     output_tokens=output_tokens,
                     estimated_cost_usd=cost,
                     quality_passed=quality_passed,
+                    deterministic_risk_passed=deterministic_risk_passed,
+                    retrieval_relevance=retrieval_relevance,
+                    retrieval_precision=retrieval_precision,
+                    retrieval_mrr=retrieval_mrr,
+                    claim_support=claim_support,
+                    citation_grounding=citation_grounding,
+                    abstention_correct=abstention_correct,
+                    useful_tool_selection=useful_tool_selection,
+                    missed_findings=missed_findings,
+                    false_positive_citations=false_positive_citations,
+                    unauthorized_dispatches=unauthorized_dispatches,
+                    automatic_approval=automatic_approval,
                     outcome=outcome,
                     failure_reason=failure_reason,
                     expected_action=expected_action,
@@ -1102,9 +1166,14 @@ class LiveEvaluationRunner:
                     "vin": scenario.vin,
                     "sale_type": scenario.context.sale_type,
                     "questions": [overlay.investigation_question],
-                    "expected_outcome": "SCORED",
+                    "expected_outcome": (
+                        scenario.expected_labels.assessment_outcome.value
+                        if scenario.expected_labels.assessment_outcome is not None
+                        else "SCORED"
+                    ),
                     "expected_action": overlay.expected_action,
                     "expected_field": overlay.expected_field,
+                    "expected_labels": scenario.expected_labels.model_dump(),
                 }
                 draft_runner = LiveEvaluationRunner(
                     config=self.config.model_copy(
@@ -1117,6 +1186,7 @@ class LiveEvaluationRunner:
                     pricing=self.pricing,
                     active_corpus=self.active_corpus,
                 )
+                draft_runner._comparative_metrics = True
                 draft_record = await draft_runner.run_bounded_acceptance(
                     session_factory=session_factory,
                     mcp_adapter=mcp_adapter,
@@ -1142,18 +1212,22 @@ class LiveEvaluationRunner:
                         mode=ComparativeMode.LIVE_DRAFTING,
                         repeat=repeat,
                         quality_passed=draft_metric.quality_passed,
-                        deterministic_risk_passed=draft_metric.quality_passed,
-                        retrieval_relevance=1.0 if draft_metric.quality_passed else 0.0,
-                        retrieval_precision=1.0 if draft_metric.quality_passed else 0.0,
-                        retrieval_mrr=1.0 if draft_metric.quality_passed else 0.0,
-                        citation_grounding=1.0 if draft_metric.quality_passed else 0.0,
-                        claim_support=1.0 if draft_metric.quality_passed else 0.0,
-                        abstention_correct=draft_metric.quality_passed,
-                        useful_tool_selection=1.0,
+                        deterministic_risk_passed=draft_metric.deterministic_risk_passed,
+                        retrieval_relevance=draft_metric.retrieval_relevance,
+                        retrieval_precision=draft_metric.retrieval_precision,
+                        retrieval_mrr=draft_metric.retrieval_mrr,
+                        citation_grounding=draft_metric.citation_grounding,
+                        claim_support=draft_metric.claim_support,
+                        abstention_correct=draft_metric.abstention_correct,
+                        useful_tool_selection=draft_metric.useful_tool_selection,
                         draft_latency_seconds=draft_metric.draft_latency_seconds,
                         input_tokens=draft_metric.input_tokens,
                         output_tokens=draft_metric.output_tokens,
                         estimated_cost_usd=draft_cost,
+                        missed_findings=draft_metric.missed_findings,
+                        false_positive_citations=draft_metric.false_positive_citations,
+                        unauthorized_dispatches=draft_metric.unauthorized_dispatches,
+                        automatic_approval=draft_metric.automatic_approval,
                         provider_marker=draft_metric.provider_marker,
                         mcp_marker=draft_metric.mcp_marker,
                         usage_known=draft_metric.input_tokens > 0
@@ -1186,6 +1260,7 @@ class LiveEvaluationRunner:
                     active_corpus=self.active_corpus,
                 )
                 investigation_runner._allow_custom_investigation = True
+                investigation_runner._comparative_metrics = True
                 investigation_record = await investigation_runner.run_bounded_acceptance(
                     session_factory=session_factory,
                     mcp_adapter=mcp_adapter,
@@ -1204,27 +1279,40 @@ class LiveEvaluationRunner:
                         f"Live evaluation budget exceeded: ${cumulative_cost:.4f} > "
                         f"${self.config.max_budget_usd:.2f}"
                     )
+                allowed_actions = {
+                    "NO_ACTION",
+                    "explain_vehicle_field",
+                    "get_vehicle_history",
+                    "get_vehicle_revision",
+                    "search_policy",
+                }
+                action_matches = investigation_metric.observed_action == overlay.expected_action
+                unauthorized_dispatches = int(
+                    investigation_metric.dispatched is True
+                    and investigation_metric.observed_action not in allowed_actions
+                )
                 metrics.append(
                     ComparativeMetric(
                         scenario_id=scenario.scenario_id,
                         mode=ComparativeMode.LIVE_INVESTIGATION,
                         repeat=repeat,
                         quality_passed=investigation_metric.quality_passed,
-                        deterministic_risk_passed=investigation_metric.quality_passed,
-                        retrieval_relevance=1.0 if investigation_metric.quality_passed else 0.0,
-                        retrieval_precision=1.0 if investigation_metric.quality_passed else 0.0,
-                        retrieval_mrr=1.0 if investigation_metric.quality_passed else 0.0,
-                        citation_grounding=1.0 if investigation_metric.quality_passed else 0.0,
-                        claim_support=1.0 if investigation_metric.quality_passed else 0.0,
-                        abstention_correct=investigation_metric.quality_passed,
-                        useful_tool_selection=(
-                            1.0 if investigation_metric.dispatched is not None else 0.0
-                        ),
+                        deterministic_risk_passed=investigation_metric.deterministic_risk_passed,
+                        retrieval_relevance=investigation_metric.retrieval_relevance,
+                        retrieval_precision=investigation_metric.retrieval_precision,
+                        retrieval_mrr=investigation_metric.retrieval_mrr,
+                        citation_grounding=investigation_metric.citation_grounding,
+                        claim_support=investigation_metric.claim_support,
+                        abstention_correct=investigation_metric.abstention_correct,
+                        useful_tool_selection=1.0 if action_matches else 0.0,
                         draft_latency_seconds=investigation_metric.draft_latency_seconds,
                         input_tokens=investigation_metric.input_tokens,
                         output_tokens=investigation_metric.output_tokens,
                         estimated_cost_usd=investigation_metric.estimated_cost_usd,
-                        missed_findings=0 if investigation_metric.quality_passed else 1,
+                        missed_findings=investigation_metric.missed_findings,
+                        false_positive_citations=investigation_metric.false_positive_citations,
+                        unauthorized_dispatches=unauthorized_dispatches,
+                        automatic_approval=investigation_metric.automatic_approval,
                         provider_marker=investigation_metric.provider_marker,
                         mcp_marker=investigation_metric.mcp_marker,
                         usage_known=investigation_metric.input_tokens > 0

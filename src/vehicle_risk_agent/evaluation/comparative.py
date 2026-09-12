@@ -394,6 +394,125 @@ def _report_hash_payload(report: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _label(labels: Any, name: str, default: Any = None) -> Any:
+    return labels.get(name, default) if isinstance(labels, dict) else getattr(labels, name, default)
+
+
+def _label_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
+
+
+def deterministic_labels_match(labels: Any, draft: Any | None) -> bool:
+    """Compare only graph-owned risk outputs with frozen scenario labels."""
+    if draft is None or labels is None:
+        return False
+    sufficiency = _label(labels, "sufficiency_outcome")
+    if sufficiency is not None:
+        is_incomplete = bool(getattr(draft, "is_incomplete", False))
+        expected_incomplete = _label_value(sufficiency) == "INCOMPLETE"
+        if is_incomplete != expected_incomplete:
+            return False
+    assessment_outcome = _label(labels, "assessment_outcome")
+    if assessment_outcome is not None and _label_value(draft.outcome) != _label_value(
+        assessment_outcome
+    ):
+        return False
+    risk_band = _label(labels, "risk_band")
+    if risk_band is not None and _label_value(draft.band) != _label_value(risk_band):
+        return False
+    min_score = _label(labels, "min_risk_score")
+    if min_score is not None and (draft.score is None or draft.score < min_score):
+        return False
+    max_score = _label(labels, "max_risk_score")
+    if max_score is not None and (draft.score is None or draft.score > max_score):
+        return False
+    required_factor_ids = _label(labels, "required_factor_ids", ())
+    if not set(required_factor_ids).issubset(set(draft.all_risk_factor_refs)):
+        return False
+    citation_refs = set(draft.all_policy_citation_refs)
+    expected_citations = _label(labels, "expected_citations", ())
+    if not set(expected_citations).issubset(citation_refs):
+        return False
+    return not (_label(labels, "should_abstain") is True and citation_refs)
+
+
+def deterministic_draft_matches(
+    scenario: EvaluationScenario,
+    draft: Any | None,
+) -> bool:
+    """Compare a draft with the frozen scenario's deterministic labels."""
+    return deterministic_labels_match(scenario.expected_labels, draft)
+
+
+def measure_report_draft(
+    scenario: EvaluationScenario,
+    expected_action: str,
+    draft: Any | None,
+) -> dict[str, float | int | bool]:
+    """Measure observable draft references without turning unavailable gold labels into passes."""
+    return measure_report_draft_labels(scenario.expected_labels, expected_action, draft)
+
+
+def measure_report_draft_labels(
+    labels: Any,
+    expected_action: str,
+    draft: Any | None,
+) -> dict[str, float | int | bool]:
+    """Measure a report against a frozen expected-label projection."""
+    if draft is None or labels is None:
+        return {
+            "retrieval_relevance": 0.0,
+            "retrieval_precision": 0.0,
+            "retrieval_mrr": 0.0,
+            "claim_support": 0.0,
+            "citation_grounding": 0.0,
+            "abstention_correct": False,
+            "useful_tool_selection": 0.0,
+            "missed_findings": len(_label(labels, "required_factor_ids", ())),
+            "false_positive_citations": 0,
+        }
+    observed_refs = tuple(draft.all_policy_citation_refs)
+    observed = set(observed_refs)
+    expected = set(_label(labels, "expected_citations", ()))
+    policy_expected = expected_action == "search_policy"
+    relevant = observed & expected
+    if expected:
+        retrieval_relevance = len(relevant) / len(expected)
+        retrieval_precision = len(relevant) / len(observed) if observed else 0.0
+        first_match = next(
+            (index + 1 for index, ref in enumerate(observed_refs) if ref in expected), None
+        )
+        retrieval_mrr = 1.0 / first_match if first_match is not None else 0.0
+    else:
+        retrieval_relevance = float(bool(observed) == policy_expected)
+        retrieval_precision = retrieval_relevance
+        retrieval_mrr = retrieval_relevance
+    claims = tuple(draft.all_claims)
+    supported_claims = sum(
+        bool(claim.evidence_refs or claim.policy_citation_refs or claim.risk_factor_refs)
+        for claim in claims
+    )
+    grounded_claims = sum(
+        bool(claim.policy_citation_refs) and set(claim.policy_citation_refs).issubset(observed)
+        for claim in claims
+    )
+    claim_support = supported_claims / len(claims) if claims else 0.0
+    citation_grounding = grounded_claims / len(claims) if claims else 0.0
+    return {
+        "retrieval_relevance": retrieval_relevance,
+        "retrieval_precision": retrieval_precision,
+        "retrieval_mrr": retrieval_mrr,
+        "claim_support": claim_support,
+        "citation_grounding": citation_grounding,
+        "abstention_correct": bool(observed) == policy_expected,
+        "useful_tool_selection": retrieval_relevance,
+        "missed_findings": len(
+            set(_label(labels, "required_factor_ids", ())) - set(draft.all_risk_factor_refs)
+        ),
+        "false_positive_citations": len(observed - expected) if expected else 0,
+    }
+
+
 def build_comparative_report(
     config: E12EvaluationConfig,
     metrics: Sequence[ComparativeMetric],
@@ -540,25 +659,44 @@ async def build_offline_comparative_report(
             (item for item in evaluation.grader_results if item.grader_name == "citations_grader"),
             None,
         )
-        retrieval_score = citation_grade.score if citation_grade is not None else 1.0
+        retrieval_score = citation_grade.score if citation_grade is not None else 0.0
+        draft_measurement = measure_report_draft(
+            scenario,
+            "search_policy" if scenario.expected_labels.expected_citations else "",
+            result.report_draft,
+        )
+        risk_grader_names = {
+            "evidence_state_grader",
+            "outcome_grader",
+            "risk_band_grader",
+            "score_threshold_grader",
+            "risk_factors_grader",
+        }
+        deterministic_risk_passed = all(
+            item.passed
+            for item in evaluation.grader_results
+            if item.grader_name in risk_grader_names
+        )
         metrics.append(
             ComparativeMetric(
                 scenario_id=scenario.scenario_id,
                 mode=ComparativeMode.OFFLINE_BASELINE,
                 repeat=0,
                 quality_passed=evaluation.passed,
-                deterministic_risk_passed=evaluation.passed,
+                deterministic_risk_passed=deterministic_risk_passed,
                 retrieval_relevance=retrieval_score,
                 retrieval_precision=retrieval_score,
                 retrieval_mrr=retrieval_score,
-                citation_grounding=retrieval_score,
-                claim_support=1.0 if evaluation.passed else 0.0,
+                citation_grounding=float(draft_measurement["citation_grounding"]),
+                claim_support=float(draft_measurement["claim_support"]),
                 abstention_correct=retrieval_score == 1.0,
-                useful_tool_selection=1.0,
+                useful_tool_selection=0.0,
                 draft_latency_seconds=0.0,
                 input_tokens=0,
                 output_tokens=0,
                 estimated_cost_usd=0.0,
+                missed_findings=int(draft_measurement["missed_findings"]),
+                false_positive_citations=int(draft_measurement["false_positive_citations"]),
                 usage_known=True,
             )
         )

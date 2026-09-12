@@ -1,6 +1,7 @@
 """Contracts for the e12 comparative report and fail-closed verdict."""
 
 import asyncio
+from types import SimpleNamespace
 
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeMetric,
@@ -8,7 +9,10 @@ from vehicle_risk_agent.evaluation.comparative import (
     SemanticJudgment,
     build_comparative_report,
     build_offline_comparative_report,
+    deterministic_labels_match,
+    get_e12_held_out_scenarios,
     load_e12_evaluation_config,
+    measure_report_draft_labels,
     semantic_gate_passes,
 )
 
@@ -44,6 +48,35 @@ def test_semantic_gate_requires_eight_first_repeat_human_judgments() -> None:
     ]
     assert len(judgments) == 8
     assert semantic_gate_passes(judgments, config) is True
+
+
+def test_live_metrics_are_derived_from_report_references_not_quality_flag() -> None:
+    config = load_e12_evaluation_config()
+    scenario = next(
+        item
+        for item in get_e12_held_out_scenarios(config)
+        if item.scenario_id == "sc-risk-statutory-04"
+    )
+    claim = SimpleNamespace(evidence_refs=("obs-1",), policy_citation_refs=(), risk_factor_refs=())
+    draft = SimpleNamespace(
+        outcome="SCORED",
+        band="HIGH",
+        score=40,
+        is_incomplete=False,
+        all_risk_factor_refs=("STATUTORY",),
+        all_policy_citation_refs=(),
+        all_claims=(claim,),
+    )
+
+    metrics = measure_report_draft_labels(
+        scenario.expected_labels.model_dump(), "search_policy", draft
+    )
+
+    assert deterministic_labels_match(scenario.expected_labels.model_dump(), draft) is True
+    assert metrics["claim_support"] == 1.0
+    assert metrics["citation_grounding"] == 0.0
+    assert metrics["retrieval_relevance"] == 0.0
+    assert metrics["missed_findings"] == 0
 
 
 def test_live_report_cannot_pass_without_semantic_judgments() -> None:
