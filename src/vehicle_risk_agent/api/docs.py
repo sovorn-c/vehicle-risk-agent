@@ -361,6 +361,7 @@ DOCS_HTML = r"""<!doctype html>
           <a href="#journey">Workflow</a>
           <a href="#principles">Guardrails</a>
           <a href="#contract">Contract explorer</a>
+          <a href="#measured-quality">Measured quality</a>
           <a href="#operations">Run locally</a>
         </nav>
       </div>
@@ -411,6 +412,15 @@ DOCS_HTML = r"""<!doctype html>
           <div class="endpoint-tools"><label class="mono" for="endpoint-search" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">Filter endpoints</label><input class="search" id="endpoint-search" type="search" placeholder="Filter endpoints…"><span class="endpoint-count" id="endpoint-count">Loading endpoints…</span></div>
           <div id="endpoint-list" aria-live="polite"><div class="no-results">Loading the API contract…</div></div>
           <div class="reference-note">State-changing, reviewer-only, policy-maintainer, operator, and server-sent event operations are documented but not executed from this page. Use the <a href="/reference">full reference UI ↗</a> when you need to authenticate and exercise the complete contract.</div>
+        </section>
+
+        <section class="section" id="measured-quality" aria-labelledby="measured-quality-title">
+          <div class="section-heading"><h2 id="measured-quality-title">Measured quality, honestly reported</h2><p>The versioned <code>e12-eval-v1</code> report compares a deterministic offline baseline with live drafting and bounded investigation.</p></div>
+          <div class="principles">
+            <article class="principle primary"><span class="kicker">e12 / HELD-OUT</span><h3>30 scenarios. Four live inputs. Three repeats.</h3><p>The published control state is <strong>BLOCKED</strong> until real evidence exists. Live evidence is credential-gated, uses a suite-local USD 15.00 cap, and requires eight human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments never become a silent offline pass.</p></article>
+            <article class="principle"><span class="kicker">DISCLOSURE</span><h3>Synthetic evidence stays labelled.</h3><p>This project does not access restricted registers. The e11 Gemini live-validation waiver remains release-blocking and is not hidden by the e12 comparison.</p></article>
+            <article class="principle"><span class="kicker">RETRIEVAL</span><h3>PostgreSQL full-text search + pgvector.</h3><p>Retrieval uses the implemented hybrid policy path with abstention. The documented implementation uses PostgreSQL full-text search alongside vector retrieval.</p></article>
+          </div>
         </section>
 
         <section class="section" id="operations" aria-labelledby="operations-title">

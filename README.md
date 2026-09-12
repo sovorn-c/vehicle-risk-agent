@@ -50,7 +50,7 @@ The Agent never queries the Pipeline API or database directly. MCP is its only v
 
 - **Evidence sufficiency before scoring:** Missing or conflicting required evidence produces an explicit incomplete outcome. It is never interpreted as clean.
 - **Deterministic risk calculation:** Versioned Python rules own the score, band, components, thresholds, and calculation hash. An LLM cannot change them.
-- **Policy RAG with abstention:** BM25 and pgvector retrieval use Reciprocal Rank Fusion. Weak retrieval returns no citation instead of inventing one.
+- **Policy RAG with abstention:** PostgreSQL full-text search and pgvector retrieval use Reciprocal Rank Fusion. Weak retrieval returns no citation instead of inventing one.
 - **Grounded report drafting:** Model and offline adapters can explain evidence and policy, but every analytical claim must remain attributable.
 - **Human-controlled release:** A report cannot leave `AWAITING_REVIEW` without an authorized approve, reject, or reinvestigate action.
 
@@ -85,7 +85,7 @@ flowchart TB
         direction LR
         API[FastAPI boundary<br/>auth, roles, rate limits, idempotency] --> GRAPH[Typed LangGraph workflow]
         GRAPH --> EVIDENCE[Evidence sufficiency]
-        EVIDENCE --> POLICY[Policy retrieval<br/>BM25 + pgvector + abstention]
+        EVIDENCE --> POLICY[Policy retrieval<br/>PostgreSQL FTS + pgvector + abstention]
         POLICY --> RISK[Deterministic risk engine]
         RISK --> DRAFT[Grounded report draft]
         DRAFT --> REVIEW[AWAITING_REVIEW]
@@ -223,6 +223,34 @@ docker compose -f compose.yaml up -d --build --wait
 curl -f http://localhost:8001/health
 curl -f http://localhost:8001/ready
 ```
+
+## Measured AI quality
+
+The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
+
+All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver remains release-blocking. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist.
+
+| Versioned artifact | Coverage | Published verdict |
+| --- | --- | --- |
+| `e12-eval-v1` offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — not live evidence |
+| `e12-eval-v1` live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
+
+Run the real, credential-gated walkthrough only when the operator has approved paid execution:
+
+```bash
+ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
+  bash scripts/demo-measured-quality.sh
+```
+
+For a deterministic control artifact, use the explicit offline command. It intentionally exits non-zero and writes `release_verdict: BLOCKED`:
+
+```bash
+uv run python -m vehicle_risk_agent.evaluation.live \\
+  --suite e12-comparative --offline \\
+  --output-file artifacts/e12-offline-control.json
+```
+
+The result is a measurement artifact, not a purchase, legal, financial, mechanical, insurance, or safety decision.
 
 ## API reference
 
