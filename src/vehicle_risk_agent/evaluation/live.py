@@ -1331,6 +1331,12 @@ def main(args: list[str] | None = None) -> int:
     parsed = parser.parse_args(args)
 
     if parsed.suite in {"e11-investigation", "e12-comparative"} and parsed.api_key:
+        if parsed.suite == "e12-comparative" and parsed.output_file:
+            from vehicle_risk_agent.evaluation.comparative import build_blocked_report
+
+            build_blocked_report(reason="ENVIRONMENT_ONLY_CREDENTIALS").save_to_file(
+                parsed.output_file
+            )
         sys.stderr.write(
             f"Live evaluation refused: {parsed.suite} accepts ANTHROPIC_API_KEY only.\n"
         )
@@ -1410,6 +1416,10 @@ def main(args: list[str] | None = None) -> int:
         LiveEvaluationBudgetError,
         LiveEvaluationCorpusError,
     ) as exc:
+        if parsed.suite == "e12-comparative" and parsed.output_file:
+            from vehicle_risk_agent.evaluation.comparative import build_blocked_report
+
+            build_blocked_report(reason=type(exc).__name__).save_to_file(parsed.output_file)
         sys.stderr.write(f"Error: {exc}\n")
         return 1
 
@@ -1443,6 +1453,10 @@ def main(args: list[str] | None = None) -> int:
             )
         return 0 if record.verdict_passed else 1
     except Exception as exc:
+        if parsed.suite == "e12-comparative" and parsed.output_file:
+            from vehicle_risk_agent.evaluation.comparative import build_blocked_report
+
+            build_blocked_report(reason="LIVE_EXECUTION_FAILED").save_to_file(parsed.output_file)
         sys.stderr.write(f"Live evaluation failed: {exc}\n")
         return 1
 

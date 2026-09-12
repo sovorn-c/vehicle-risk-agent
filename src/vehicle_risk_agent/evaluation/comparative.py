@@ -310,6 +310,7 @@ class ComparativeReport(BaseModel):
     total_estimated_cost_usd: float
     release_verdict: str
     verdict_passed: bool
+    blocker_reason: str | None = None
     synthetic_vehicle_evidence: bool
     restricted_register_access: bool
     e11_gemini_live_validation: str
@@ -382,6 +383,7 @@ def build_comparative_report(
     *,
     semantic_judgments: Sequence[SemanticJudgment] = (),
     execution_mode: str = "LIVE",
+    blocker_reason: str | None = None,
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
     rows = tuple(metrics)
@@ -431,11 +433,21 @@ def build_comparative_report(
             or sum(row.estimated_cost_usd for row in live) <= config.live_suite_cost_usd
         )
     )
-    verdict_passed = execution_mode == "LIVE" and quality and threshold_passed and semantic_passed
+    verdict_passed = (
+        execution_mode == "LIVE"
+        and blocker_reason is None
+        and quality
+        and threshold_passed
+        and semantic_passed
+    )
     verdict = (
         "PASS"
         if verdict_passed
-        else ("BLOCKED" if execution_mode != "LIVE" or not semantic_passed else "FAIL")
+        else (
+            "BLOCKED"
+            if execution_mode != "LIVE" or blocker_reason is not None or not semantic_passed
+            else "FAIL"
+        )
     )
     now = datetime.now(UTC).isoformat()
     report_id = f"e12-comparative-{now[:10]}-{abs(hash(now)) % 100000:05d}"
@@ -480,6 +492,7 @@ def build_comparative_report(
         "total_estimated_cost_usd": round(sum(row.estimated_cost_usd for row in rows), 6),
         "release_verdict": verdict,
         "verdict_passed": verdict_passed,
+        "blocker_reason": blocker_reason,
         "synthetic_vehicle_evidence": config.synthetic_vehicle_evidence,
         "restricted_register_access": config.restricted_register_access,
         "e11_gemini_live_validation": config.e11_gemini_live_validation,
@@ -531,6 +544,16 @@ async def build_offline_comparative_report(
             )
         )
     return build_comparative_report(cfg, metrics, execution_mode="OFFLINE")
+
+
+def build_blocked_report(
+    config: E12EvaluationConfig | None = None,
+    *,
+    reason: str = "LIVE_PREREQUISITE_UNAVAILABLE",
+) -> ComparativeReport:
+    """Create a sanitized non-passing artifact when live setup cannot start."""
+    cfg = config or load_e12_evaluation_config()
+    return build_comparative_report(cfg, (), execution_mode="BLOCKED", blocker_reason=reason)
 
 
 # Compatibility aliases for callers that prefer an explicit e12 name.
