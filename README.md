@@ -228,7 +228,7 @@ curl -f http://localhost:8001/ready
 
 The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
 
-All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver remains release-blocking. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist.
+All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver remains release-blocking. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `142c4326c9fac7b075a67a12d8882993bf52364afe0c7a35bae9ab29db800ed2`.
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
@@ -250,7 +250,7 @@ uv run python -m vehicle_risk_agent.evaluation.live \\
   --output-file artifacts/e12-offline-control.json
 ```
 
-The result is a measurement artifact, not a purchase, legal, financial, mechanical, insurance, or safety decision.
+The script also writes an artifact-bound publication pointer. It copies the report `config_hash`, `run_hash`, and verdict, and refuses a mismatched report/publication pair. The result is a measurement artifact, not a purchase, legal, financial, mechanical, insurance, or safety decision.
 
 ## API reference
 

@@ -702,11 +702,7 @@ class LiveEvaluationRunner:
             return record
 
         effective_settings: Settings = settings or Settings(
-            retrieval_mode=(
-                "live"
-                if self.config.enable_live_eval and self.config.suite == "e11-investigation"
-                else "offline"
-            ),
+            retrieval_mode="live" if self.config.enable_live_eval else "offline",
             drafting_mode="live" if self.config.enable_live_eval else "offline",
             enable_live_drafting=self.config.enable_live_eval,
             anthropic_api_key=SecretStr(
@@ -1135,6 +1131,11 @@ class LiveEvaluationRunner:
                 draft_metric = draft_record.scenarios[0]
                 draft_cost = draft_metric.estimated_cost_usd
                 cumulative_cost += draft_cost
+                if cumulative_cost > self.config.max_budget_usd:
+                    raise LiveEvaluationBudgetError(
+                        f"Live evaluation budget exceeded: ${cumulative_cost:.4f} > "
+                        f"${self.config.max_budget_usd:.2f}"
+                    )
                 metrics.append(
                     ComparativeMetric(
                         scenario_id=scenario.scenario_id,
@@ -1198,6 +1199,11 @@ class LiveEvaluationRunner:
                     )
                 investigation_metric = investigation_record.scenarios[0]
                 cumulative_cost += investigation_metric.estimated_cost_usd
+                if cumulative_cost > self.config.max_budget_usd:
+                    raise LiveEvaluationBudgetError(
+                        f"Live evaluation budget exceeded: ${cumulative_cost:.4f} > "
+                        f"${self.config.max_budget_usd:.2f}"
+                    )
                 metrics.append(
                     ComparativeMetric(
                         scenario_id=scenario.scenario_id,
