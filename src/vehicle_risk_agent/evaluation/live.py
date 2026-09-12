@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from vehicle_risk_agent.evaluation.comparative import ComparativeReport
+
 
 class LiveEvaluationConsentError(Exception):
     """Raised when live evaluation is attempted without explicit provider consent opt-in."""
@@ -425,49 +427,91 @@ class LiveEvaluationRunner:
         active_corpus: Any = None,
     ) -> None:
         self.config = config or LiveEvaluationConfig()
+        if pricing is None and self.config.suite == "e12-comparative":
+            from vehicle_risk_agent.evaluation.comparative import load_e12_evaluation_config
+
+            e12_config = load_e12_evaluation_config()
+            pricing = ModelPricingConfig(
+                model=e12_config.model,
+                input_token_cost_per_million=e12_config.pricing_input_usd_per_million,
+                output_token_cost_per_million=e12_config.pricing_output_usd_per_million,
+                provenance=e12_config.config_id,
+                source_url=e12_config.pricing_source_url,
+                checked_at=e12_config.pricing_checked_at,
+            )
         self.pricing = pricing or ModelPricingConfig(model=self.config.model)
         self.active_corpus = active_corpus
+        self._allow_custom_investigation = False
 
     def validate_readiness(self, active_corpus: Any = _SENTINEL) -> None:
-        """Verify explicit operator consent, valid credentials, budget bounds, and neural corpus."""
-        if self.config.suite == "e11-investigation" and self.config.api_key:
+        """Verify explicit consent, environment credentials, suite caps, and corpus readiness."""
+        investigation_suite = self.config.suite in {"e11-investigation", "e12-comparative"}
+        if investigation_suite and self.config.api_key:
             raise LiveEvaluationCredentialsError(
-                "Live evaluation refused: e11-investigation accepts ANTHROPIC_API_KEY only."
+                f"Live evaluation refused: {self.config.suite} accepts ANTHROPIC_API_KEY "
+                "from the environment only."
             )
         if not self.config.enable_live_eval:
             raise LiveEvaluationConsentError(
                 "Live evaluation refused: explicit provider consent and opt-in flag "
                 "--enable-live-eval required for paid API execution."
             )
-        key = self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        key = (
+            os.environ.get("ANTHROPIC_API_KEY", "")
+            if investigation_suite
+            else self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
         if not key or not key.strip():
             raise LiveEvaluationCredentialsError(
                 "Live evaluation refused: missing required ANTHROPIC_API_KEY."
             )
-        if self.config.suite == "e11-investigation" and not (
+        if investigation_suite and not (
             self.config.mcp_server_url or os.environ.get("MCP_SERVER_URL")
         ):
             raise LiveEvaluationCredentialsError(
-                "Live evaluation refused: MCP_SERVER_URL is required for e11-investigation."
+                f"Live evaluation refused: MCP_SERVER_URL is required for {self.config.suite}."
             )
-        if self.config.suite == "e11-investigation" and (
+        if investigation_suite and (
             self.config.model != "claude-sonnet-4-6" or self.pricing.model != self.config.model
         ):
             raise LiveEvaluationBudgetError(
-                "Live evaluation refused: e11 pricing is pinned to claude-sonnet-4-6."
+                f"Live evaluation refused: {self.config.suite} pricing is pinned to "
+                "claude-sonnet-4-6."
             )
-        budget_cap = 3.0 if self.config.suite == "e11-investigation" else 5.0
+        if self.config.suite == "e12-comparative":
+            from vehicle_risk_agent.evaluation.comparative import load_e12_evaluation_config
+
+            e12_config = load_e12_evaluation_config()
+            pricing_matches = (
+                self.pricing.input_token_cost_per_million
+                == e12_config.pricing_input_usd_per_million
+                and self.pricing.output_token_cost_per_million
+                == e12_config.pricing_output_usd_per_million
+                and self.pricing.source_url == e12_config.pricing_source_url
+                and self.pricing.checked_at == e12_config.pricing_checked_at
+            )
+            if not pricing_matches:
+                raise LiveEvaluationBudgetError(
+                    "Live evaluation refused: e12 pricing/model provenance does not match "
+                    "e12-eval-v1."
+                )
+        budget_cap = (
+            15.0
+            if self.config.suite == "e12-comparative"
+            else (3.0 if self.config.suite == "e11-investigation" else 5.0)
+        )
         if self.config.max_budget_usd <= 0.0 or self.config.max_budget_usd > budget_cap:
             raise LiveEvaluationBudgetError(
                 f"Live evaluation refused: max budget ${self.config.max_budget_usd:.2f} "
                 f"must be positive and at most ${budget_cap:.2f}."
             )
+        scenario_cap = 4 if self.config.suite == "e12-comparative" else 3
         if self.config.max_scenarios is not None and (
-            self.config.max_scenarios <= 0 or self.config.max_scenarios > 3
+            self.config.max_scenarios <= 0 or self.config.max_scenarios > scenario_cap
         ):
             raise LiveEvaluationBudgetError(
                 f"Live evaluation refused: max scenarios {self.config.max_scenarios} "
-                "must be between 1 and 3."
+                f"must be between 1 and {scenario_cap}."
             )
 
         corpus_to_check = active_corpus if active_corpus is not _SENTINEL else self.active_corpus
@@ -492,10 +536,11 @@ class LiveEvaluationRunner:
                 )
 
     def validate_scenarios(self, scenarios: list[Any]) -> None:
-        """Verify scenario batch size conforms to bounded live limits."""
-        if len(scenarios) > 3:
+        """Verify scenario batch size conforms to the active suite's bounded limits."""
+        cap = 4 if self.config.suite == "e12-comparative" else 3
+        if len(scenarios) > cap:
             raise LiveEvaluationBudgetError(
-                f"Live evaluation refused: scenario count {len(scenarios)} exceeds limit of 3."
+                f"Live evaluation refused: scenario count {len(scenarios)} exceeds limit of {cap}."
             )
         if self.config.max_scenarios is not None and len(scenarios) > self.config.max_scenarios:
             raise LiveEvaluationBudgetError(
@@ -510,8 +555,25 @@ class LiveEvaluationRunner:
         drafting_adapter: Any | None = None,
         settings: Any | None = None,
         scenarios: list[dict[str, Any]] | None = None,
-    ) -> LiveEvaluationRecord:
+    ) -> LiveEvaluationRecord | ComparativeReport:
         """Execute bounded acceptance scenarios through the normal workflow and emit evidence."""
+        if self.config.suite == "e12-comparative":
+            if not self.config.enable_live_eval:
+                from vehicle_risk_agent.evaluation.comparative import (
+                    build_offline_comparative_report,
+                    load_e12_evaluation_config,
+                )
+
+                report = await build_offline_comparative_report(load_e12_evaluation_config())
+                if self.config.output_file:
+                    report.save_to_file(self.config.output_file)
+                return report
+            return await self._run_e12_live_comparative(
+                session_factory=session_factory,
+                mcp_adapter=mcp_adapter,
+                drafting_adapter=drafting_adapter,
+                settings=settings,
+            )
         import time
         from uuid import uuid4
 
@@ -593,7 +655,7 @@ class LiveEvaluationRunner:
                 scenarios_to_run = scenarios_to_run[: self.config.max_scenarios]
 
         self.validate_scenarios(scenarios_to_run)
-        if self.config.suite == "e11-investigation":
+        if self.config.suite == "e11-investigation" and not self._allow_custom_investigation:
             expected_ids = tuple(scenario.scenario_id for scenario in e11_scenarios())
             actual_ids = tuple(scenario.get("scenario_id") for scenario in scenarios_to_run)
             if actual_ids != expected_ids:
@@ -876,6 +938,12 @@ class LiveEvaluationRunner:
                     if persisted_draft.metadata:
                         input_tokens = int(persisted_draft.metadata.get("input_tokens", 0))
                         output_tokens = int(persisted_draft.metadata.get("output_tokens", 0))
+                    provider_marker = self.config.enable_live_eval and isinstance(
+                        effective_drafter, AnthropicDraftingAdapter
+                    )
+                    mcp_marker = self.config.enable_live_eval and isinstance(
+                        effective_mcp, StreamableHttpVehicleMcpAdapter
+                    )
 
                     if expected_outcome == "WITHHELD":
                         quality_passed = (
@@ -1006,6 +1074,167 @@ class LiveEvaluationRunner:
 
         return record
 
+    async def _run_e12_live_comparative(
+        self,
+        session_factory: Any | None = None,
+        mcp_adapter: Any | None = None,
+        drafting_adapter: Any | None = None,
+        settings: Any | None = None,
+    ) -> ComparativeReport:
+        """Run the four frozen inputs in both live modes at three repeats."""
+        from vehicle_risk_agent.evaluation.comparative import (
+            ComparativeMetric,
+            ComparativeMode,
+            build_comparative_report,
+            build_offline_comparative_report,
+            get_e12_held_out_scenarios,
+            load_e12_evaluation_config,
+            load_semantic_judgments,
+        )
+
+        self.validate_readiness()
+        cfg = load_e12_evaluation_config()
+        scenario_by_id = {item.scenario_id: item for item in get_e12_held_out_scenarios(cfg)}
+        offline_report = await build_offline_comparative_report(cfg)
+        metrics: list[ComparativeMetric] = list(offline_report.metrics)
+        cumulative_cost = 0.0
+        for repeat in range(1, cfg.repeats + 1):
+            for overlay in cfg.comparable_shared_inputs:
+                scenario = scenario_by_id[overlay.scenario_id]
+                common_payload = {
+                    "scenario_id": scenario.scenario_id,
+                    "vin": scenario.vin,
+                    "sale_type": scenario.context.sale_type,
+                    "questions": [overlay.investigation_question],
+                    "expected_outcome": "SCORED",
+                    "expected_action": overlay.expected_action,
+                    "expected_field": overlay.expected_field,
+                }
+                draft_runner = LiveEvaluationRunner(
+                    config=self.config.model_copy(
+                        update={
+                            "suite": "general",
+                            "max_scenarios": 1,
+                            "max_budget_usd": 5.0,
+                        }
+                    ),
+                    pricing=self.pricing,
+                    active_corpus=self.active_corpus,
+                )
+                draft_record = await draft_runner.run_bounded_acceptance(
+                    session_factory=session_factory,
+                    mcp_adapter=mcp_adapter,
+                    drafting_adapter=drafting_adapter,
+                    settings=settings,
+                    scenarios=[common_payload],
+                )
+                if isinstance(draft_record, ComparativeReport):
+                    raise LiveEvaluationBudgetError(
+                        "unexpected comparative report from drafting mode"
+                    )
+                draft_metric = draft_record.scenarios[0]
+                draft_cost = draft_metric.estimated_cost_usd
+                cumulative_cost += draft_cost
+                metrics.append(
+                    ComparativeMetric(
+                        scenario_id=scenario.scenario_id,
+                        mode=ComparativeMode.LIVE_DRAFTING,
+                        repeat=repeat,
+                        quality_passed=draft_metric.quality_passed,
+                        deterministic_risk_passed=draft_metric.quality_passed,
+                        retrieval_relevance=1.0 if draft_metric.quality_passed else 0.0,
+                        citation_grounding=1.0 if draft_metric.quality_passed else 0.0,
+                        abstention_correct=draft_metric.quality_passed,
+                        useful_tool_selection=1.0,
+                        draft_latency_seconds=draft_metric.draft_latency_seconds,
+                        input_tokens=draft_metric.input_tokens,
+                        output_tokens=draft_metric.output_tokens,
+                        estimated_cost_usd=draft_cost,
+                        provider_marker=draft_metric.provider_marker,
+                        mcp_marker=draft_metric.mcp_marker,
+                        usage_known=draft_metric.input_tokens > 0
+                        and draft_metric.output_tokens > 0,
+                        failure_reason=draft_metric.failure_reason,
+                    )
+                )
+                investigation_payload = {
+                    **common_payload,
+                    "intent": overlay.investigation_question,
+                    "evidence_targets": (
+                        [overlay.expected_field] if overlay.expected_field is not None else []
+                    ),
+                    "expected_dispatched": overlay.expected_action != "NO_ACTION",
+                    "expected_query": (
+                        overlay.investigation_question
+                        if overlay.expected_action == "search_policy"
+                        else None
+                    ),
+                }
+                investigation_runner = LiveEvaluationRunner(
+                    config=self.config.model_copy(
+                        update={
+                            "suite": "e11-investigation",
+                            "max_scenarios": 1,
+                            "max_budget_usd": 3.0,
+                        }
+                    ),
+                    pricing=self.pricing,
+                    active_corpus=self.active_corpus,
+                )
+                investigation_runner._allow_custom_investigation = True
+                investigation_record = await investigation_runner.run_bounded_acceptance(
+                    session_factory=session_factory,
+                    mcp_adapter=mcp_adapter,
+                    drafting_adapter=drafting_adapter,
+                    settings=settings,
+                    scenarios=[investigation_payload],
+                )
+                if isinstance(investigation_record, ComparativeReport):
+                    raise LiveEvaluationBudgetError(
+                        "unexpected comparative report from investigation mode"
+                    )
+                investigation_metric = investigation_record.scenarios[0]
+                cumulative_cost += investigation_metric.estimated_cost_usd
+                metrics.append(
+                    ComparativeMetric(
+                        scenario_id=scenario.scenario_id,
+                        mode=ComparativeMode.LIVE_INVESTIGATION,
+                        repeat=repeat,
+                        quality_passed=investigation_metric.quality_passed,
+                        deterministic_risk_passed=investigation_metric.quality_passed,
+                        retrieval_relevance=1.0 if investigation_metric.quality_passed else 0.0,
+                        citation_grounding=1.0 if investigation_metric.quality_passed else 0.0,
+                        abstention_correct=investigation_metric.quality_passed,
+                        useful_tool_selection=(
+                            1.0 if investigation_metric.dispatched is not None else 0.0
+                        ),
+                        draft_latency_seconds=investigation_metric.draft_latency_seconds,
+                        input_tokens=investigation_metric.input_tokens,
+                        output_tokens=investigation_metric.output_tokens,
+                        estimated_cost_usd=investigation_metric.estimated_cost_usd,
+                        missed_findings=0 if investigation_metric.quality_passed else 1,
+                        provider_marker=investigation_metric.provider_marker,
+                        mcp_marker=investigation_metric.mcp_marker,
+                        usage_known=investigation_metric.input_tokens > 0
+                        and investigation_metric.output_tokens > 0,
+                        failure_reason=investigation_metric.failure_reason,
+                    )
+                )
+                if cumulative_cost > self.config.max_budget_usd:
+                    raise LiveEvaluationBudgetError(
+                        f"Live evaluation budget exceeded: ${cumulative_cost:.4f} > "
+                        f"${self.config.max_budget_usd:.2f}"
+                    )
+        report = build_comparative_report(
+            cfg,
+            metrics,
+            semantic_judgments=load_semantic_judgments(),
+            execution_mode="LIVE",
+        )
+        if self.config.output_file:
+            report.save_to_file(self.config.output_file)
+        return report
+
     def __repr__(self) -> str:
         return f"LiveEvaluationRunner(model={self.config.model!r})"
 
@@ -1032,14 +1261,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--suite",
         type=str,
         default="general",
-        choices=("general", "e11-investigation"),
+        choices=("general", "e11-investigation", "e12-comparative"),
         help="Evaluation suite to run.",
     )
     parser.add_argument(
         "--api-key",
         type=str,
         default="",
-        help="Anthropic API key (defaults to ANTHROPIC_API_KEY environment variable).",
+        help="Legacy general-suite key override; investigation suites use ANTHROPIC_API_KEY only.",
     )
     parser.add_argument(
         "--model",
@@ -1063,7 +1292,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-scenarios",
         type=int,
         default=None,
-        help="Optional cap on number of scenarios to evaluate (max 3).",
+        help="Optional cap on unique scenarios to evaluate (max 3, or 4 for e12-comparative).",
     )
     parser.add_argument(
         "--require-neural-corpus",
@@ -1099,9 +1328,9 @@ def main(args: list[str] | None = None) -> int:
     parser = build_parser()
     parsed = parser.parse_args(args)
 
-    if parsed.suite == "e11-investigation" and parsed.api_key:
+    if parsed.suite in {"e11-investigation", "e12-comparative"} and parsed.api_key:
         sys.stderr.write(
-            "Live evaluation refused: e11-investigation accepts ANTHROPIC_API_KEY only.\n"
+            f"Live evaluation refused: {parsed.suite} accepts ANTHROPIC_API_KEY only.\n"
         )
         return 1
 
@@ -1119,9 +1348,19 @@ def main(args: list[str] | None = None) -> int:
         runner = LiveEvaluationRunner(config=config)
         try:
             record = asyncio.run(runner.run_bounded_acceptance())
+            if isinstance(record, ComparativeReport):
+                passed = sum(
+                    metric.quality_passed
+                    for metric in record.metrics
+                    if metric.mode.value == "OFFLINE_BASELINE"
+                )
+                total = record.offline_runs
+            else:
+                passed = record.passed_scenarios
+                total = record.total_scenarios
             sys.stdout.write(
-                f"Offline evaluation complete: {record.passed_scenarios}/{record.total_scenarios} "
-                f"passed. Verdict: {record.release_verdict}.\n"
+                f"Offline evaluation complete: {passed}/{total} passed. "
+                f"Verdict: {record.release_verdict}.\n"
             )
             return 0 if record.verdict_passed else 1
         except Exception as exc:
@@ -1138,6 +1377,7 @@ def main(args: list[str] | None = None) -> int:
         output_file=parsed.output_file,
         require_neural_corpus=parsed.require_neural_corpus,
         suite=parsed.suite,
+        mcp_server_url=os.environ.get("MCP_SERVER_URL"),
     )
     active_corpus = None
     if parsed.enable_live_eval and parsed.require_neural_corpus:
@@ -1184,12 +1424,21 @@ def main(args: list[str] | None = None) -> int:
     )
     try:
         record = asyncio.run(runner.run_bounded_acceptance())
-        sys.stdout.write(
-            f"Live evaluation complete: {record.passed_scenarios}/{record.total_scenarios} passed. "
-            f"p95 latency: {record.p95_draft_latency_seconds}s, "
-            f"total cost: ${record.total_estimated_cost_usd:.4f}. "
-            f"Verdict: {record.release_verdict}.\n"
-        )
+        if isinstance(record, ComparativeReport):
+            sys.stdout.write(
+                f"Live comparative evaluation complete: {record.live_runs} live runs, "
+                f"p95 latency: {record.p95_latency_seconds}s, "
+                f"total cost: ${record.total_estimated_cost_usd:.4f}. "
+                f"Verdict: {record.release_verdict}.\n"
+            )
+        else:
+            sys.stdout.write(
+                f"Live evaluation complete: {record.passed_scenarios}/"
+                f"{record.total_scenarios} passed. "
+                f"p95 latency: {record.p95_draft_latency_seconds}s, "
+                f"total cost: ${record.total_estimated_cost_usd:.4f}. "
+                f"Verdict: {record.release_verdict}.\n"
+            )
         return 0 if record.verdict_passed else 1
     except Exception as exc:
         sys.stderr.write(f"Live evaluation failed: {exc}\n")
