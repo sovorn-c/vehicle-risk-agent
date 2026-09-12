@@ -316,6 +316,21 @@ class ComparativeReport(BaseModel):
     e11_gemini_live_validation: str
     run_hash: str
 
+    @property
+    def suite_version(self) -> str:
+        """Expose the version shape shared with the legacy evaluation record."""
+        return self.config_id
+
+    @property
+    def total_scenarios(self) -> int:
+        """Expose held-out scenario coverage for shared runner callers."""
+        return len(self.held_out_scenario_ids)
+
+    @property
+    def scenarios(self) -> tuple[Any, ...]:
+        """Expose metric rows for callers that consume either evaluation record."""
+        return self.metrics
+
     def save_to_file(self, path: str | Path) -> None:
         """Write the sanitized report as JSON."""
         target = Path(path)
