@@ -1144,6 +1144,7 @@ class LiveEvaluationRunner:
                         deterministic_risk_passed=draft_metric.quality_passed,
                         retrieval_relevance=1.0 if draft_metric.quality_passed else 0.0,
                         citation_grounding=1.0 if draft_metric.quality_passed else 0.0,
+                        claim_support=1.0 if draft_metric.quality_passed else 0.0,
                         abstention_correct=draft_metric.quality_passed,
                         useful_tool_selection=1.0,
                         draft_latency_seconds=draft_metric.draft_latency_seconds,
@@ -1204,6 +1205,7 @@ class LiveEvaluationRunner:
                         deterministic_risk_passed=investigation_metric.quality_passed,
                         retrieval_relevance=1.0 if investigation_metric.quality_passed else 0.0,
                         citation_grounding=1.0 if investigation_metric.quality_passed else 0.0,
+                        claim_support=1.0 if investigation_metric.quality_passed else 0.0,
                         abstention_correct=investigation_metric.quality_passed,
                         useful_tool_selection=(
                             1.0 if investigation_metric.dispatched is not None else 0.0

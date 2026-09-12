@@ -248,6 +248,7 @@ class ComparativeMetric(BaseModel):
     deterministic_risk_passed: bool
     retrieval_relevance: float = Field(ge=0.0, le=1.0)
     citation_grounding: float = Field(ge=0.0, le=1.0)
+    claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
     abstention_correct: bool
     useful_tool_selection: float = Field(ge=0.0, le=1.0)
     draft_latency_seconds: float = Field(ge=0.0)
@@ -260,7 +261,7 @@ class ComparativeMetric(BaseModel):
     automatic_approval: bool = False
     provider_marker: bool = False
     mcp_marker: bool = False
-    usage_known: bool = True
+    usage_known: bool = False
     failure_reason: str | None = None
 
 
@@ -275,6 +276,13 @@ class ComparativeReport(BaseModel):
     config_hash: str
     model: str
     execution_mode: str
+    repeats: int
+    pricing_input_usd_per_million: float
+    pricing_output_usd_per_million: float
+    pricing_source_url: str
+    pricing_checked_at: str
+    live_suite_cost_usd: float
+    thresholds: ComparativeThresholds
     held_out_scenario_ids: tuple[str, ...]
     modes: tuple[ComparativeMode, ...]
     total_runs: int
@@ -288,6 +296,7 @@ class ComparativeReport(BaseModel):
     retrieval_relevance: float
     retrieval_precision: float
     retrieval_mrr: float
+    claim_support: float
     citation_grounding: float
     abstention_accuracy: float
     useful_tool_selection: float
@@ -386,6 +395,7 @@ def build_comparative_report(
     retrieval = sum(row.retrieval_relevance for row in rows) / len(rows) if rows else 0.0
     precision = sum(row.retrieval_relevance for row in rows) / len(rows) if rows else 0.0
     mrr = precision
+    claim_support = sum(row.claim_support for row in rows) / len(rows) if rows else 0.0
     citations = sum(row.citation_grounding for row in rows) / len(rows) if rows else 0.0
     abstention = sum(row.abstention_correct for row in rows) / len(rows) if rows else 0.0
     tool_selection = sum(row.useful_tool_selection for row in live) / len(live) if live else 0.0
@@ -436,8 +446,15 @@ def build_comparative_report(
         "config_hash": _report_hash_payload(config.model_dump(mode="json", by_alias=True)),
         "model": config.model,
         "execution_mode": execution_mode,
+        "repeats": config.repeats,
+        "pricing_input_usd_per_million": config.pricing_input_usd_per_million,
+        "pricing_output_usd_per_million": config.pricing_output_usd_per_million,
+        "pricing_source_url": config.pricing_source_url,
+        "pricing_checked_at": config.pricing_checked_at,
+        "live_suite_cost_usd": config.live_suite_cost_usd,
+        "thresholds": config.thresholds,
         "held_out_scenario_ids": config.held_out_scenario_ids,
-        "modes": tuple(ComparativeMode),
+        "modes": config.live_modes,
         "total_runs": len(rows),
         "offline_runs": len(deterministic),
         "live_runs": len(live),
@@ -449,6 +466,7 @@ def build_comparative_report(
         "retrieval_relevance": round(retrieval, 4),
         "retrieval_precision": round(precision, 4),
         "retrieval_mrr": round(mrr, 4),
+        "claim_support": round(claim_support, 4),
         "citation_grounding": round(citations, 4),
         "abstention_accuracy": round(abstention, 4),
         "useful_tool_selection": round(tool_selection, 4),
@@ -470,6 +488,7 @@ def build_comparative_report(
         **base,
         "metrics": [item.model_dump(mode="json") for item in rows],
         "semantic_judgments": [item.model_dump(mode="json") for item in semantic],
+        "thresholds": config.thresholds.model_dump(mode="json"),
     }
     return ComparativeReport.model_validate({**base, "run_hash": _report_hash_payload(hash_base)})
 
@@ -501,12 +520,14 @@ async def build_offline_comparative_report(
                 deterministic_risk_passed=evaluation.passed,
                 retrieval_relevance=retrieval_score,
                 citation_grounding=retrieval_score,
+                claim_support=1.0 if evaluation.passed else 0.0,
                 abstention_correct=retrieval_score == 1.0,
                 useful_tool_selection=1.0,
                 draft_latency_seconds=0.0,
                 input_tokens=0,
                 output_tokens=0,
                 estimated_cost_usd=0.0,
+                usage_known=True,
             )
         )
     return build_comparative_report(cfg, metrics, execution_mode="OFFLINE")
