@@ -16,8 +16,11 @@ from vehicle_risk_agent.investigation.models import (
     InvestigationProposal,
     InvestigationResult,
     ProposalValue,
+    VehicleHistoryResult,
 )
 from vehicle_risk_agent.policy.models import PolicyCitation
+
+_VEHICLE_FIELD_ALIASES = {"odometer_reading": "odometer_km"}
 
 
 class InvestigationVehicleClient(Protocol):
@@ -76,18 +79,21 @@ class InvestigationDispatcher:
                 field_arguments = typed.arguments
                 assert field_arguments is not None
                 field_name = field_arguments.field_name
+                upstream_field_name = _VEHICLE_FIELD_ALIASES.get(field_name, field_name)
                 bounded_call = getattr(self.vehicle, "bounded_investigation_call", None)
                 if bounded_call is not None:
                     raw = await bounded_call(
                         "explain_vehicle_field",
-                        {"vin": vin, "field_name": field_name},
+                        {"vin": vin, "field_name": upstream_field_name},
                         max_retries=0,
                     )
                 else:
-                    raw = await self.vehicle.explain_vehicle_field(vin, field_name)
+                    raw = await self.vehicle.explain_vehicle_field(vin, upstream_field_name)
                 result = FieldExplanationResult.model_validate(raw)
-                if result.vin != vin or result.field_name != field_name:
+                if result.vin != vin or result.field_name != upstream_field_name:
                     raise ValueError("vehicle response does not match request")
+                if upstream_field_name != field_name:
+                    result = result.model_copy(update={"field_name": field_name})
                 return InvestigationResult(
                     action=typed.action,
                     summary=f"Supplementary explanation returned for {field_name}.",
@@ -112,21 +118,23 @@ class InvestigationDispatcher:
                         limit=self.history_limit,
                         before_revision=current_revision,
                     )
-                by_revision = {
-                    item.revision_number: VehicleRevisionResponse.model_validate(item)
-                    for item in raw_history
-                }
+                revisions = [VehicleRevisionResponse.model_validate(item) for item in raw_history]
+                by_revision = {item.revision_number: item for item in revisions}
                 history = tuple(
-                    sorted(by_revision.values(), key=lambda item: item.revision_number)[
-                        : self.history_limit
-                    ]
+                    sorted(
+                        by_revision.values(),
+                        key=lambda item: item.revision_number,
+                        reverse=True,
+                    )[: self.history_limit]
                 )
                 if any(item.vin != vin for item in history):
                     raise ValueError("vehicle history response does not match request")
+                history_result = VehicleHistoryResult(vin=vin, revisions=history)
                 return InvestigationResult(
                     action=typed.action,
                     summary=f"Supplementary history returned {len(history)} revisions.",
                     references=tuple(item.revision_id for item in history[:20]),
+                    evidence_result=history_result,
                     completed=True,
                     dispatched=True,
                 )

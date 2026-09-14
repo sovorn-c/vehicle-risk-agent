@@ -5,6 +5,7 @@ from vehicle_risk_agent.investigation.models import (
     InvestigationContext,
     InvestigationProposal,
     InvestigationResult,
+    VehicleHistoryResult,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "InvestigationContext",
     "InvestigationProposal",
     "InvestigationResult",
+    "VehicleHistoryResult",
 ]

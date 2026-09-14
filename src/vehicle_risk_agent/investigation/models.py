@@ -272,6 +272,33 @@ class ProviderToolBlock(BaseModel):
     input: dict[str, Any]
 
 
+class VehicleHistoryResult(BaseModel):
+    """Validated, bounded history returned by supplementary investigation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vin: str = Field(min_length=17, max_length=17)
+    revisions: tuple[VehicleRevisionResponse, ...] = Field(
+        default_factory=tuple, max_length=5
+    )
+
+    @field_validator("revisions", mode="before")
+    @classmethod
+    def coerce_revisions_to_tuple(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_revisions(self) -> VehicleHistoryResult:
+        if any(revision.vin != self.vin for revision in self.revisions):
+            raise ValueError("vehicle history response does not match request")
+        revision_numbers = tuple(revision.revision_number for revision in self.revisions)
+        if len(revision_numbers) != len(set(revision_numbers)):
+            raise ValueError("vehicle history response contains duplicate revisions")
+        return self
+
+
 type ProposalValue = (
     NoActionProposal
     | ExplainVehicleFieldProposal
@@ -400,7 +427,9 @@ class InvestigationResult(BaseModel):
     action: InvestigationAction | None = None
     summary: str = Field(min_length=1, max_length=500)
     references: tuple[str, ...] = Field(default_factory=tuple)
-    evidence_result: FieldExplanationResult | VehicleRevisionResponse | None = None
+    evidence_result: (
+        FieldExplanationResult | VehicleRevisionResponse | VehicleHistoryResult | None
+    ) = None
     policy_citations: tuple[PolicyCitation, ...] = Field(default_factory=tuple)
     limitation: InvestigationLimitation | None = None
     completed: bool = True
