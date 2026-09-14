@@ -113,7 +113,16 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
     assert all("raw_payload" not in item.model_dump_json() for item in items.values())
 
     from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+    from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
 
     prompt = AnthropicDraftingAdapter()._build_user_prompt(captured_context)
     assert "rev-2" in prompt
     assert "ppsr_result=PENDING->MATCH" in prompt
+
+    offline_draft = await OfflineReportDraftingAdapter().draft_report(captured_context)
+    offline_json = offline_draft.model_dump_json()
+    assert "rev-2" in offline_json
+    assert "rev-1" in offline_json
+    assert any(
+        "Historical revision" in kf for kf in offline_draft.sections.executive_summary.key_findings
+    )

@@ -200,6 +200,21 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
                 "No adverse records were detected."
             )
 
+        for idx, item in enumerate(context.evidence_items, start=1):
+            if item.observation_id:
+                ev_refs.add(item.observation_id)
+            if item.field_name == "vehicle_history":
+                key_findings.append(
+                    f"Historical revision {item.source_record_id}: {item.explanation}"
+                )
+                claims.append(
+                    ClaimReference(
+                        claim_id=f"claim-{aid}-{rnum}-history-{idx}",
+                        statement=f"Historical vehicle revision: {item.value}",
+                        evidence_refs=(item.observation_id,) if item.observation_id else (),
+                    )
+                )
+
         summary_text = (
             f"# Executive Summary\n\n"
             f"- **Assessment Outcome:** SCORED\n"
@@ -460,7 +475,7 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
                 if p.observation_id:
                     ev_refs.add(p.observation_id)
 
-        claims = (
+        claims_list = [
             ClaimReference(
                 claim_id=f"claim-{aid}-{rnum}-ev-summary",
                 statement=(
@@ -469,7 +484,29 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
                 ),
                 evidence_refs=tuple(sorted(ev_refs)),
             ),
-        )
+        ]
+
+        history_items = 0
+        for idx, item in enumerate(context.evidence_items, start=1):
+            if item.observation_id:
+                ev_refs.add(item.observation_id)
+            if item.field_name == "vehicle_history":
+                history_items += 1
+                claims_list.append(
+                    ClaimReference(
+                        claim_id=f"claim-{aid}-{rnum}-ev-history-{idx}",
+                        statement=f"Historical vehicle revision: {item.value}",
+                        evidence_refs=(item.observation_id,) if item.observation_id else (),
+                    )
+                )
+            else:
+                claims_list.append(
+                    ClaimReference(
+                        claim_id=f"claim-{aid}-{rnum}-ev-item-{idx}",
+                        statement=f"Supplementary evidence {item.field_name}: {item.value}",
+                        evidence_refs=(item.observation_id,) if item.observation_id else (),
+                    )
+                )
 
         return EvidenceSummarySection(
             revision_id=snap.revision_id,
@@ -479,8 +516,8 @@ class OfflineReportDraftingAdapter(ReportDraftingProtocol):
             canonical_fields=dict(snap.canonical_fields),
             conflict_count=len(snap.conflicts),
             conflicts=snap.conflicts,
-            history_depth=len(snap.history),
-            claims=claims,
+            history_depth=max(len(snap.history), history_items),
+            claims=tuple(claims_list),
             evidence_refs=tuple(sorted(ev_refs)),
         )
 

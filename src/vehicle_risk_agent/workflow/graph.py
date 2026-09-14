@@ -589,6 +589,7 @@ async def node_retrieving_policy(
     )
     configurable = config.get("configurable", {}) if config else {}
     citations_override = configurable.get("policy_citations")
+    investigation_result = state.get("investigation_result")
     with trace_boundary(
         "retrieval.policy",
         boundary="retrieval",
@@ -597,24 +598,17 @@ async def node_retrieving_policy(
     ):
         if citations_override is not None:
             citations = tuple(citations_override)
+        elif investigation_result is not None and investigation_result.policy_citations:
+            citations = tuple(investigation_result.policy_citations)
         else:
             retrieval_service = configurable.get("retrieval_service")
             if retrieval_service is None:
                 citations = ()
             else:
                 questions = state["context"].questions
-                query = "vehicle sale consumer protection" + (
-                    " " + " ".join(questions) if questions else ""
-                )
+                query = " ".join(questions) if questions else "vehicle sale consumer protection"
                 retrieval_result = await retrieval_service.retrieve(query)
                 citations = tuple(retrieval_result.citations)
-    investigation_result = state.get("investigation_result")
-    if investigation_result is not None:
-        merged: dict[str, Any] = {citation.passage_id: citation for citation in citations}
-        merged.update(
-            {citation.passage_id: citation for citation in investigation_result.policy_citations}
-        )
-        citations = tuple(merged.values())
     return {
         **progress,
         "policy_citations": citations,
