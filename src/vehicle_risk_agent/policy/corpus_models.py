@@ -38,6 +38,7 @@ class RetrievalConfiguration(BaseModel):
     rerank_candidate_cap: int = Field(default=20, gt=0)
     final_passage_cap: int = Field(default=5, gt=0)
     minimum_reranker_score: float = Field(default=0.35, ge=0.0, le=1.0)
+    minimum_relative_reranker_score: float = Field(default=0.8, ge=0.0, le=1.0)
 
 
 def compute_manifest_hash(
