@@ -179,3 +179,76 @@ async def test_hybrid_retrieval_strictly_fails_on_missing_source_metadata(
 
     with pytest.raises(Exception, match="Missing authoritative source metadata"):
         await service.retrieve(query="repossessed motor vehicle")
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retrieval_drops_distant_compound_query_matches() -> None:
+    def passage(
+        passage_id: str,
+        source_id: str,
+        heading: str,
+        text: str,
+    ) -> PolicyPassage:
+        return PolicyPassage(
+            id=passage_id,
+            snapshot_id="snapshot",
+            source_id=source_id,
+            section_identifier="section",
+            heading=heading,
+            text=text,
+            sequence=1,
+            char_offset_start=0,
+            char_offset_end=len(text),
+            content_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+
+    passages = [
+        passage(
+            "snap-virm:p002",
+            "nzta-virm-manual",
+            "Statutory write-off guidance",
+            "Statutory write-off vehicles are permanently deregistered.",
+        ),
+        passage(
+            "snap-fta:p001",
+            "nz-legislation-fta-1986",
+            "Consumer Information Notice",
+            "Consumer Information Notice requirements apply to vehicle sales.",
+        ),
+        passage(
+            "snap-fta:p002",
+            "nz-legislation-fta-1986",
+            "Fair Trading guidance",
+            "Fair Trading guidance addresses consumer vehicle information.",
+        ),
+    ]
+
+    class FixedReranker:
+        async def rerank(self, _query: str, texts: list[str]) -> list[float]:
+            return [
+                0.88 if "Statutory write-off" in text else 0.41
+                for text in texts
+            ]
+
+    config = RetrievalConfiguration(
+        final_passage_cap=5,
+        minimum_reranker_score=0.35,
+        minimum_relative_reranker_score=0.8,
+    )
+    index = InMemoryPolicyIndex(embedder=FakeEmbeddingAdapter(), config=config)
+    await index.build_index(passages)
+    service = HybridRetrievalService(
+        index=index,
+        reranker=FixedReranker(),
+        config=config,
+        source_metadata={
+            "nzta-virm-manual": ("NZTA VIRM", "https://nzta.govt.nz/virm"),
+            "nz-legislation-fta-1986": ("Fair Trading Act 1986", "https://legislation.govt.nz/fta"),
+        },
+    )
+
+    result = await service.retrieve(
+        query="Which Consumer Information Notice or write-off guidance applies to a statutory write-off?"
+    )
+
+    assert [citation.passage_id for citation in result.citations] == ["snap-virm:p002"]
