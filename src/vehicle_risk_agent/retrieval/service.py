@@ -131,12 +131,11 @@ class HybridRetrievalService:
 
             # 5. Keep passages above both absolute and relative relevance floors.
             top_score = reranked_candidates[0].score
-            relative_floor = (
-                top_score * self.config.minimum_relative_reranker_score
-            )
+            relative_floor = top_score * self.config.minimum_relative_reranker_score
             filtered_candidates = [
-                c for c in reranked_candidates if c.score >= self.config.minimum_reranker_score
-                and c.score >= relative_floor
+                c
+                for c in reranked_candidates
+                if c.score >= self.config.minimum_reranker_score and c.score >= relative_floor
             ]
             top_passages = filtered_candidates[: self.config.final_passage_cap]
 
