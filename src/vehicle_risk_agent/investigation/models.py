@@ -278,9 +278,7 @@ class VehicleHistoryResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     vin: str = Field(min_length=17, max_length=17)
-    revisions: tuple[VehicleRevisionResponse, ...] = Field(
-        default_factory=tuple, max_length=5
-    )
+    revisions: tuple[VehicleRevisionResponse, ...] = Field(default_factory=tuple, max_length=5)
 
     @field_validator("revisions", mode="before")
     @classmethod

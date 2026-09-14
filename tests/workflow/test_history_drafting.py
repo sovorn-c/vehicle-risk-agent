@@ -111,3 +111,9 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
     assert "ppsr_result=PENDING->MATCH" in items["rev-2"].value
     assert "published_at=2026-09-02T12:00:00+00:00" in items["rev-2"].value
     assert all("raw_payload" not in item.model_dump_json() for item in items.values())
+
+    from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+
+    prompt = AnthropicDraftingAdapter()._build_user_prompt(captured_context)
+    assert "rev-2" in prompt
+    assert "ppsr_result=PENDING->MATCH" in prompt

@@ -132,7 +132,7 @@ class AbstentionNotice(BaseModel):
         default="Policy Citations", description="Policy query or topic area evaluated"
     )
     reason: str = Field(
-        default="No authoritative policy passage met the minimum relevance threshold (0.35)",
+        default="No authoritative policy passage met the configured relevance criteria",
         description="Reason for withholding policy citations",
     )
     impact: str = Field(

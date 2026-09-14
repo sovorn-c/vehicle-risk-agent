@@ -694,6 +694,9 @@ def _history_evidence_item(
     current_fields: dict[str, Any] | None,
 ) -> EvidenceItem:
     """Build one bounded, attributable report item for a historical revision."""
+    synthetic = revision.synthetic_notice is not None or any(
+        link.synthetic for links in revision.field_provenance.values() for link in links
+    )
     value = (
         f"revision={revision.revision_number}; revision_id={revision.revision_id}; "
         f"as_of={revision.as_of.isoformat()}; published_at={revision.published_at.isoformat()}; "
@@ -706,7 +709,7 @@ def _history_evidence_item(
         source_system="vehicle-intelligence-mcp",
         source_record_id=revision.revision_id,
         retrieved_at=revision.published_at,
-        is_synthetic=revision.synthetic_notice is not None,
+        is_synthetic=synthetic,
         explanation=f"Historical vehicle revision {revision.revision_number}.",
     )
 
@@ -737,6 +740,7 @@ def _revision_field_evidence_items(revision: VehicleRevisionResponse) -> tuple[E
     for field_name, value in list(revision.canonical_fields.items())[:20]:
         links = revision.field_provenance.get(field_name, ())
         link = links[0] if links else None
+        synthetic = revision.synthetic_notice is not None or any(item.synthetic for item in links)
         items.append(
             EvidenceItem(
                 field_name=field_name,
@@ -745,7 +749,7 @@ def _revision_field_evidence_items(revision: VehicleRevisionResponse) -> tuple[E
                 source_system=link.source_system if link else "vehicle-intelligence-mcp",
                 source_record_id=link.source_record_id if link else revision.revision_id,
                 retrieved_at=link.retrieved_at if link else revision.published_at,
-                is_synthetic=link.synthetic if link else revision.synthetic_notice is not None,
+                is_synthetic=synthetic,
                 confidence_score=revision.confidence.field_scores.get(field_name),
             )
         )

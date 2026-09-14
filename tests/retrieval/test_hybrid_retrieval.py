@@ -226,10 +226,7 @@ async def test_hybrid_retrieval_drops_distant_compound_query_matches() -> None:
     class FixedReranker:
         async def rerank(self, query: str, texts: list[str]) -> list[float]:
             del query
-            return [
-                0.88 if "Statutory write-off" in text else 0.41
-                for text in texts
-            ]
+            return [0.88 if "Statutory write-off" in text else 0.41 for text in texts]
 
     config = RetrievalConfiguration(
         final_passage_cap=5,
@@ -249,7 +246,10 @@ async def test_hybrid_retrieval_drops_distant_compound_query_matches() -> None:
     )
 
     result = await service.retrieve(
-        query="Which Consumer Information Notice or write-off guidance applies to a statutory write-off?"
+        query=(
+            "Which Consumer Information Notice or write-off guidance applies "
+            "to a statutory write-off?"
+        )
     )
 
     assert [citation.passage_id for citation in result.citations] == ["snap-virm:p002"]
