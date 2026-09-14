@@ -21,7 +21,10 @@ from vehicle_risk_agent.evidence.models import (
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.evidence.parallel import explain_fields_in_parallel
-from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
+from vehicle_risk_agent.evidence.snapshot import (
+    VehicleEvidenceSnapshot,
+    create_evidence_snapshot,
+)
 from vehicle_risk_agent.evidence.sufficiency import (
     REQUIRED_EVIDENCE_FIELDS,
     SufficiencyOutcome,
@@ -30,8 +33,10 @@ from vehicle_risk_agent.evidence.sufficiency import (
 from vehicle_risk_agent.investigation.context import build_investigation_context
 from vehicle_risk_agent.investigation.dispatcher import InvestigationDispatcher
 from vehicle_risk_agent.investigation.models import (
+    ALLOWED_EVIDENCE_TARGETS,
     InvestigationLimitation,
     InvestigationResult,
+    VehicleHistoryResult,
 )
 from vehicle_risk_agent.investigation.protocol import InvestigationProvider
 from vehicle_risk_agent.investigation.repository import InvestigationLedgerStatus
@@ -252,17 +257,40 @@ async def node_investigating(
         published_at=snapshot.published_at,
         synthetic_notice=snapshot.synthetic_notice,
     )
+    configured_targets = tuple(configurable.get("investigation_targets", ()))
+    evidence_targets = (
+        configured_targets
+        or tuple(
+            field_name
+            for field_name in snapshot.canonical_fields
+            if field_name in ALLOWED_EVIDENCE_TARGETS
+        )[:5]
+    )
     context = build_investigation_context(
         revision=revision,
         questions=state["context"].questions,
-        evidence_targets=tuple(snapshot.canonical_fields)[:5],
+        evidence_targets=evidence_targets,
         prior_results=tuple(snapshot.field_explanations.values()),
     )
     provider_usage = None
-    limits = ledger.limits
     reservation_hash: str | None = None
+    existing = None
     if ledger is not None:
         existing = await ledger.get_ledger(state["assessment_id"], state["run_number"])
+        if existing is None:
+            return {
+                **progress,
+                "investigation_result": InvestigationResult(
+                    summary="Supplementary investigation was not completed.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_LEDGER_UNAVAILABLE",
+                        message="The supplementary investigation ledger was unavailable.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                ),
+            }
+        limits = existing.limits
         if existing is not None and existing.status == InvestigationLedgerStatus.COMPLETED:
             from vehicle_risk_agent.investigation.models import InvestigationAction
 
@@ -630,12 +658,108 @@ async def node_evaluating_risk(
     }
 
 
-def _investigation_evidence_items(result: InvestigationResult | None) -> tuple[EvidenceItem, ...]:
-    """Project supplementary evidence into report-safe attributable items."""
-    if result is None or result.evidence_result is None:
-        return ()
-    if isinstance(result.evidence_result, FieldExplanationResult):
-        return tuple(
+_HISTORY_EVIDENCE_CAP = 5
+_HISTORY_FIELD_CAP = 10
+_HISTORY_VALUE_CAP = 120
+
+
+def _bounded_history_value(value: Any) -> str:
+    """Format one historical value without allowing unbounded prompt content."""
+    return str(value)[:_HISTORY_VALUE_CAP]
+
+
+def _history_changes(
+    revision: VehicleRevisionResponse,
+    current_fields: dict[str, Any] | None,
+) -> str:
+    """Describe allow-listed fields that differ from the current revision."""
+    if current_fields is None:
+        return "unknown"
+    names = sorted(
+        (set(revision.canonical_fields) | set(current_fields)) & ALLOWED_EVIDENCE_TARGETS
+    )
+    changes = [
+        (
+            f"{name}={_bounded_history_value(revision.canonical_fields.get(name, '<absent>'))}"
+            f"->{_bounded_history_value(current_fields.get(name, '<absent>'))}"
+        )
+        for name in names
+        if revision.canonical_fields.get(name) != current_fields.get(name)
+    ]
+    return ",".join(changes[:_HISTORY_FIELD_CAP]) or "none"
+
+
+def _history_evidence_item(
+    revision: VehicleRevisionResponse,
+    current_fields: dict[str, Any] | None,
+) -> EvidenceItem:
+    """Build one bounded, attributable report item for a historical revision."""
+    value = (
+        f"revision={revision.revision_number}; revision_id={revision.revision_id}; "
+        f"as_of={revision.as_of.isoformat()}; published_at={revision.published_at.isoformat()}; "
+        f"changed_fields={_history_changes(revision, current_fields)}"
+    )
+    return EvidenceItem(
+        field_name="vehicle_history",
+        value=value,
+        observation_id=revision.revision_id,
+        source_system="vehicle-intelligence-mcp",
+        source_record_id=revision.revision_id,
+        retrieved_at=revision.published_at,
+        is_synthetic=revision.synthetic_notice is not None,
+        explanation=f"Historical vehicle revision {revision.revision_number}.",
+    )
+
+
+def _history_revisions(
+    result: InvestigationResult | None,
+    snapshot: VehicleEvidenceSnapshot | None,
+) -> tuple[VehicleRevisionResponse, ...]:
+    """Combine and bound historical revisions from mandatory and supplementary reads."""
+    revisions: list[VehicleRevisionResponse] = list(snapshot.history if snapshot else ())
+    if result is not None:
+        evidence_result = result.evidence_result
+        if isinstance(evidence_result, VehicleHistoryResult):
+            revisions.extend(evidence_result.revisions)
+        elif isinstance(evidence_result, VehicleRevisionResponse):
+            revisions.append(evidence_result)
+    unique = {revision.revision_id: revision for revision in revisions}
+    return tuple(
+        sorted(unique.values(), key=lambda item: item.revision_number, reverse=True)[
+            :_HISTORY_EVIDENCE_CAP
+        ]
+    )
+
+
+def _revision_field_evidence_items(revision: VehicleRevisionResponse) -> tuple[EvidenceItem, ...]:
+    """Project a single revision into attributable field evidence items."""
+    items: list[EvidenceItem] = []
+    for field_name, value in list(revision.canonical_fields.items())[:20]:
+        links = revision.field_provenance.get(field_name, ())
+        link = links[0] if links else None
+        items.append(
+            EvidenceItem(
+                field_name=field_name,
+                value=value,
+                observation_id=link.observation_id if link else revision.revision_id,
+                source_system=link.source_system if link else "vehicle-intelligence-mcp",
+                source_record_id=link.source_record_id if link else revision.revision_id,
+                retrieved_at=link.retrieved_at if link else revision.published_at,
+                is_synthetic=link.synthetic if link else revision.synthetic_notice is not None,
+                confidence_score=revision.confidence.field_scores.get(field_name),
+            )
+        )
+    return tuple(items)
+
+
+def _investigation_evidence_items(
+    result: InvestigationResult | None,
+    snapshot: VehicleEvidenceSnapshot | None = None,
+) -> tuple[EvidenceItem, ...]:
+    """Project supplementary and historical evidence into report-safe items."""
+    items: list[EvidenceItem] = []
+    if result is not None and isinstance(result.evidence_result, FieldExplanationResult):
+        items.extend(
             EvidenceItem(
                 field_name=result.evidence_result.field_name,
                 value=result.evidence_result.value,
@@ -649,19 +773,15 @@ def _investigation_evidence_items(result: InvestigationResult | None) -> tuple[E
             )
             for link in result.evidence_result.provenance[:20]
         )
-    return tuple(
-        EvidenceItem(
-            field_name=field_name,
-            value=value,
-            observation_id=(
-                result.evidence_result.field_provenance.get(field_name, ())[0].observation_id
-                if result.evidence_result.field_provenance.get(field_name)
-                else ""
-            ),
-            confidence_score=result.evidence_result.confidence.field_scores.get(field_name),
-        )
-        for field_name, value in list(result.evidence_result.canonical_fields.items())[:20]
+    elif result is not None and isinstance(result.evidence_result, VehicleRevisionResponse):
+        items.extend(_revision_field_evidence_items(result.evidence_result))
+
+    current_fields = snapshot.canonical_fields if snapshot is not None else None
+    items.extend(
+        _history_evidence_item(revision, current_fields)
+        for revision in _history_revisions(result, snapshot)
     )
+    return tuple(items)
 
 
 async def node_drafting_report(
@@ -690,7 +810,7 @@ async def node_drafting_report(
         vin=state.get("vin", ""),
         risk_result=risk_result,
         evidence_snapshot=snapshot,
-        evidence_items=_investigation_evidence_items(investigation_result),
+        evidence_items=_investigation_evidence_items(investigation_result, snapshot),
         policy_citations=tuple(policy_citations),
         metadata=(
             {"investigation": investigation_result.safe_metadata()}
@@ -752,6 +872,11 @@ def route_after_sufficiency(
     if result is None or result.outcome == SufficiencyOutcome.UNAVAILABLE:
         return "node_failed"
     if result.outcome == SufficiencyOutcome.INCOMPLETE:
+        # A bounded investigation may still collect supplementary evidence before
+        # the incomplete report is drafted. Callers without a provider keep the
+        # fail-closed terminal path above.
+        if state.get("investigation_enabled", False):
+            return "node_investigating"
         return "node_incomplete"
     if result.outcome == SufficiencyOutcome.COMPLETE:
         if state.get("investigation_enabled", False):
