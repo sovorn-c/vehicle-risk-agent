@@ -1,6 +1,7 @@
 """Tests for attributable vehicle-history projection into report drafting."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -13,9 +14,11 @@ from vehicle_risk_agent.evidence.models import (
 )
 from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 from vehicle_risk_agent.investigation.models import (
+    InvestigationAction,
     InvestigationResult,
     VehicleHistoryResult,
 )
+from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
 from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand, RiskResult
 from vehicle_risk_agent.workflow.graph import node_drafting_report
 
@@ -57,9 +60,9 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
     )
 
     class CapturingDrafter:
-        context = None
+        context: ReportDraftingContext | None = None
 
-        async def draft_report(self, context: object) -> object:
+        async def draft_report(self, context: ReportDraftingContext) -> Any:
             self.context = context
             return object()
 
@@ -85,7 +88,7 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
                 outcome=AssessmentOutcome.SCORED,
             ),
             "investigation_result": InvestigationResult(
-                action="get_vehicle_history",
+                action=InvestigationAction.GET_VEHICLE_HISTORY,
                 summary="History returned.",
                 references=("rev-2",),
                 evidence_result=VehicleHistoryResult(
@@ -100,8 +103,9 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
     )
 
     assert result["report_draft"] is not None
-    assert drafter.context is not None
-    items = {item.observation_id: item for item in drafter.context.evidence_items}
+    captured_context = drafter.context
+    assert captured_context is not None
+    items = {item.observation_id: item for item in captured_context.evidence_items}
     assert set(items) == {"rev-1", "rev-2"}
     assert "revision=2" in items["rev-2"].value
     assert "ppsr_result=PENDING->MATCH" in items["rev-2"].value
