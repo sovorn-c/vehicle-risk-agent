@@ -9,10 +9,10 @@ from vehicle_risk_agent.evaluation.retrieval import (
     RetrievalMetricsEvaluator,
     RetrievalMetricsResult,
     RetrievalMetricsThresholds,
+    RetrievalQueryLabel,
     build_seeded_retrieval_service,
     compute_query_metrics,
     get_seeded_retrieval_dataset,
-    RetrievalQueryLabel,
 )
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter

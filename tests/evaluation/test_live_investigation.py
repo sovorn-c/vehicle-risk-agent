@@ -7,16 +7,16 @@ import pytest
 
 from vehicle_risk_agent.evaluation.investigation import (
     InvestigationScenario,
-    grade_scenario,
     e11_scenarios,
+    grade_scenario,
 )
-from vehicle_risk_agent.investigation.models import InvestigationAction
 from vehicle_risk_agent.evaluation.live import (
     LiveEvaluationBudgetError,
     LiveEvaluationConfig,
     LiveEvaluationCredentialsError,
     LiveEvaluationRunner,
 )
+from vehicle_risk_agent.investigation.models import InvestigationAction
 
 
 def test_e11_scenarios_are_exactly_labelled() -> None:
