@@ -230,12 +230,12 @@ The versioned e12 evaluation compares the deterministic offline baseline with li
 
 All vehicle evidence remains synthetic and the e11 Gemini live-validation gate remains a separate release blocker. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad`.
 The current blocked artifact is bound to source
-`7fe75ed197b10b46d493ba12e6ccd9fe6d0425af`, configuration
+`79944207dccc14a386ca95de2e1a7da1a22f0f9f`, configuration
 `18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd`,
 judgments `6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996`,
-evaluation input `86673300e36d795c7e003a366cbf70e8af8ad4701bb48bf836a236fef7c6f9a4`,
-report bytes `9db2d5feea5a4a566417969b8b55726b5490eed210665e33cae4b0fc75fd15e4`,
-and report hash `983e70eba1e06dd88caf666d76e8f9a5e62bcf8ff95fa0aa416bb16410a5ecf4`.
+evaluation input `904b4f50fb0c265c6f7d24f11ba4049a783b10691c2bec26e4fc3f5946c5e671`,
+report bytes `5cc536fa8c99f358ac651cc1bf21f3b2e572c05ebce79e88d24aca5e878e4ec5`,
+and report hash `4d749d7d465578e5d5c3dfe794797b3f919ec0efeb48e90ddbf04a765ab21889`.
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
