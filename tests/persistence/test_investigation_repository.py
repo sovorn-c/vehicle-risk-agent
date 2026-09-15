@@ -8,12 +8,24 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_URL
+from vehicle_risk_agent.evidence.models import (
+    ConfidenceAssessment,
+    ConfidenceBand,
+    VehicleRevisionResponse,
+)
 from vehicle_risk_agent.investigation.budget import InvestigationLimits
+from vehicle_risk_agent.investigation.models import (
+    InvestigationAction,
+    InvestigationLimitation,
+    InvestigationResult,
+    VehicleHistoryResult,
+)
 from vehicle_risk_agent.investigation.repository import (
     InvestigationLedgerRepository,
     InvestigationLedgerStatus,
 )
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
+from vehicle_risk_agent.policy.models import PolicyCitation
 
 
 @pytest_asyncio.fixture
@@ -68,6 +80,43 @@ async def test_reservation_commits_before_io_and_completed_result_replays(
     assert reservation.status == InvestigationLedgerStatus.ACTION_IN_FLIGHT
     assert reservation.supplementary_attempts == 1
 
+    revision = VehicleRevisionResponse(
+        vin="1HGCR2F85HA000000",
+        revision_id="rev-1",
+        revision_number=1,
+        material_hash="a" * 64,
+        canonical_fields={"make": "Honda"},
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=datetime.now(UTC),
+        published_at=datetime.now(UTC),
+    )
+    investigation_result = InvestigationResult(
+        action=InvestigationAction.GET_VEHICLE_HISTORY,
+        summary="history returned",
+        references=("rev-1",),
+        evidence_result=VehicleHistoryResult(
+            vin=revision.vin,
+            revisions=(revision,),
+        ),
+        policy_citations=(
+            PolicyCitation(
+                source_id="source-1",
+                snapshot_id="snapshot-1",
+                passage_id="passage-1",
+                section_identifier="section-1",
+                heading="Vehicle history",
+                source_title="Vehicle policy",
+                canonical_origin="https://example.test/policy",
+            ),
+        ),
+        completed=True,
+        dispatched=True,
+    )
     completed = await repo.complete_action(
         assessment_id="asmt-ledger-1",
         run_number=1,
@@ -75,6 +124,7 @@ async def test_reservation_commits_before_io_and_completed_result_replays(
         actual_cost=0.02,
         result_summary="field explanation available",
         references=("obs-1",),
+        result=investigation_result,
     )
     assert completed.status == InvestigationLedgerStatus.COMPLETED
     replay = await repo.reserve_action(
@@ -84,7 +134,56 @@ async def test_reservation_commits_before_io_and_completed_result_replays(
         projected_cost=0.01,
     )
     assert replay.status == InvestigationLedgerStatus.COMPLETED
-    assert replay.references == ("obs-1",)
+    assert replay.result == investigation_result
+    assert replay.result is not None
+    assert replay.result.evidence_result == investigation_result.evidence_result
+    assert replay.result.policy_citations == investigation_result.policy_citations
+
+
+@pytest.mark.asyncio
+async def test_failed_result_replays_with_limitation_and_incomplete_state(
+    session: AsyncSession,
+) -> None:
+    repo = InvestigationLedgerRepository(session)
+    await repo.ensure_ledger(
+        assessment_id="asmt-ledger-2",
+        run_number=1,
+        vin="1HGCR2F85HA000000",
+        pins={},
+        limits=InvestigationLimits.first_slice(),
+    )
+    await repo.reserve_action(
+        assessment_id="asmt-ledger-2",
+        run_number=1,
+        request_hash="d" * 64,
+        projected_cost=0.01,
+    )
+    investigation_result = InvestigationResult(
+        action=InvestigationAction.GET_VEHICLE_HISTORY,
+        summary="history unavailable",
+        limitation=InvestigationLimitation(
+            code="UPSTREAM_UNAVAILABLE",
+            message="The upstream history call was unavailable.",
+        ),
+        completed=False,
+        dispatched=True,
+    )
+
+    completed = await repo.complete_action(
+        assessment_id="asmt-ledger-2",
+        run_number=1,
+        request_hash="d" * 64,
+        actual_cost=0.01,
+        result_summary=investigation_result.summary,
+        references=(),
+        result=investigation_result,
+    )
+
+    assert completed.status == InvestigationLedgerStatus.INDETERMINATE
+    replay = await repo.get_ledger("asmt-ledger-2", 1)
+    assert replay is not None
+    assert replay.status == InvestigationLedgerStatus.INDETERMINATE
+    assert replay.result == investigation_result
 
 
 @pytest.mark.asyncio

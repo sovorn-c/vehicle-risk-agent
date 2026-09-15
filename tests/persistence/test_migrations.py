@@ -71,6 +71,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
         assert "risk_results" in table_names
         assert "report_drafts" in table_names
         assert "review_actions" in table_names
+        assert "investigation_ledgers" in table_names
 
         snapshot_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_snapshots"))
         assert "metadata_json" in snapshot_cols
@@ -134,6 +135,15 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
             "created_at",
         }.issubset(set(review_action_cols))
 
+        ledger_cols = await conn.run_sync(lambda c: inspect_columns(c, "investigation_ledgers"))
+        assert {
+            "id",
+            "assessment_id",
+            "run_number",
+            "status",
+            "result_data_json",
+        }.issubset(set(ledger_cols))
+
         passage_cols = await conn.run_sync(lambda c: inspect_columns(c, "policy_passages"))
         assert {"id", "snapshot_id", "source_id", "text", "embedding"}.issubset(set(passage_cols))
 
@@ -181,6 +191,7 @@ async def test_alembic_upgrade_and_downgrade(clean_engine: AsyncEngine) -> None:
     async with clean_engine.connect() as conn:
         table_names_after = await conn.run_sync(inspect_tables)
         assert "review_actions" not in table_names_after
+        assert "investigation_ledgers" not in table_names_after
         assert "report_drafts" not in table_names_after
         assert "risk_results" not in table_names_after
         assert "risk_policies" not in table_names_after
