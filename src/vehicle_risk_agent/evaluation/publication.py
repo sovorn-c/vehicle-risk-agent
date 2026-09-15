@@ -7,7 +7,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from vehicle_risk_agent.evaluation.comparative import ComparativeReport
+from vehicle_risk_agent.evaluation.comparative import (
+    ComparativeReport,
+    compute_report_run_hash,
+)
+from vehicle_risk_agent.evaluation.provenance import sha256_file
 
 
 class E12Publication(BaseModel):
@@ -20,6 +24,10 @@ class E12Publication(BaseModel):
     config_id: str
     config_hash: str
     report_hash: str
+    report_bytes_sha256: str
+    source_commit: str
+    config_sha256: str
+    judgments_sha256: str
     execution_mode: str
     release_verdict: str
     verdict_passed: bool
@@ -33,6 +41,10 @@ def publication_from_report(report: ComparativeReport) -> E12Publication:
         config_id=report.config_id,
         config_hash=report.config_hash,
         report_hash=report.run_hash,
+        report_bytes_sha256="",
+        source_commit=report.source_commit,
+        config_sha256=report.config_sha256,
+        judgments_sha256=report.judgments_sha256,
         execution_mode=report.execution_mode,
         release_verdict=report.release_verdict,
         verdict_passed=report.verdict_passed,
@@ -47,6 +59,9 @@ def write_publication(
     """Validate a report, bind its identity, and write a redacted pointer."""
     report = ComparativeReport.load_from_file(report_path)
     publication = publication_from_report(report)
+    publication = publication.model_copy(
+        update={"report_bytes_sha256": sha256_file(report_path)}
+    )
     target = Path(publication_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(publication.model_dump_json(indent=2), encoding="utf-8")
@@ -62,9 +77,13 @@ def validate_publication(
     publication = E12Publication.model_validate_json(
         Path(publication_path).read_text(encoding="utf-8")
     )
-    expected = publication_from_report(report)
+    expected = publication_from_report(report).model_copy(
+        update={"report_bytes_sha256": sha256_file(report_path)}
+    )
     if publication != expected:
         raise ValueError("e12 publication does not match the referenced report artifact")
+    if report.run_hash != compute_report_run_hash(report):
+        raise ValueError("e12 report hash does not match its contents")
     return publication
 
 

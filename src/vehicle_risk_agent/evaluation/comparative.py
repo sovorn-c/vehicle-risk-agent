@@ -24,6 +24,13 @@ from vehicle_risk_agent.evaluation.retrieval import (
     compute_query_metrics,
     get_seeded_retrieval_dataset,
 )
+from vehicle_risk_agent.evaluation.provenance import (
+    UNKNOWN_SOURCE_COMMIT,
+    is_real_source_commit,
+    resolve_source_commit,
+    sha256_bytes,
+    sha256_file,
+)
 from vehicle_risk_agent.evaluation.runner import ScenarioRunner
 
 
@@ -171,15 +178,52 @@ class E12EvaluationConfig(BaseModel):
         )
 
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+_TRACKED_E12_CONFIG = _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-eval-v1.yaml"
+_LEGACY_E12_CONFIG = _REPOSITORY_ROOT / "specs" / "evaluation" / "e12-eval-v1.yaml"
+_TRACKED_E12_JUDGMENTS = (
+    _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-semantic-judgments.yaml"
+)
+_LEGACY_E12_JUDGMENTS = (
+    _REPOSITORY_ROOT / "specs" / "verifications" / "e12-semantic-judgments.yaml"
+)
+_EMPTY_DIGEST = sha256_bytes(b"")
+
+
+def _resolve_input_path(
+    path: str | Path | None,
+    tracked_path: Path,
+    legacy_path: Path,
+) -> Path:
+    if path is not None:
+        return Path(path)
+    if tracked_path.is_file():
+        return tracked_path
+    return legacy_path
+
+
+def _config_digest(config: E12EvaluationConfig) -> str:
+    path = _resolve_input_path(None, _TRACKED_E12_CONFIG, _LEGACY_E12_CONFIG)
+    if path.is_file():
+        return sha256_file(path)
+    return sha256_bytes(config.model_dump_json(by_alias=True).encode("utf-8"))
+
+
+def _judgments_digest() -> str:
+    path = _resolve_input_path(None, _TRACKED_E12_JUDGMENTS, _LEGACY_E12_JUDGMENTS)
+    return sha256_file(path) if path.is_file() else _EMPTY_DIGEST
+
+
 # Public aliases make the authored contract discoverable without exposing the YAML shape.
 ComparativeEvaluationConfig = E12EvaluationConfig
 
 
 def load_e12_evaluation_config(
-    path: str | Path = "specs/evaluation/e12-eval-v1.yaml",
+    path: str | Path | None = None,
 ) -> E12EvaluationConfig:
     """Load and validate the frozen e12 comparative configuration."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    target = _resolve_input_path(path, _TRACKED_E12_CONFIG, _LEGACY_E12_CONFIG)
+    raw = yaml.safe_load(target.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("e12 evaluation configuration must be a YAML object")
     return E12EvaluationConfig.from_mapping(raw)
@@ -317,6 +361,12 @@ class ComparativeReport(BaseModel):
     created_at: str
     config_id: str
     config_hash: str
+    source_commit: str = Field(
+        default=UNKNOWN_SOURCE_COMMIT,
+        pattern=r"^(?:[0-9a-f]{40}|unknown)$",
+    )
+    config_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
+    judgments_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
     provider: str
     model: str
     execution_mode: str
@@ -385,7 +435,10 @@ class ComparativeReport(BaseModel):
     @classmethod
     def load_from_file(cls, path: str | Path) -> ComparativeReport:
         """Load and validate a report artifact."""
-        return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
+        report = cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
+        if report.run_hash != compute_report_run_hash(report):
+            raise ValueError("comparative report run_hash does not match its contents")
+        return report
 
 
 def _p95(values: Sequence[float]) -> float:
@@ -397,10 +450,10 @@ def _p95(values: Sequence[float]) -> float:
 
 
 def load_semantic_judgments(
-    path: str | Path = "specs/verifications/e12-semantic-judgments.yaml",
+    path: str | Path | None = None,
 ) -> tuple[SemanticJudgment, ...]:
     """Load operator judgments, returning no evidence when the file is absent."""
-    target = Path(path)
+    target = _resolve_input_path(path, _TRACKED_E12_JUDGMENTS, _LEGACY_E12_JUDGMENTS)
     if not target.is_file():
         return ()
     raw = yaml.safe_load(target.read_text(encoding="utf-8"))
@@ -435,6 +488,13 @@ def _report_hash_payload(report: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def compute_report_run_hash(report: ComparativeReport) -> str:
+    """Recompute the report hash from its validated, serialized contents."""
+    payload = report.model_dump(mode="json")
+    payload.pop("run_hash", None)
+    return _report_hash_payload(payload)
 
 
 def _label(labels: Any, name: str, default: Any = None) -> Any:
@@ -611,8 +671,14 @@ def build_comparative_report(
     semantic_judgments: Sequence[SemanticJudgment] = (),
     execution_mode: str = "LIVE",
     blocker_reason: str | None = None,
+    source_commit: str | None = None,
+    config_sha256: str | None = None,
+    judgments_sha256: str | None = None,
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
+    resolved_source_commit = source_commit or resolve_source_commit()
+    resolved_config_sha256 = config_sha256 or _config_digest(config)
+    resolved_judgments_sha256 = judgments_sha256 or _judgments_digest()
     rows = tuple(metrics)
     deterministic = [
         row
@@ -644,6 +710,11 @@ def build_comparative_report(
     tool_selection = average([row.useful_tool_selection for row in tool_rows])
     semantic = tuple(semantic_judgments)
     semantic_passed = semantic_gate_passes(semantic, config) if live else False
+    provenance_bound = (
+        is_real_source_commit(resolved_source_commit)
+        and resolved_config_sha256 != _EMPTY_DIGEST
+        and resolved_judgments_sha256 != _EMPTY_DIGEST
+    )
     quality = bool(rows) and all(row.quality_passed for row in rows)
     expected_live_ids = {
         (overlay.scenario_id, mode, repeat)
@@ -677,6 +748,7 @@ def build_comparative_report(
         and (execution_mode != "LIVE" or all(row.provider_marker for row in live))
         and (execution_mode != "LIVE" or all(row.mcp_marker for row in live))
         and (execution_mode != "LIVE" or all(row.usage_known for row in live))
+        and (execution_mode != "LIVE" or provenance_bound)
         and (
             execution_mode != "LIVE"
             or sum(row.estimated_cost_usd for row in live) <= config.live_suite_cost_usd
@@ -705,6 +777,9 @@ def build_comparative_report(
         "created_at": now,
         "config_id": config.config_id,
         "config_hash": _report_hash_payload(config.model_dump(mode="json", by_alias=True)),
+        "source_commit": resolved_source_commit,
+        "config_sha256": resolved_config_sha256,
+        "judgments_sha256": resolved_judgments_sha256,
         "provider": config.provider,
         "model": config.model,
         "execution_mode": execution_mode,
