@@ -23,11 +23,11 @@ def build_investigation_context(
     """Project authoritative inputs into bounded summaries without raw payloads."""
     targets = tuple(dict.fromkeys(item.strip().lower() for item in evidence_targets))
     if not targets:
-        targets = tuple(sorted(revision.canonical_fields))[:5]
+        targets = tuple(sorted(set(revision.canonical_fields) & ALLOWED_EVIDENCE_TARGETS))[:5]
     if any(target not in ALLOWED_EVIDENCE_TARGETS for target in targets):
         raise ValueError("evidence target is not allowed")
 
-    summaries: list[str] = []
+    summaries: list[str] = [f"snapshot_conflicts={len(revision.conflicts)}"]
     for target in targets:
         present = target in revision.canonical_fields
         provenance = revision.field_provenance.get(target, ())

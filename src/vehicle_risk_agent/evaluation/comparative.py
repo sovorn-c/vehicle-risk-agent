@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from vehicle_risk_agent.evaluation.graders import CompositeDomainGrader
 from vehicle_risk_agent.evaluation.matrix import get_evaluation_matrix
-from vehicle_risk_agent.evaluation.models import EvaluationScenario
+from vehicle_risk_agent.evaluation.models import EvaluationScenario, ExpectedEvaluationLabels
+from vehicle_risk_agent.evaluation.retrieval import (
+    RetrievalQueryLabel,
+    compute_query_metrics,
+    get_seeded_retrieval_dataset,
+)
 from vehicle_risk_agent.evaluation.runner import ScenarioRunner
 
 
@@ -60,6 +65,8 @@ class InvestigationOverlay(BaseModel):
     investigation_question: str = Field(min_length=1, max_length=500)
     expected_action: str = Field(min_length=1)
     expected_field: str | None = None
+    retrieval_query_id: str | None = None
+    live_expected_labels: ExpectedEvaluationLabels | None = None
 
 
 class E12EvaluationConfig(BaseModel):
@@ -71,6 +78,7 @@ class E12EvaluationConfig(BaseModel):
     config_id: str = Field(alias="id", min_length=1)
     frozen_at: str
     suite: str
+    provider: str
     model: str
     pricing_input_usd_per_million: float = Field(gt=0.0)
     pricing_output_usd_per_million: float = Field(gt=0.0)
@@ -129,6 +137,7 @@ class E12EvaluationConfig(BaseModel):
                 "id": data["id"],
                 "frozen_at": data["frozen_at"],
                 "suite": data["suite"],
+                "provider": data.get("provider", "anthropic"),
                 "model": data["model"],
                 "pricing_input_usd_per_million": pricing["input_usd_per_million_tokens"],
                 "pricing_output_usd_per_million": pricing["output_usd_per_million_tokens"],
@@ -198,14 +207,37 @@ def validate_e12_split(
         ):
             raise ValueError("e12 investigation overlay copies e11-live-v1 wording")
         expected_actions = {
-            "sc-clean-01": ("NO_ACTION", None),
-            "sc-risk-statutory-04": ("search_policy", None),
-            "sc-conflict-ppsr-01": ("explain_vehicle_field", "ppsr_result"),
-            "sc-temporal-multi-rev-02": ("get_vehicle_history", None),
+            "sc-clean-01": ("NO_ACTION", None, None),
+            "sc-risk-compound-05": ("search_policy", None, "q-08"),
+            "sc-conflict-ppsr-01": ("explain_vehicle_field", "ppsr_result", None),
+            "sc-temporal-multi-rev-02": ("get_vehicle_history", None, None),
         }
         expected = expected_actions.get(overlay.scenario_id)
-        if expected is None or (overlay.expected_action, overlay.expected_field) != expected:
+        if (
+            expected is None
+            or (
+                overlay.expected_action,
+                overlay.expected_field,
+                overlay.retrieval_query_id,
+            )
+            != expected
+        ):
             raise ValueError(f"unexpected e12 overlay contract for {overlay.scenario_id}")
+        if overlay.retrieval_query_id is not None:
+            retrieval_ids = {query.query_id for query in get_seeded_retrieval_dataset().queries}
+            if overlay.retrieval_query_id not in retrieval_ids:
+                raise ValueError(f"unknown retrieval query {overlay.retrieval_query_id}")
+        if overlay.scenario_id == "sc-risk-compound-05":
+            expected_live = overlay.live_expected_labels
+            if expected_live is None or (
+                expected_live.risk_band != "CRITICAL"
+                or expected_live.min_risk_score != 100
+                or expected_live.max_risk_score != 100
+                or set(expected_live.required_factor_ids) != {"LISTED", "MATCH", "STATUTORY"}
+            ):
+                raise ValueError("compound E12 overlay must pin the upstream fixture labels")
+        elif overlay.live_expected_labels is not None:
+            raise ValueError(f"unexpected live labels for {overlay.scenario_id}")
         if not overlay.live_drafting:
             raise ValueError(f"e12 overlay {overlay.scenario_id} must be live comparable")
 
@@ -249,10 +281,18 @@ class ComparativeMetric(BaseModel):
     retrieval_relevance: float = Field(ge=0.0, le=1.0)
     retrieval_precision: float = Field(default=0.0, ge=0.0, le=1.0)
     retrieval_mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_applicable: bool = True
     citation_grounding: float = Field(ge=0.0, le=1.0)
+    citation_grounding_applicable: bool = True
     claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
+    claim_support_applicable: bool = True
     abstention_correct: bool
+    abstention_applicable: bool = True
     useful_tool_selection: float = Field(ge=0.0, le=1.0)
+    useful_tool_selection_applicable: bool = False
+    deterministic_risk_applicable: bool = True
+    retrieved_passage_ids: tuple[str, ...] = ()
+    retrieved_citation_ids: tuple[str, ...] = ()
     draft_latency_seconds: float = Field(ge=0.0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
@@ -261,6 +301,7 @@ class ComparativeMetric(BaseModel):
     false_positive_citations: int = Field(default=0, ge=0)
     unauthorized_dispatches: int = Field(default=0, ge=0)
     automatic_approval: bool = False
+    provider: str = "anthropic"
     provider_marker: bool = False
     mcp_marker: bool = False
     usage_known: bool = False
@@ -276,6 +317,7 @@ class ComparativeReport(BaseModel):
     created_at: str
     config_id: str
     config_hash: str
+    provider: str
     model: str
     execution_mode: str
     repeats: int
@@ -295,6 +337,7 @@ class ComparativeReport(BaseModel):
     semantic_judgments_required: int
     semantic_gate_passed: bool
     deterministic_risk_match: float
+    live_deterministic_risk_match: float
     retrieval_relevance: float
     retrieval_precision: float
     retrieval_mrr: float
@@ -402,6 +445,16 @@ def _label_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
 
+def get_e12_retrieval_label(query_id: str | None) -> RetrievalQueryLabel | None:
+    """Return the frozen retrieval label used by an E12 comparable input."""
+    if query_id is None:
+        return None
+    return next(
+        (query for query in get_seeded_retrieval_dataset().queries if query.query_id == query_id),
+        None,
+    )
+
+
 def deterministic_labels_match(labels: Any, draft: Any | None) -> bool:
     """Compare only graph-owned risk outputs with frozen scenario labels."""
     if draft is None or labels is None:
@@ -457,55 +510,93 @@ def measure_report_draft_labels(
     labels: Any,
     expected_action: str,
     draft: Any | None,
+    *,
+    retrieval_label: RetrievalQueryLabel | None = None,
+    retrieved_passage_ids: Sequence[str] = (),
+    retrieved_citation_ids: Sequence[str] = (),
 ) -> dict[str, float | int | bool]:
-    """Measure a report against a frozen expected-label projection."""
+    """Measure a report using explicit ranked retrieval and citation labels.
+
+    Metrics without a frozen label are marked inapplicable. Their numeric values
+    remain for backward-compatible row serialization but are excluded from report
+    aggregates and gates.
+    """
+    policy_expected = expected_action == "search_policy"
+    if retrieval_label is not None and not policy_expected:
+        raise ValueError("retrieval labels require a search_policy action")
+    retrieval_applicable = retrieval_label is not None
+    citation_applicable = retrieval_label is not None or bool(
+        _label(labels, "expected_citations", ())
+    )
+    abstention_applicable = retrieval_label is not None
     if draft is None or labels is None:
         return {
             "retrieval_relevance": 0.0,
             "retrieval_precision": 0.0,
             "retrieval_mrr": 0.0,
+            "retrieval_applicable": retrieval_applicable,
             "claim_support": 0.0,
+            "claim_support_applicable": False,
             "citation_grounding": 0.0,
+            "citation_grounding_applicable": citation_applicable,
             "abstention_correct": False,
+            "abstention_applicable": abstention_applicable,
             "useful_tool_selection": 0.0,
+            "useful_tool_selection_applicable": False,
             "missed_findings": len(_label(labels, "required_factor_ids", ())),
             "false_positive_citations": 0,
         }
+
     observed_refs = tuple(draft.all_policy_citation_refs)
     observed = set(observed_refs)
     expected = set(_label(labels, "expected_citations", ()))
-    policy_expected = expected_action == "search_policy"
-    relevant = observed & expected
-    if expected:
-        retrieval_relevance = len(relevant) / len(expected)
-        retrieval_precision = len(relevant) / len(observed) if observed else 0.0
-        first_match = next(
-            (index + 1 for index, ref in enumerate(observed_refs) if ref in expected), None
+    retrieved_passages = list(retrieved_passage_ids) or list(observed_refs)
+    retrieved_citations = list(retrieved_citation_ids) or list(observed_refs)
+    if retrieval_label is not None:
+        retrieval = compute_query_metrics(
+            retrieval_label,
+            retrieved_passages,
+            retrieved_citations,
+            is_abstention=not retrieved_passages,
         )
-        retrieval_mrr = 1.0 / first_match if first_match is not None else 0.0
+        retrieval_relevance = retrieval.recall_at_5
+        retrieval_precision = retrieval.precision_at_5
+        retrieval_mrr = retrieval.reciprocal_rank
+        abstention_correct = retrieval.abstention_correct
+        expected = set(retrieval_label.required_citation_ids)
     else:
-        retrieval_relevance = float(bool(observed) == policy_expected)
-        retrieval_precision = retrieval_relevance
-        retrieval_mrr = retrieval_relevance
+        retrieval_relevance = 0.0
+        retrieval_precision = 0.0
+        retrieval_mrr = 0.0
+        abstention_correct = False
+
     claims = tuple(draft.all_claims)
     supported_claims = sum(
         bool(claim.evidence_refs or claim.policy_citation_refs or claim.risk_factor_refs)
         for claim in claims
     )
-    grounded_claims = sum(
-        bool(claim.policy_citation_refs) and set(claim.policy_citation_refs).issubset(observed)
-        for claim in claims
-    )
+    policy_claims = tuple(claim for claim in claims if claim.policy_citation_refs)
+    if citation_applicable:
+        grounded_claims = sum(
+            set(claim.policy_citation_refs).issubset(observed) for claim in policy_claims
+        )
+        citation_grounding = grounded_claims / len(policy_claims) if policy_claims else 0.0
+    else:
+        citation_grounding = 1.0
     claim_support = supported_claims / len(claims) if claims else 0.0
-    citation_grounding = grounded_claims / len(claims) if claims else 0.0
     return {
         "retrieval_relevance": retrieval_relevance,
         "retrieval_precision": retrieval_precision,
         "retrieval_mrr": retrieval_mrr,
+        "retrieval_applicable": retrieval_applicable,
         "claim_support": claim_support,
+        "claim_support_applicable": True,
         "citation_grounding": citation_grounding,
-        "abstention_correct": bool(observed) == policy_expected,
-        "useful_tool_selection": retrieval_relevance,
+        "citation_grounding_applicable": citation_applicable,
+        "abstention_correct": abstention_correct,
+        "abstention_applicable": abstention_applicable,
+        "useful_tool_selection": 0.0,
+        "useful_tool_selection_applicable": False,
         "missed_findings": len(
             set(_label(labels, "required_factor_ids", ())) - set(draft.all_risk_factor_refs)
         ),
@@ -523,20 +614,34 @@ def build_comparative_report(
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
     rows = tuple(metrics)
-    deterministic = [row for row in rows if row.mode == ComparativeMode.OFFLINE_BASELINE]
+    deterministic = [
+        row
+        for row in rows
+        if row.mode == ComparativeMode.OFFLINE_BASELINE and row.deterministic_risk_applicable
+    ]
     live = [row for row in rows if row.mode != ComparativeMode.OFFLINE_BASELINE]
+    live_deterministic = [row for row in live if row.deterministic_risk_applicable]
+    retrieval_rows = [row for row in rows if row.retrieval_applicable]
+    citation_rows = [row for row in rows if row.citation_grounding_applicable]
+    claim_rows = [row for row in rows if row.claim_support_applicable]
+    abstention_rows = [row for row in rows if row.abstention_applicable]
+    tool_rows = [row for row in rows if row.useful_tool_selection_applicable]
     all_latencies = [row.draft_latency_seconds for row in live]
-    count = len(deterministic)
-    deterministic_match = (
-        sum(row.deterministic_risk_passed for row in deterministic) / count if count else 0.0
+
+    def average(values: Sequence[float]) -> float:
+        return sum(values) / len(values) if values else 0.0
+
+    deterministic_match = average([float(row.deterministic_risk_passed) for row in deterministic])
+    live_deterministic_match = average(
+        [float(row.deterministic_risk_passed) for row in live_deterministic]
     )
-    retrieval = sum(row.retrieval_relevance for row in rows) / len(rows) if rows else 0.0
-    precision = sum(row.retrieval_precision for row in rows) / len(rows) if rows else 0.0
-    mrr = sum(row.retrieval_mrr for row in rows) / len(rows) if rows else 0.0
-    claim_support = sum(row.claim_support for row in rows) / len(rows) if rows else 0.0
-    citations = sum(row.citation_grounding for row in rows) / len(rows) if rows else 0.0
-    abstention = sum(row.abstention_correct for row in rows) / len(rows) if rows else 0.0
-    tool_selection = sum(row.useful_tool_selection for row in live) / len(live) if live else 0.0
+    retrieval = average([row.retrieval_relevance for row in retrieval_rows])
+    precision = average([row.retrieval_precision for row in retrieval_rows])
+    mrr = average([row.retrieval_mrr for row in retrieval_rows])
+    claim_support = average([row.claim_support for row in claim_rows])
+    citations = average([row.citation_grounding for row in citation_rows])
+    abstention = average([float(row.abstention_correct) for row in abstention_rows])
+    tool_selection = average([row.useful_tool_selection for row in tool_rows])
     semantic = tuple(semantic_judgments)
     semantic_passed = semantic_gate_passes(semantic, config) if live else False
     quality = bool(rows) and all(row.quality_passed for row in rows)
@@ -549,6 +654,14 @@ def build_comparative_report(
     actual_live_ids = {(row.scenario_id, row.mode, row.repeat) for row in live}
     threshold_passed = (
         deterministic_match >= config.thresholds.deterministic_risk_match
+        and (
+            execution_mode != "LIVE"
+            or live_deterministic_match >= config.thresholds.deterministic_risk_match
+        )
+        and bool(retrieval_rows)
+        and bool(citation_rows)
+        and bool(abstention_rows)
+        and bool(tool_rows)
         and retrieval >= config.thresholds.min_recall_at_5
         and precision >= config.thresholds.min_precision_at_5
         and mrr >= config.thresholds.min_mrr
@@ -592,6 +705,7 @@ def build_comparative_report(
         "created_at": now,
         "config_id": config.config_id,
         "config_hash": _report_hash_payload(config.model_dump(mode="json", by_alias=True)),
+        "provider": config.provider,
         "model": config.model,
         "execution_mode": execution_mode,
         "repeats": config.repeats,
@@ -611,6 +725,7 @@ def build_comparative_report(
         "semantic_judgments_required": config.semantic_judgments_required,
         "semantic_gate_passed": semantic_passed,
         "deterministic_risk_match": round(deterministic_match, 4),
+        "live_deterministic_risk_match": round(live_deterministic_match, 4),
         "retrieval_relevance": round(retrieval, 4),
         "retrieval_precision": round(precision, 4),
         "retrieval_mrr": round(mrr, 4),
@@ -687,10 +802,16 @@ async def build_offline_comparative_report(
                 retrieval_relevance=retrieval_score,
                 retrieval_precision=retrieval_score,
                 retrieval_mrr=retrieval_score,
+                retrieval_applicable=False,
                 citation_grounding=float(draft_measurement["citation_grounding"]),
+                citation_grounding_applicable=False,
                 claim_support=float(draft_measurement["claim_support"]),
+                claim_support_applicable=True,
                 abstention_correct=retrieval_score == 1.0,
+                abstention_applicable=False,
                 useful_tool_selection=0.0,
+                useful_tool_selection_applicable=False,
+                deterministic_risk_applicable=True,
                 draft_latency_seconds=0.0,
                 input_tokens=0,
                 output_tokens=0,

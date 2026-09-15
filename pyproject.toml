@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ml = ["sentence-transformers>=3.0.0"]
-live = ["anthropic>=1.4,<2"]
+live = ["anthropic>=1.4,<2", "google-genai>=1.0,<3"]
 
 [project.scripts]
 vehicle-risk-agent = "vehicle_risk_agent.__main__:main"

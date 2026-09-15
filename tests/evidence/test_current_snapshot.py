@@ -1,7 +1,6 @@
 """Tests for persisting and retrieving immutable Vehicle Evidence Snapshots."""
 
 # story: e03s01
-
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -10,6 +9,7 @@ import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     ConfidenceBand,
@@ -22,8 +22,6 @@ from vehicle_risk_agent.evidence.snapshot import (
     create_evidence_snapshot,
 )
 from vehicle_risk_agent.persistence.models import Base
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

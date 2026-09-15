@@ -6,6 +6,7 @@ import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.models import AssessmentContext, AssessmentCreateRequest, SaleType
 from vehicle_risk_agent.domain.assessment import AssessmentLifecycleState
 from vehicle_risk_agent.evidence.models import (
@@ -55,8 +56,6 @@ from vehicle_risk_agent.risk.models import (
     RiskResult,
     build_risk_policy_v1,
 )
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

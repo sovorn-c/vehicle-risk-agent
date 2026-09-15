@@ -1,7 +1,6 @@
 """Baseline smoke test for package setup and local verification."""
 
 # story: e07s03
-
 from collections.abc import AsyncIterator
 
 import pytest
@@ -9,11 +8,10 @@ import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent import __version__
 from vehicle_risk_agent.cli.domain_smoke import run_smoke
 from vehicle_risk_agent.persistence.models import IdempotencyRecord
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture(autouse=True)

@@ -205,7 +205,9 @@ class AssessmentWorkflowRunner:
                             if initial_state is not None:
                                 pins = dict(configurable.get("investigation_pins", {}))
                                 provider = configurable["investigation_provider"]
-                                pins.setdefault("provider", "anthropic")
+                                pins.setdefault(
+                                    "provider", getattr(provider, "provider", "anthropic")
+                                )
                                 pins.setdefault("model", getattr(provider, "model", "unknown"))
                                 pins.setdefault("prompt_version", "investigation-prompt-v1")
                                 pins.setdefault("index_version", "pgvector-hnsw-v1")

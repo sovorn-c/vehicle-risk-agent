@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.mcp import (
     FakeVehicleMcpAdapter,
     McpAdapterError,
@@ -57,7 +58,6 @@ from vehicle_risk_agent.workflow.state import (
     reduce_visited_phases,
 )
 
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 VALID_VIN_1 = "1HGCR2F85HA000000"
 VALID_VIN_2 = "7AT0BJ03X20000001"
 

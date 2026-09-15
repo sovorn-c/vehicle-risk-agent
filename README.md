@@ -228,7 +228,7 @@ curl -f http://localhost:8001/ready
 
 The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
 
-All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver remains release-blocking. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `142c4326c9fac7b075a67a12d8882993bf52364afe0c7a35bae9ab29db800ed2`.
+All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver is verified. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `e471c0c687736cac51316dc7d91ccaf78f738cc01b03eea1a02a00f873da85fb`.
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
@@ -238,7 +238,10 @@ All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver
 Run the real, credential-gated walkthrough only when the operator has approved paid execution:
 
 ```bash
-ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
+GEMINI_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
+  bash scripts/demo-measured-quality.sh
+# Optional explicit alternate:
+E12_PROVIDER=anthropic ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
   bash scripts/demo-measured-quality.sh
 ```
 
@@ -378,7 +381,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 - All PPSR, stolen, write-off, dealer, and assessment outcomes are synthetic.
 - The system does not connect to live NZTA, PPSR, Police, insurer, dealer, or other restricted-register services.
 - Hosted MCP availability has no SLA; full-local Compose is the authoritative evaluation path.
-- Offline drafting is the default. Live Anthropic drafting is optional and does not own scoring or workflow transitions.
+- Offline drafting is the default for ordinary assessments. E12 live drafting defaults to Gemini; explicit live Anthropic drafting remains optional and neither provider owns scoring or workflow transitions.
 
 ## Troubleshooting
 
@@ -387,7 +390,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 | Hosted MCP probe fails | Run `bash scripts/smoke-local.sh` with the full-local Compose stack |
 | `pgvector` extension is missing | Verify the database container uses `pgvector/pgvector:pg16` |
 | Port `54329` is occupied | Free the port or update `.env` and the Compose mapping |
-| Report uses offline drafting | Set `ANTHROPIC_API_KEY` only when live drafting is required |
+| Report uses offline drafting | Set the selected provider credential only when live drafting is required (`GEMINI_API_KEY` for E12 by default) |
 | Agent API is unhealthy | Run `docker compose logs agent-api` and verify migrations and dependency health |
 
 ## Cleanup

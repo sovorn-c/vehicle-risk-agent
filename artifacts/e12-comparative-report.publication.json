@@ -1,0 +1,11 @@
+{
+  "publication_version": "e12-publication-v1",
+  "report_id": "e12-comparative-2026-09-14-90427",
+  "config_id": "e12-eval-v1",
+  "config_hash": "c408daddaeaf503eafd2e74f1e7f7c329e86b9050707280b10f54ac5b942ab3a",
+  "report_hash": "a43e14cf400dc2fa972cd70fbcd6b2d45b76478f970e593036fa4b28cdcac3ef",
+  "execution_mode": "LIVE",
+  "release_verdict": "PASS",
+  "verdict_passed": true,
+  "synthetic_vehicle_evidence": true
+}

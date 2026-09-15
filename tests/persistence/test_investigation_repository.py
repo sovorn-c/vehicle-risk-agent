@@ -7,14 +7,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.investigation.budget import InvestigationLimits
 from vehicle_risk_agent.investigation.repository import (
     InvestigationLedgerRepository,
     InvestigationLedgerStatus,
 )
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

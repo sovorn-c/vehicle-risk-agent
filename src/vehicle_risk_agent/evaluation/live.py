@@ -12,9 +12,9 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from vehicle_risk_agent.evaluation.comparative import ComparativeReport
 
@@ -36,6 +36,16 @@ class LiveEvaluationCorpusError(Exception):
 
 
 _SENTINEL = object()
+_PROVIDER_CREDENTIALS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+_E12_LIVE_FIXTURE_VINS = {
+    "sc-clean-01": "1HGCR2F85HA000000",
+    "sc-risk-compound-05": "1FA6P8CF8H5000000",
+    "sc-conflict-ppsr-01": "WAUZZZ8K7BA000000",
+    "sc-temporal-multi-rev-02": "1HGCR2F85HA000000",
+}
 
 
 class ModelPricingConfig(BaseModel):
@@ -58,6 +68,7 @@ class LiveScenarioMetrics(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     scenario_id: str
+    provider: str = "anthropic"
     draft_latency_seconds: float
     input_tokens: int
     output_tokens: int
@@ -67,10 +78,18 @@ class LiveScenarioMetrics(BaseModel):
     retrieval_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
     retrieval_precision: float = Field(default=0.0, ge=0.0, le=1.0)
     retrieval_mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_applicable: bool = False
     claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
+    claim_support_applicable: bool = False
     citation_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
+    citation_grounding_applicable: bool = False
     abstention_correct: bool = False
+    abstention_applicable: bool = False
     useful_tool_selection: float = Field(default=0.0, ge=0.0, le=1.0)
+    useful_tool_selection_applicable: bool = False
+    deterministic_risk_applicable: bool = False
+    retrieved_passage_ids: tuple[str, ...] = ()
+    retrieved_citation_ids: tuple[str, ...] = ()
     missed_findings: int = Field(default=0, ge=0)
     false_positive_citations: int = Field(default=0, ge=0)
     unauthorized_dispatches: int = Field(default=0, ge=0)
@@ -105,6 +124,7 @@ class LiveEvaluationRecord(BaseModel):
     record_id: str
     created_at: str
     model_version: str
+    provider: str = "anthropic"
     prompt_version: str
     corpus_version: str
     index_version: str = "pgvector-hnsw-v1"
@@ -169,6 +189,7 @@ class LiveEvaluationRecord(BaseModel):
         pricing_checked_at: str = "2026-09-11",
         p95_latency_threshold: float = 30.0,
         offline_control: bool = False,
+        provider: str = "anthropic",
     ) -> LiveEvaluationRecord:
         """Aggregate per-scenario metrics into an immutable record with release verdict."""
         latencies = [m.draft_latency_seconds for m in scenario_metrics]
@@ -196,6 +217,7 @@ class LiveEvaluationRecord(BaseModel):
         hash_payload = {
             "record_id": record_id,
             "model_version": model_version,
+            "provider": provider,
             "prompt_version": prompt_version,
             "corpus_version": corpus_version,
             "index_version": index_version,
@@ -228,6 +250,7 @@ class LiveEvaluationRecord(BaseModel):
             record_id=record_id,
             created_at=now,
             model_version=model_version,
+            provider=provider,
             prompt_version=prompt_version,
             corpus_version=corpus_version,
             index_version=index_version,
@@ -266,6 +289,7 @@ class LiveEvaluationConfig(BaseModel):
 
     enable_live_eval: bool = False
     api_key: str = Field(default="", exclude=True)
+    provider: Literal["anthropic", "gemini"] = "anthropic"
     model: str = "claude-sonnet-4-6"
     p95_latency_threshold: float = 30.0
     timeout_seconds: float = 30.0
@@ -277,6 +301,16 @@ class LiveEvaluationConfig(BaseModel):
     require_neural_corpus: bool = True
     suite: str = "general"
     mcp_server_url: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_e12_provider(cls, values: Any) -> Any:
+        if isinstance(values, dict) and values.get("suite") == "e12-comparative":
+            values = dict(values)
+            provider = values.setdefault("provider", "gemini")
+            if provider == "gemini":
+                values.setdefault("model", "gemini-3.1-flash-lite")
+        return values
 
     def __repr__(self) -> str:
         return (
@@ -316,6 +350,32 @@ def compute_p50_latency(latencies: list[float]) -> float:
     sorted_l = sorted(latencies)
     idx = int(math.ceil(0.50 * len(sorted_l))) - 1
     return round(sorted_l[max(0, idx)], 3)
+
+
+def _default_provider_pricing(provider: str, model: str) -> ModelPricingConfig:
+    if provider == "gemini":
+        return ModelPricingConfig(
+            model=model,
+            input_token_cost_per_million=0.25,
+            output_token_cost_per_million=1.50,
+            provenance="google-gemini-paid-2026.2",
+            source_url="https://ai.google.dev/gemini-api/docs/pricing",
+            checked_at="2026-09-12",
+        )
+    return ModelPricingConfig(model=model)
+
+
+def _e12_anthropic_pricing(model: str, checked_at: str) -> ModelPricingConfig:
+    """Return the frozen Anthropic alternate pricing used only by E12."""
+    default = _default_provider_pricing("anthropic", model)
+    return default.model_copy(
+        update={
+            "input_token_cost_per_million": 3.00,
+            "output_token_cost_per_million": 15.00,
+            "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+            "checked_at": checked_at,
+        }
+    )
 
 
 def _build_default_offline_mcp_adapter() -> Any:
@@ -441,15 +501,22 @@ class LiveEvaluationRunner:
             from vehicle_risk_agent.evaluation.comparative import load_e12_evaluation_config
 
             e12_config = load_e12_evaluation_config()
-            pricing = ModelPricingConfig(
-                model=e12_config.model,
-                input_token_cost_per_million=e12_config.pricing_input_usd_per_million,
-                output_token_cost_per_million=e12_config.pricing_output_usd_per_million,
-                provenance=e12_config.config_id,
-                source_url=e12_config.pricing_source_url,
-                checked_at=e12_config.pricing_checked_at,
-            )
-        self.pricing = pricing or ModelPricingConfig(model=self.config.model)
+            if self.config.provider == e12_config.provider:
+                pricing = ModelPricingConfig(
+                    model=e12_config.model,
+                    input_token_cost_per_million=e12_config.pricing_input_usd_per_million,
+                    output_token_cost_per_million=e12_config.pricing_output_usd_per_million,
+                    provenance=_default_provider_pricing(
+                        e12_config.provider, e12_config.model
+                    ).provenance,
+                    source_url=e12_config.pricing_source_url,
+                    checked_at=e12_config.pricing_checked_at,
+                )
+            elif self.config.provider == "anthropic":
+                pricing = _e12_anthropic_pricing(self.config.model, e12_config.pricing_checked_at)
+            else:
+                pricing = _default_provider_pricing(self.config.provider, self.config.model)
+        self.pricing = pricing or _default_provider_pricing(self.config.provider, self.config.model)
         self.active_corpus = active_corpus
         self._allow_custom_investigation = False
         self._comparative_metrics = False
@@ -457,9 +524,23 @@ class LiveEvaluationRunner:
     def validate_readiness(self, active_corpus: Any = _SENTINEL) -> None:
         """Verify explicit consent, environment credentials, suite caps, and corpus readiness."""
         investigation_suite = self.config.suite in {"e11-investigation", "e12-comparative"}
+        if (
+            self.config.provider == "gemini"
+            and self.config.suite
+            not in {
+                "e11-investigation",
+                "e12-comparative",
+            }
+            and not self._comparative_metrics
+        ):
+            raise LiveEvaluationBudgetError(
+                "Live evaluation refused: Gemini provider is supported only for e11-investigation "
+                "and e12-comparative."
+            )
         if investigation_suite and self.config.api_key:
+            credential_name = _PROVIDER_CREDENTIALS[self.config.provider]
             raise LiveEvaluationCredentialsError(
-                f"Live evaluation refused: {self.config.suite} accepts ANTHROPIC_API_KEY "
+                f"Live evaluation refused: {self.config.suite} accepts {credential_name} "
                 "from the environment only."
             )
         if not self.config.enable_live_eval:
@@ -467,14 +548,15 @@ class LiveEvaluationRunner:
                 "Live evaluation refused: explicit provider consent and opt-in flag "
                 "--enable-live-eval required for paid API execution."
             )
+        credential_name = _PROVIDER_CREDENTIALS[self.config.provider]
         key = (
-            os.environ.get("ANTHROPIC_API_KEY", "")
+            os.environ.get(credential_name, "")
             if investigation_suite
-            else self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+            else self.config.api_key or os.environ.get(credential_name, "")
         )
         if not key or not key.strip():
             raise LiveEvaluationCredentialsError(
-                "Live evaluation refused: missing required ANTHROPIC_API_KEY."
+                f"Live evaluation refused: missing required {credential_name}."
             )
         if investigation_suite and not (
             self.config.mcp_server_url or os.environ.get("MCP_SERVER_URL")
@@ -482,29 +564,59 @@ class LiveEvaluationRunner:
             raise LiveEvaluationCredentialsError(
                 f"Live evaluation refused: MCP_SERVER_URL is required for {self.config.suite}."
             )
-        if investigation_suite and (
-            self.config.model != "claude-sonnet-4-6" or self.pricing.model != self.config.model
-        ):
+        expected_model = (
+            "gemini-3.1-flash-lite" if self.config.provider == "gemini" else "claude-sonnet-4-6"
+        )
+        expected_pricing = _default_provider_pricing(self.config.provider, expected_model)
+        pricing_matches = (
+            self.config.model == expected_model
+            and self.pricing.model == expected_pricing.model
+            and self.pricing.input_token_cost_per_million
+            == expected_pricing.input_token_cost_per_million
+            and self.pricing.output_token_cost_per_million
+            == expected_pricing.output_token_cost_per_million
+            and self.pricing.provenance == expected_pricing.provenance
+            and self.pricing.source_url == expected_pricing.source_url
+            and self.pricing.effective_at == expected_pricing.effective_at
+            and self.pricing.checked_at == expected_pricing.checked_at
+        )
+        if self.config.suite == "e11-investigation" and not pricing_matches:
             raise LiveEvaluationBudgetError(
                 f"Live evaluation refused: {self.config.suite} pricing is pinned to "
-                "claude-sonnet-4-6."
+                f"{expected_model}."
             )
         if self.config.suite == "e12-comparative":
             from vehicle_risk_agent.evaluation.comparative import load_e12_evaluation_config
 
             e12_config = load_e12_evaluation_config()
+            if self.config.provider == e12_config.provider:
+                expected_model = e12_config.model
+                expected_pricing = ModelPricingConfig(
+                    model=e12_config.model,
+                    input_token_cost_per_million=e12_config.pricing_input_usd_per_million,
+                    output_token_cost_per_million=e12_config.pricing_output_usd_per_million,
+                    provenance=self.pricing.provenance,
+                    source_url=e12_config.pricing_source_url,
+                    checked_at=e12_config.pricing_checked_at,
+                )
+            else:
+                expected_pricing = _e12_anthropic_pricing(
+                    expected_model, e12_config.pricing_checked_at
+                )
             pricing_matches = (
-                self.pricing.input_token_cost_per_million
-                == e12_config.pricing_input_usd_per_million
+                self.config.model == expected_model
+                and self.pricing.model == expected_pricing.model
+                and self.pricing.input_token_cost_per_million
+                == expected_pricing.input_token_cost_per_million
                 and self.pricing.output_token_cost_per_million
-                == e12_config.pricing_output_usd_per_million
-                and self.pricing.source_url == e12_config.pricing_source_url
-                and self.pricing.checked_at == e12_config.pricing_checked_at
+                == expected_pricing.output_token_cost_per_million
+                and self.pricing.source_url == expected_pricing.source_url
+                and self.pricing.checked_at == expected_pricing.checked_at
             )
             if not pricing_matches:
                 raise LiveEvaluationBudgetError(
                     "Live evaluation refused: e12 pricing/model provenance does not match "
-                    "e12-eval-v1."
+                    "the selected provider contract."
                 )
         budget_cap = (
             15.0
@@ -592,7 +704,11 @@ class LiveEvaluationRunner:
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
-        from vehicle_risk_agent.adapters.investigation import AnthropicInvestigationAdapter
+        from vehicle_risk_agent.adapters.gemini_drafting import GeminiDraftingAdapter
+        from vehicle_risk_agent.adapters.investigation import (
+            AnthropicInvestigationAdapter,
+            GeminiInvestigationAdapter,
+        )
         from vehicle_risk_agent.adapters.mcp import StreamableHttpVehicleMcpAdapter
         from vehicle_risk_agent.api.models import (
             AssessmentContext,
@@ -679,6 +795,7 @@ class LiveEvaluationRunner:
             metrics = [
                 LiveScenarioMetrics(
                     scenario_id=scenario["scenario_id"],
+                    provider=self.config.provider,
                     draft_latency_seconds=0.0,
                     input_tokens=0,
                     output_tokens=0,
@@ -697,6 +814,7 @@ class LiveEvaluationRunner:
             record = LiveEvaluationRecord.from_scenario_metrics(
                 metrics,
                 model_version="offline-deterministic",
+                provider=self.config.provider,
                 prompt_version="offline-v1",
                 corpus_version="corpus-offline",
                 policy_version="policy-offline",
@@ -712,15 +830,17 @@ class LiveEvaluationRunner:
                 record.save_to_file(self.config.output_file)
             return record
 
+        live_drafting = self.config.enable_live_eval and self.config.suite != "e11-investigation"
+        settings_live_drafting = live_drafting and self.config.provider == "anthropic"
         effective_settings: Settings = settings or Settings(
             retrieval_mode="live" if self.config.enable_live_eval else "offline",
-            drafting_mode="live" if self.config.enable_live_eval else "offline",
-            enable_live_drafting=self.config.enable_live_eval,
-            anthropic_api_key=SecretStr(
-                self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-            )
-            if self.config.enable_live_eval
-            else None,
+            drafting_mode="live" if settings_live_drafting else "offline",
+            enable_live_drafting=settings_live_drafting,
+            anthropic_api_key=(
+                SecretStr(self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", ""))
+                if settings_live_drafting and self.config.provider == "anthropic"
+                else None
+            ),
             mcp_server_url=self.config.mcp_server_url or os.environ.get("MCP_SERVER_URL"),
         )
 
@@ -759,12 +879,18 @@ class LiveEvaluationRunner:
 
         investigation_provider = None
         if self.config.suite == "e11-investigation" and self.config.enable_live_eval:
-            investigation_provider = AnthropicInvestigationAdapter(
+            provider_type = (
+                GeminiInvestigationAdapter
+                if self.config.provider == "gemini"
+                else AnthropicInvestigationAdapter
+            )
+            credential_name = _PROVIDER_CREDENTIALS[self.config.provider]
+            investigation_provider = provider_type(
                 model=self.config.model,
                 timeout_seconds=self.config.timeout_seconds,
                 max_input_tokens=3072,
                 max_output_tokens=512,
-                api_key=self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", ""),
+                api_key=os.environ.get(credential_name, ""),
             )
             readiness = await investigation_provider.readiness()
             if not readiness.ready:
@@ -775,8 +901,14 @@ class LiveEvaluationRunner:
         effective_drafter = drafting_adapter
         if effective_drafter is None:
             if self.config.enable_live_eval and self.config.suite != "e11-investigation":
-                key = self.config.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-                effective_drafter = AnthropicDraftingAdapter(
+                credential_name = _PROVIDER_CREDENTIALS[self.config.provider]
+                key = self.config.api_key or os.environ.get(credential_name, "")
+                drafter_type = (
+                    GeminiDraftingAdapter
+                    if self.config.provider == "gemini"
+                    else AnthropicDraftingAdapter
+                )
+                effective_drafter = drafter_type(
                     model=self.config.model,
                     max_tokens=self.config.max_output_tokens,
                     timeout_seconds=int(self.config.timeout_seconds),
@@ -803,10 +935,18 @@ class LiveEvaluationRunner:
             retrieval_relevance = 0.0
             retrieval_precision = 0.0
             retrieval_mrr = 0.0
+            retrieval_applicable = False
             claim_support = 0.0
+            claim_support_applicable = False
             citation_grounding = 0.0
+            citation_grounding_applicable = False
             abstention_correct = False
+            abstention_applicable = False
             useful_tool_selection = 0.0
+            useful_tool_selection_applicable = False
+            deterministic_risk_applicable = False
+            retrieved_passage_ids: tuple[str, ...] = ()
+            retrieved_citation_ids: tuple[str, ...] = ()
             missed_findings = 0
             false_positive_citations = 0
             unauthorized_dispatches = 0
@@ -862,7 +1002,14 @@ class LiveEvaluationRunner:
                         "visited_phases": [AssessmentRunPhase.PENDING],
                         "events": [],
                     }
-                    final_state = await wf_runner.run(initial_state=initial_state)
+                    final_state = await wf_runner.run(
+                        initial_state=initial_state,
+                        config={
+                            "configurable": {
+                                "investigation_targets": tuple(scn.get("evidence_targets", ()))
+                            }
+                        },
+                    )
 
                 async with session_factory() as session:
                     asmt_repo = AssessmentRepository(session)
@@ -883,6 +1030,12 @@ class LiveEvaluationRunner:
                     report_draft_id = persisted_draft.id
                     report_status = persisted_draft.status.value
 
+                workflow_citations = tuple(final_state.get("policy_citations") or ())
+                retrieved_passage_ids = tuple(
+                    citation.passage_id for citation in workflow_citations
+                )
+                retrieved_citation_ids = retrieved_passage_ids
+                citation_references = retrieved_citation_ids
                 investigation_result = final_state.get("investigation_result")
                 if self.config.suite == "e11-investigation":
                     from vehicle_risk_agent.evaluation.investigation import (
@@ -917,10 +1070,13 @@ class LiveEvaluationRunner:
                         )
                         dispatched = investigation_result.dispatched
                         result_references = tuple(investigation_result.references)
-                        citation_references = tuple(
-                            citation.passage_id
-                            for citation in investigation_result.policy_citations
-                        )
+                        if not citation_references:
+                            citation_references = tuple(
+                                citation.passage_id
+                                for citation in investigation_result.policy_citations
+                            )
+                            retrieved_passage_ids = citation_references
+                            retrieved_citation_ids = citation_references
                     quality_passed = (
                         investigation_result is not None
                         and grade_scenario(
@@ -958,7 +1114,7 @@ class LiveEvaluationRunner:
                         input_tokens = int(persisted_draft.metadata.get("input_tokens", 0))
                         output_tokens = int(persisted_draft.metadata.get("output_tokens", 0))
                     provider_marker = self.config.enable_live_eval and isinstance(
-                        effective_drafter, AnthropicDraftingAdapter
+                        effective_drafter, (AnthropicDraftingAdapter, GeminiDraftingAdapter)
                     )
                     mcp_marker = self.config.enable_live_eval and isinstance(
                         effective_mcp, StreamableHttpVehicleMcpAdapter
@@ -966,6 +1122,7 @@ class LiveEvaluationRunner:
                     if self._comparative_metrics:
                         from vehicle_risk_agent.evaluation.comparative import (
                             deterministic_labels_match,
+                            get_e12_retrieval_label,
                             measure_report_draft_labels,
                         )
 
@@ -973,7 +1130,20 @@ class LiveEvaluationRunner:
                             scn.get("expected_labels"),
                             expected_action or "",
                             persisted_draft,
+                            retrieval_label=get_e12_retrieval_label(scn.get("retrieval_query_id")),
+                            retrieved_passage_ids=retrieved_passage_ids,
+                            retrieved_citation_ids=retrieved_citation_ids,
                         )
+                        retrieval_applicable = bool(draft_measurement["retrieval_applicable"])
+                        claim_support_applicable = bool(
+                            draft_measurement["claim_support_applicable"]
+                        )
+                        citation_grounding_applicable = bool(
+                            draft_measurement["citation_grounding_applicable"]
+                        )
+                        abstention_applicable = bool(draft_measurement["abstention_applicable"])
+                        deterministic_risk_applicable = True
+                        useful_tool_selection_applicable = False
                         deterministic_risk_passed = deterministic_labels_match(
                             scn.get("expected_labels"), persisted_draft
                         )
@@ -1033,6 +1203,7 @@ class LiveEvaluationRunner:
             scenario_metrics.append(
                 LiveScenarioMetrics(
                     scenario_id=scenario_id,
+                    provider=self.config.provider,
                     draft_latency_seconds=latency,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
@@ -1042,10 +1213,18 @@ class LiveEvaluationRunner:
                     retrieval_relevance=retrieval_relevance,
                     retrieval_precision=retrieval_precision,
                     retrieval_mrr=retrieval_mrr,
+                    retrieval_applicable=retrieval_applicable,
                     claim_support=claim_support,
+                    claim_support_applicable=claim_support_applicable,
                     citation_grounding=citation_grounding,
+                    citation_grounding_applicable=citation_grounding_applicable,
                     abstention_correct=abstention_correct,
+                    abstention_applicable=abstention_applicable,
                     useful_tool_selection=useful_tool_selection,
+                    useful_tool_selection_applicable=useful_tool_selection_applicable,
+                    deterministic_risk_applicable=deterministic_risk_applicable,
+                    retrieved_passage_ids=retrieved_passage_ids,
+                    retrieved_citation_ids=retrieved_citation_ids,
                     missed_findings=missed_findings,
                     false_positive_citations=false_positive_citations,
                     unauthorized_dispatches=unauthorized_dispatches,
@@ -1110,6 +1289,7 @@ class LiveEvaluationRunner:
             model_version=self.config.model
             if self.config.enable_live_eval
             else "offline-deterministic",
+            provider=self.config.provider,
             prompt_version="prompt-2026.1" if self.config.enable_live_eval else "offline-v1",
             corpus_version="corpus-2026.1" if self.config.enable_live_eval else "corpus-offline",
             index_version="pgvector-hnsw-v1",
@@ -1154,8 +1334,18 @@ class LiveEvaluationRunner:
 
         self.validate_readiness()
         cfg = load_e12_evaluation_config()
-        scenario_by_id = {item.scenario_id: item for item in get_e12_held_out_scenarios(cfg)}
-        offline_report = await build_offline_comparative_report(cfg)
+        run_cfg = cfg.model_copy(
+            update={
+                "provider": self.config.provider,
+                "model": self.config.model,
+                "pricing_input_usd_per_million": self.pricing.input_token_cost_per_million,
+                "pricing_output_usd_per_million": self.pricing.output_token_cost_per_million,
+                "pricing_source_url": self.pricing.source_url,
+                "pricing_checked_at": self.pricing.checked_at,
+            }
+        )
+        scenario_by_id = {item.scenario_id: item for item in get_e12_held_out_scenarios(run_cfg)}
+        offline_report = await build_offline_comparative_report(run_cfg)
         metrics: list[ComparativeMetric] = list(offline_report.metrics)
         cumulative_cost = 0.0
         for repeat in range(1, cfg.repeats + 1):
@@ -1163,7 +1353,7 @@ class LiveEvaluationRunner:
                 scenario = scenario_by_id[overlay.scenario_id]
                 common_payload = {
                     "scenario_id": scenario.scenario_id,
-                    "vin": scenario.vin,
+                    "vin": _E12_LIVE_FIXTURE_VINS[scenario.scenario_id],
                     "sale_type": scenario.context.sale_type,
                     "questions": [overlay.investigation_question],
                     "expected_outcome": (
@@ -1173,7 +1363,10 @@ class LiveEvaluationRunner:
                     ),
                     "expected_action": overlay.expected_action,
                     "expected_field": overlay.expected_field,
-                    "expected_labels": scenario.expected_labels.model_dump(),
+                    "retrieval_query_id": overlay.retrieval_query_id,
+                    "expected_labels": (
+                        overlay.live_expected_labels or scenario.expected_labels
+                    ).model_dump(),
                 }
                 draft_runner = LiveEvaluationRunner(
                     config=self.config.model_copy(
@@ -1183,7 +1376,6 @@ class LiveEvaluationRunner:
                             "max_budget_usd": 5.0,
                         }
                     ),
-                    pricing=self.pricing,
                     active_corpus=self.active_corpus,
                 )
                 draft_runner._comparative_metrics = True
@@ -1209,6 +1401,7 @@ class LiveEvaluationRunner:
                 metrics.append(
                     ComparativeMetric(
                         scenario_id=scenario.scenario_id,
+                        provider=draft_metric.provider,
                         mode=ComparativeMode.LIVE_DRAFTING,
                         repeat=repeat,
                         quality_passed=draft_metric.quality_passed,
@@ -1216,10 +1409,18 @@ class LiveEvaluationRunner:
                         retrieval_relevance=draft_metric.retrieval_relevance,
                         retrieval_precision=draft_metric.retrieval_precision,
                         retrieval_mrr=draft_metric.retrieval_mrr,
+                        retrieval_applicable=draft_metric.retrieval_applicable,
                         citation_grounding=draft_metric.citation_grounding,
+                        citation_grounding_applicable=draft_metric.citation_grounding_applicable,
                         claim_support=draft_metric.claim_support,
+                        claim_support_applicable=draft_metric.claim_support_applicable,
                         abstention_correct=draft_metric.abstention_correct,
+                        abstention_applicable=draft_metric.abstention_applicable,
                         useful_tool_selection=draft_metric.useful_tool_selection,
+                        useful_tool_selection_applicable=draft_metric.useful_tool_selection_applicable,
+                        deterministic_risk_applicable=draft_metric.deterministic_risk_applicable,
+                        retrieved_passage_ids=draft_metric.retrieved_passage_ids,
+                        retrieved_citation_ids=draft_metric.retrieved_citation_ids,
                         draft_latency_seconds=draft_metric.draft_latency_seconds,
                         input_tokens=draft_metric.input_tokens,
                         output_tokens=draft_metric.output_tokens,
@@ -1256,7 +1457,6 @@ class LiveEvaluationRunner:
                             "max_budget_usd": 3.0,
                         }
                     ),
-                    pricing=self.pricing,
                     active_corpus=self.active_corpus,
                 )
                 investigation_runner._allow_custom_investigation = True
@@ -1294,6 +1494,7 @@ class LiveEvaluationRunner:
                 metrics.append(
                     ComparativeMetric(
                         scenario_id=scenario.scenario_id,
+                        provider=investigation_metric.provider,
                         mode=ComparativeMode.LIVE_INVESTIGATION,
                         repeat=repeat,
                         quality_passed=investigation_metric.quality_passed,
@@ -1301,10 +1502,18 @@ class LiveEvaluationRunner:
                         retrieval_relevance=investigation_metric.retrieval_relevance,
                         retrieval_precision=investigation_metric.retrieval_precision,
                         retrieval_mrr=investigation_metric.retrieval_mrr,
+                        retrieval_applicable=False,
                         citation_grounding=investigation_metric.citation_grounding,
+                        citation_grounding_applicable=False,
                         claim_support=investigation_metric.claim_support,
+                        claim_support_applicable=False,
                         abstention_correct=investigation_metric.abstention_correct,
+                        abstention_applicable=False,
                         useful_tool_selection=1.0 if action_matches else 0.0,
+                        useful_tool_selection_applicable=True,
+                        deterministic_risk_applicable=False,
+                        retrieved_passage_ids=investigation_metric.retrieved_passage_ids,
+                        retrieved_citation_ids=investigation_metric.retrieved_citation_ids,
                         draft_latency_seconds=investigation_metric.draft_latency_seconds,
                         input_tokens=investigation_metric.input_tokens,
                         output_tokens=investigation_metric.output_tokens,
@@ -1326,7 +1535,7 @@ class LiveEvaluationRunner:
                         f"${self.config.max_budget_usd:.2f}"
                     )
         report = build_comparative_report(
-            cfg,
+            run_cfg,
             metrics,
             semantic_judgments=load_semantic_judgments(),
             execution_mode="LIVE",
@@ -1368,13 +1577,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-key",
         type=str,
         default="",
-        help="Legacy general-suite key override; investigation suites use ANTHROPIC_API_KEY only.",
+        help=(
+            "Legacy general-suite key override; "
+            "investigation suites use environment credentials only."
+        ),
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=("anthropic", "gemini"),
+        default=None,
+        help="Provider (E12 defaults to Gemini; other suites default to Anthropic).",
     )
     parser.add_argument(
         "--model",
         type=str,
-        default="claude-sonnet-4-6",
-        help="Anthropic model to evaluate.",
+        default=None,
+        help="Provider model (defaults to claude-sonnet-4-6 or gemini-3.1-flash-lite).",
     )
     parser.add_argument(
         "--p95-latency-threshold",
@@ -1427,7 +1646,15 @@ def main(args: list[str] | None = None) -> int:
 
     parser = build_parser()
     parsed = parser.parse_args(args)
+    provider = cast(
+        Literal["anthropic", "gemini"],
+        parsed.provider or ("gemini" if parsed.suite == "e12-comparative" else "anthropic"),
+    )
+    model = parsed.model or (
+        "gemini-3.1-flash-lite" if provider == "gemini" else "claude-sonnet-4-6"
+    )
 
+    credential_name = _PROVIDER_CREDENTIALS[provider]
     if parsed.suite in {"e11-investigation", "e12-comparative"} and parsed.api_key:
         if parsed.suite == "e12-comparative" and parsed.output_file:
             from vehicle_risk_agent.evaluation.comparative import build_blocked_report
@@ -1436,7 +1663,7 @@ def main(args: list[str] | None = None) -> int:
                 parsed.output_file
             )
         sys.stderr.write(
-            f"Live evaluation refused: {parsed.suite} accepts ANTHROPIC_API_KEY only.\n"
+            f"Live evaluation refused: {parsed.suite} accepts {credential_name} only.\n"
         )
         return 1
 
@@ -1446,6 +1673,8 @@ def main(args: list[str] | None = None) -> int:
         )
         config = LiveEvaluationConfig(
             enable_live_eval=False,
+            provider=provider,
+            model=model,
             output_file=parsed.output_file,
             max_scenarios=parsed.max_scenarios,
             max_budget_usd=parsed.max_budget_usd,
@@ -1476,7 +1705,8 @@ def main(args: list[str] | None = None) -> int:
     config = LiveEvaluationConfig(
         enable_live_eval=parsed.enable_live_eval,
         api_key=parsed.api_key,
-        model=parsed.model,
+        provider=provider,
+        model=model,
         p95_latency_threshold=parsed.p95_latency_threshold,
         max_budget_usd=parsed.max_budget_usd,
         max_scenarios=parsed.max_scenarios,
@@ -1523,7 +1753,8 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.dry_run:
         sys.stdout.write(
-            "Live evaluation configuration and credentials validated successfully (dry run).\n"
+            f"Live evaluation configuration for {config.provider}/{config.model} and "
+            "credentials validated successfully (dry run).\n"
         )
         return 0
 

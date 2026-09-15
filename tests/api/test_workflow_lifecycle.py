@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import vehicle_risk_agent.api.app as app_module
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.domain.assessment import (
@@ -48,9 +49,7 @@ async def test_lifespan_owns_and_drains_background_workflow_tasks(
             events.append("runner-exit")
 
     monkeypatch.setattr(app_module, "AssessmentWorkflowRunner", _RunnerFactory)
-    app = app_module.create_app(
-        Settings(database_url="postgresql+psycopg://postgres:postgres@localhost:54329/postgres")
-    )
+    app = app_module.create_app(Settings(database_url=TEST_DB_URL))
     now = datetime.now(UTC)
     assessment = Assessment(
         id="asmt-lifecycle",

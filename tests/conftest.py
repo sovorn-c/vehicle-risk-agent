@@ -1,10 +1,20 @@
 """Root pytest configuration and common database fixtures."""
 
+import os
+
+import pytest
 import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+from tests.database import TEST_DB_URL, ensure_test_database
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Create the isolated test database before database fixtures run."""
+    _ = session
+    ensure_test_database()
+    os.environ["DATABASE_URL"] = TEST_DB_URL
 
 
 @pytest_asyncio.fixture(autouse=True)

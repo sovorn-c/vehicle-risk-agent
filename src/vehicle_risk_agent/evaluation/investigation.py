@@ -50,6 +50,7 @@ def e11_scenarios() -> tuple[InvestigationScenario, ...]:
             scenario_id="identity-already-answered",
             intent="No discrepancy remains and no supplementary call is needed.",
             questions=("Do the vehicle make and model match the current record?",),
+            evidence_targets=("make", "model"),
             expected_action="NO_ACTION",
             expected_dispatched=False,
         ),

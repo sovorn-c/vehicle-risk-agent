@@ -1,7 +1,6 @@
 """Tests for OpenTelemetry spans and metrics across system boundaries."""
 
 # story: e07s01
-
 from typing import cast
 
 import pytest
@@ -13,6 +12,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.config import Settings
@@ -194,9 +194,7 @@ async def test_app_telemetry_wiring_and_readiness(
 ) -> None:
     """create_app must configure telemetry, instrument app, and provide conditional /ready."""
     _exporter, _reader, _manager = memory_telemetry
-    settings = Settings(
-        database_url="postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
-    )
+    settings = Settings(database_url=TEST_DB_URL)
     app = create_app(settings)
 
     transport = ASGITransport(app=app)

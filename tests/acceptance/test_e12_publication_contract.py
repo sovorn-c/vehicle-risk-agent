@@ -8,7 +8,8 @@ ROOT = Path(__file__).parents[2]
 def test_walkthrough_requires_real_boundaries_and_stops_before_review() -> None:
     script = (ROOT / "scripts/demo-measured-quality.sh").read_text(encoding="utf-8")
 
-    assert "ANTHROPIC_API_KEY" in script
+    assert "GEMINI_API_KEY" in script
+    assert "E12_PROVIDER" in script
     assert "MCP_SERVER_URL" in script
     assert "--enable-live-eval" in script
     assert "--suite e12-comparative" in script
@@ -28,5 +29,5 @@ def test_public_copy_publishes_only_the_current_blocked_control_state() -> None:
         assert "BLOCKED" in document
         assert "PostgreSQL full-text search" in document
         assert "e11 Gemini live-validation waiver" in document
-        assert "142c4326c9fac7b075a67a12d8882993bf52364afe0c7a35bae9ab29db800ed2" in document
+        assert "e471c0c687736cac51316dc7d91ccaf78f738cc01b03eea1a02a00f873da85fb" in document
         assert "BM25" not in document

@@ -1,7 +1,6 @@
 """Acceptance tests verifying database migrations and deterministic, idempotent seeding."""
 
 # story: e07s02
-
 from collections.abc import AsyncIterator
 
 import pytest
@@ -14,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.auth import Role, authenticate_bearer_token
 from vehicle_risk_agent.cli.seed import seed_database
 from vehicle_risk_agent.config import Settings
@@ -24,8 +24,6 @@ from vehicle_risk_agent.persistence.models import (
     PolicySourceRecord,
     RiskPolicyRecord,
 )
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

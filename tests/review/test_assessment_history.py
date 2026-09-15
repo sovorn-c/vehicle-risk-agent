@@ -1,7 +1,6 @@
 """Integration tests for ordered Assessment history and audit projections (e05s03-t01)."""
 
 # story: e05s03
-
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
@@ -9,6 +8,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.models import AssessmentContext, AssessmentCreateRequest, SaleType
 from vehicle_risk_agent.domain.assessment import (
     AssessmentLifecycleState,
@@ -52,8 +52,6 @@ from vehicle_risk_agent.risk.models import (
     build_risk_policy_v1,
 )
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

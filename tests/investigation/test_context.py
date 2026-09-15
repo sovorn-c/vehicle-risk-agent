@@ -31,6 +31,16 @@ def _revision() -> VehicleRevisionResponse:
     )
 
 
+def test_context_fallback_ignores_unallowlisted_snapshot_fields() -> None:
+    revision = _revision().model_copy(
+        update={"canonical_fields": {"body_type": "SEDAN", "make": "Honda", "odometer_km": 120000}}
+    )
+
+    context = build_investigation_context(revision=revision)
+
+    assert context.evidence_targets == ("make",)
+
+
 def test_context_contains_summaries_and_never_raw_payload() -> None:
     result = FieldExplanationResult(
         vin="1HGCM82633A004352",

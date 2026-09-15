@@ -12,8 +12,7 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from alembic import command
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+from tests.database import TEST_DB_URL
 
 
 @pytest_asyncio.fixture

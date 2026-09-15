@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.evidence.models import (
     ConfidenceAssessment,
     ConfidenceBand,
@@ -26,8 +27,6 @@ from vehicle_risk_agent.evidence.sufficiency import (
     evaluate_evidence_sufficiency,
 )
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture
