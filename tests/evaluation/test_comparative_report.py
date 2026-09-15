@@ -192,6 +192,24 @@ def test_report_rejects_modified_frozen_threshold_configuration() -> None:
         build_comparative_report(modified, (), execution_mode="LIVE")
 
 
+def test_report_accepts_only_the_declared_provider_variants() -> None:
+    config = load_e12_evaluation_config()
+    anthropic = config.model_copy(
+        update={
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "pricing_input_usd_per_million": 3.0,
+            "pricing_output_usd_per_million": 15.0,
+            "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        }
+    )
+    build_comparative_report(anthropic, (), execution_mode="BLOCKED")
+
+    unsupported = config.model_copy(update={"provider": "bogus", "model": "bogus-model"})
+    with pytest.raises(ValueError, match="provider configuration"):
+        build_comparative_report(unsupported, (), execution_mode="BLOCKED")
+
+
 def test_duplicate_applicable_metric_rows_block_live_verdict() -> None:
     config = load_e12_evaluation_config()
     metrics = [
@@ -294,6 +312,23 @@ def test_unlabelled_report_metrics_are_not_treated_as_quality_failures() -> None
     assert metrics["retrieval_relevance"] == 0.0
     assert metrics["retrieval_applicable"] is False
     assert metrics["missed_findings"] == 0
+
+
+def test_claim_support_rejects_unknown_risk_factor_references() -> None:
+    claim = SimpleNamespace(
+        evidence_refs=(),
+        policy_citation_refs=(),
+        risk_factor_refs=("NOT_A_REAL_FACTOR",),
+    )
+    draft = SimpleNamespace(
+        all_policy_citation_refs=(),
+        all_claims=(claim,),
+        all_risk_factor_refs=("NOT_A_REAL_FACTOR",),
+    )
+
+    metrics = measure_report_draft_labels({}, "", draft)
+
+    assert metrics["claim_support"] == 0.0
 
 
 def test_ranked_retrieval_and_policy_claim_grounding_use_applicable_labels() -> None:

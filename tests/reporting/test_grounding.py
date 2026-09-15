@@ -434,3 +434,19 @@ def test_grounding_rejects_unsupported_citation_only_claims() -> None:
     repaired = validator.repair(draft, ctx)
     res2 = GroundingValidator().validate(repaired, ctx)
     assert res2.is_valid
+
+
+def test_grounding_rejects_unknown_risk_factor_claim_references() -> None:
+    from vehicle_risk_agent.reporting.grounding import GroundingValidator
+
+    claim = ClaimReference(
+        claim_id="claim-unknown-factor",
+        statement="Claim with an unknown factor reference",
+        risk_factor_refs=("NOT_A_REAL_FACTOR",),
+    )
+    draft = _make_draft_with_claims((claim,))
+
+    result = GroundingValidator().validate(draft, _make_grounding_context())
+
+    assert result.is_valid is False
+    assert result.ungrounded_claims == (claim,)
