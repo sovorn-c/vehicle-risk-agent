@@ -32,6 +32,7 @@ from vehicle_risk_agent.evaluation.retrieval import (
     get_seeded_retrieval_dataset,
 )
 from vehicle_risk_agent.evaluation.runner import ScenarioRunner
+from vehicle_risk_agent.risk.models import RiskFactor
 
 
 class ComparativeMode(StrEnum):
@@ -211,8 +212,8 @@ def _frozen_config_payload(config: E12EvaluationConfig) -> dict[str, Any]:
     for field in (
         "provider",
         "model",
-        "pricing_input_usd_per_million_tokens",
-        "pricing_output_usd_per_million_tokens",
+        "pricing_input_usd_per_million",
+        "pricing_output_usd_per_million",
         "pricing_source_url",
         "pricing_checked_at",
     ):
@@ -224,6 +225,24 @@ def _validate_frozen_config(config: E12EvaluationConfig) -> None:
     expected = load_e12_evaluation_config()
     if _frozen_config_payload(config) != _frozen_config_payload(expected):
         raise ValueError("configuration does not match frozen e12-eval-v1 inputs")
+    if config.provider == expected.provider:
+        if config.model != expected.model or (
+            config.pricing_input_usd_per_million != expected.pricing_input_usd_per_million
+            or config.pricing_output_usd_per_million != expected.pricing_output_usd_per_million
+            or config.pricing_source_url != expected.pricing_source_url
+            or config.pricing_checked_at != expected.pricing_checked_at
+        ):
+            raise ValueError("provider pricing does not match frozen e12-eval-v1 inputs")
+        return
+    if (
+        config.provider != "anthropic"
+        or config.model != "claude-sonnet-4-6"
+        or config.pricing_input_usd_per_million != 3.0
+        or config.pricing_output_usd_per_million != 15.0
+        or config.pricing_source_url != "https://platform.claude.com/docs/en/about-claude/pricing"
+        or config.pricing_checked_at != expected.pricing_checked_at
+    ):
+        raise ValueError("provider configuration is not an allowed E12 variant")
 
 
 def _judgments_digest(judgments: Sequence[Any] | None = None) -> str:
@@ -683,8 +702,16 @@ def measure_report_draft_labels(
         abstention_correct = False
 
     claims = tuple(draft.all_claims)
+    allowed_risk_factors = {factor.value for factor in RiskFactor}
     supported_claims = sum(
-        bool(claim.evidence_refs or claim.policy_citation_refs or claim.risk_factor_refs)
+        bool(
+            claim.evidence_refs
+            or claim.policy_citation_refs
+            or (
+                claim.risk_factor_refs
+                and set(claim.risk_factor_refs).issubset(allowed_risk_factors)
+            )
+        )
         for claim in claims
     )
     policy_claims = tuple(claim for claim in claims if claim.policy_citation_refs)
