@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_risk_agent.investigation.budget import InvestigationLimits
+from vehicle_risk_agent.investigation.models import InvestigationResult
 from vehicle_risk_agent.persistence.models import InvestigationLedgerRecord
 
 
@@ -44,6 +45,11 @@ class InvestigationLedger:
         self.result_action = record.result_action
         self.result_summary = record.result_summary
         self.references = tuple(json.loads(record.references_json or "[]"))
+        self.result = (
+            InvestigationResult.model_validate_json(record.result_data_json)
+            if record.result_data_json
+            else None
+        )
         self.intent_questions = tuple(json.loads(record.intent_questions_json or "[]"))
         self.intent_targets = tuple(json.loads(record.intent_targets_json or "[]"))
         self.prior_report_id = record.prior_report_id
@@ -222,6 +228,7 @@ class InvestigationLedgerRepository:
         assessment_id: str,
         run_number: int,
         summary: str,
+        result: InvestigationResult | None = None,
     ) -> InvestigationLedger:
         """Persist a validated no-action decision without an upstream reservation."""
         record = await self._get(assessment_id, run_number, lock=True)
@@ -231,6 +238,7 @@ class InvestigationLedgerRepository:
         record.result_action = None
         record.result_summary = summary[:500]
         record.references_json = "[]"
+        record.result_data_json = result.model_dump_json() if result is not None else None
         record.updated_at = datetime.now(UTC)
         await self.session.commit()
         return InvestigationLedger(record)
@@ -246,6 +254,7 @@ class InvestigationLedgerRepository:
         input_tokens: int = 0,
         output_tokens: int = 0,
         action: str | None = None,
+        result: InvestigationResult | None = None,
     ) -> InvestigationLedger:
         record = await self._get(assessment_id, run_number, lock=True)
         if record is None or record.current_request_hash != request_hash:
@@ -253,16 +262,22 @@ class InvestigationLedgerRepository:
         if record.status == InvestigationLedgerStatus.EXHAUSTED.value:
             record.result_summary = result_summary[:500]
             record.references_json = json.dumps(references[:50])
+            record.result_data_json = result.model_dump_json() if result is not None else None
             record.updated_at = datetime.now(UTC)
             await self.session.commit()
             return InvestigationLedger(record)
-        record.status = InvestigationLedgerStatus.COMPLETED.value
+        record.status = (
+            InvestigationLedgerStatus.COMPLETED.value
+            if result is None or result.completed
+            else InvestigationLedgerStatus.INDETERMINATE.value
+        )
         record.actual_cost += actual_cost
         record.result_action = action
         record.input_tokens += input_tokens
         record.output_tokens += output_tokens
         record.result_summary = result_summary[:500]
         record.references_json = json.dumps(references[:50])
+        record.result_data_json = result.model_dump_json() if result is not None else None
         record.updated_at = datetime.now(UTC)
         await self.session.commit()
         return InvestigationLedger(record)

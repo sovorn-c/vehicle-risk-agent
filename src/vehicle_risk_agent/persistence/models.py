@@ -433,6 +433,7 @@ class InvestigationLedgerRecord(Base):
     result_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     references_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    result_data_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     limits_json: Mapped[str] = mapped_column(Text, nullable=False)
     pins_json: Mapped[str] = mapped_column(Text, nullable=False)
     intent_questions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")

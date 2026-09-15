@@ -17,11 +17,13 @@ from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
 from vehicle_risk_agent.evidence.sufficiency import EvidenceSufficiencyResult, SufficiencyOutcome
 from vehicle_risk_agent.investigation.budget import InvestigationLimits
 from vehicle_risk_agent.investigation.models import (
+    InvestigationAction,
     InvestigationContext,
     InvestigationResult,
     NoActionProposal,
     ProviderProposalResult,
     ProviderUsage,
+    VehicleHistoryResult,
 )
 from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.workflow.graph import (
@@ -175,3 +177,69 @@ async def test_node_retrieving_policy_uses_investigation_citations_directly() ->
 
     assert result["policy_citations"] == (investigation_citation,)
     assert service.called is False
+
+
+@pytest.mark.asyncio
+async def test_completed_ledger_replays_typed_result_without_provider_call() -> None:
+    revision = VehicleRevisionResponse(
+        vin="1HGCM82633A004352",
+        revision_id="rev-history-1",
+        revision_number=1,
+        material_hash="b" * 64,
+        canonical_fields={"make": "Honda"},
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=datetime.now(UTC),
+        published_at=datetime.now(UTC),
+    )
+    expected = InvestigationResult(
+        action=InvestigationAction.GET_VEHICLE_HISTORY,
+        summary="history returned",
+        references=(revision.revision_id,),
+        evidence_result=VehicleHistoryResult(vin=revision.vin, revisions=(revision,)),
+        completed=True,
+        dispatched=True,
+    )
+    snapshot = create_evidence_snapshot("assessment-replay", 1, revision)
+
+    class Provider:
+        async def propose(self, _context: InvestigationContext) -> ProviderProposalResult:
+            raise AssertionError("replayed result must not call provider")
+
+    class Ledger:
+        async def get_ledger(self, *_args: Any) -> Any:
+            return SimpleNamespace(
+                status="COMPLETED",
+                result=expected,
+                limits=InvestigationLimits.final(),
+            )
+
+    class Dispatcher:
+        async def dispatch(self, *_args: Any, **_kwargs: Any) -> InvestigationResult:
+            raise AssertionError("replayed result must not call dispatcher")
+
+    result = await node_investigating(
+        {
+            "assessment_id": "assessment-replay",
+            "run_number": 1,
+            "vin": revision.vin,
+            "context": AssessmentContext(sale_type=SaleType.DEALER, questions=["Find history."]),
+            "phase": AssessmentRunPhase.PENDING,
+            "visited_phases": [AssessmentRunPhase.PENDING],
+            "events": [],
+            "evidence_snapshot": snapshot,
+        },
+        {
+            "configurable": {
+                "investigation_provider": Provider(),
+                "investigation_ledger": Ledger(),
+                "investigation_dispatcher": Dispatcher(),
+            }
+        },
+    )
+
+    assert result["investigation_result"] == expected

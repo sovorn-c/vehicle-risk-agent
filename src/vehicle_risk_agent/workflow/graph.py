@@ -292,6 +292,8 @@ async def node_investigating(
             }
         limits = existing.limits
         if existing is not None and existing.status == InvestigationLedgerStatus.COMPLETED:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
             from vehicle_risk_agent.investigation.models import InvestigationAction
 
             replay_action = (
@@ -306,6 +308,8 @@ async def node_investigating(
             )
             return {**progress, "investigation_result": result}
         if existing is not None and existing.status == InvestigationLedgerStatus.INDETERMINATE:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
             result = InvestigationResult(
                 summary="Supplementary investigation stopped after an indeterminate external call.",
                 references=existing.references,
@@ -365,7 +369,10 @@ async def node_investigating(
                 )
                 if ledger is not None:
                     await ledger.complete_no_action(
-                        state["assessment_id"], state["run_number"], result.summary
+                        state["assessment_id"],
+                        state["run_number"],
+                        result.summary,
+                        result=result,
                     )
                 return {
                     **progress,
@@ -456,6 +463,7 @@ async def node_investigating(
                 result.summary,
                 result.references,
                 action=result.action.value if result.action else None,
+                result=result,
             )
     except Exception:
         if ledger is not None:
