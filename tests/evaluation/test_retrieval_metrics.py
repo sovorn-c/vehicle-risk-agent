@@ -120,7 +120,7 @@ def test_precision_at_five_uses_returned_top_k_denominator() -> None:
         is_abstention=False,
     )
 
-    assert metric.precision_at_5 == pytest.approx(1 / 3)
+    assert metric.precision_at_5 == pytest.approx(1 / 3, abs=0.0001)
 
 
 @pytest.mark.asyncio

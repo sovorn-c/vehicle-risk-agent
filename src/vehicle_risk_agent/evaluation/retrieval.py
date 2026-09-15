@@ -389,14 +389,7 @@ def compute_query_metrics(
                 rr = 1.0 / rank
                 break
 
-        cumulative_prec = 0.0
-        relevant_count = 0
-        for rank, pid in enumerate(top_k_ids, start=1):
-            if pid in rel_set:
-                relevant_count += 1
-                cumulative_prec += relevant_count / rank
-
-        precision = (cumulative_prec / min(len(rel_set), k)) if relevant_count > 0 else 0.0
+        precision = len(hits) / len(top_k_ids) if top_k_ids else 0.0
 
     return PerQueryRetrievalMetric(
         query_id=label.query_id,

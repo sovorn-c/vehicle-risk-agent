@@ -57,6 +57,7 @@ class ComparativeThresholds(BaseModel):
     automatic_approvals: int = Field(ge=0)
     min_useful_tool_selection: float = Field(ge=0.0, le=1.0)
     semantic_claim_support: float = Field(ge=0.0, le=1.0)
+    min_claim_support: float = Field(default=0.9, ge=0.0, le=1.0)
     semantic_missed_findings: int = Field(ge=0)
     semantic_false_positive_citations: int = Field(ge=0)
     max_p95_latency_seconds: float = Field(gt=0.0)
@@ -181,12 +182,8 @@ class E12EvaluationConfig(BaseModel):
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _TRACKED_E12_CONFIG = _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-eval-v1.yaml"
 _LEGACY_E12_CONFIG = _REPOSITORY_ROOT / "specs" / "evaluation" / "e12-eval-v1.yaml"
-_TRACKED_E12_JUDGMENTS = (
-    _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-semantic-judgments.yaml"
-)
-_LEGACY_E12_JUDGMENTS = (
-    _REPOSITORY_ROOT / "specs" / "verifications" / "e12-semantic-judgments.yaml"
-)
+_TRACKED_E12_JUDGMENTS = _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-semantic-judgments.yaml"
+_LEGACY_E12_JUDGMENTS = _REPOSITORY_ROOT / "specs" / "verifications" / "e12-semantic-judgments.yaml"
 _EMPTY_DIGEST = sha256_bytes(b"")
 
 
@@ -572,8 +569,8 @@ def measure_report_draft_labels(
     draft: Any | None,
     *,
     retrieval_label: RetrievalQueryLabel | None = None,
-    retrieved_passage_ids: Sequence[str] = (),
-    retrieved_citation_ids: Sequence[str] = (),
+    retrieved_passage_ids: Sequence[str] | None = None,
+    retrieved_citation_ids: Sequence[str] | None = None,
 ) -> dict[str, float | int | bool]:
     """Measure a report using explicit ranked retrieval and citation labels.
 
@@ -610,8 +607,8 @@ def measure_report_draft_labels(
     observed_refs = tuple(draft.all_policy_citation_refs)
     observed = set(observed_refs)
     expected = set(_label(labels, "expected_citations", ()))
-    retrieved_passages = list(retrieved_passage_ids) or list(observed_refs)
-    retrieved_citations = list(retrieved_citation_ids) or list(observed_refs)
+    retrieved_passages = list(retrieved_passage_ids or ())
+    retrieved_citations = list(retrieved_citation_ids or ())
     if retrieval_label is not None:
         retrieval = compute_query_metrics(
             retrieval_label,
@@ -637,8 +634,9 @@ def measure_report_draft_labels(
     )
     policy_claims = tuple(claim for claim in claims if claim.policy_citation_refs)
     if citation_applicable:
+        allowed_citations = set(retrieved_citations)
         grounded_claims = sum(
-            set(claim.policy_citation_refs).issubset(observed) for claim in policy_claims
+            set(claim.policy_citation_refs).issubset(allowed_citations) for claim in policy_claims
         )
         citation_grounding = grounded_claims / len(policy_claims) if policy_claims else 0.0
     else:
@@ -660,7 +658,7 @@ def measure_report_draft_labels(
         "missed_findings": len(
             set(_label(labels, "required_factor_ids", ())) - set(draft.all_risk_factor_refs)
         ),
-        "false_positive_citations": len(observed - expected) if expected else 0,
+        "false_positive_citations": len(observed - expected),
     }
 
 
@@ -723,6 +721,44 @@ def build_comparative_report(
         for repeat in range(1, config.repeats + 1)
     }
     actual_live_ids = {(row.scenario_id, row.mode, row.repeat) for row in live}
+    expected_offline_ids = {
+        (scenario_id, ComparativeMode.OFFLINE_BASELINE, 0)
+        for scenario_id in config.held_out_scenario_ids
+    }
+    expected_deterministic_ids = expected_offline_ids | {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+    expected_claim_ids = expected_offline_ids | {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+    expected_retrieval_ids = {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        if overlay.retrieval_query_id is not None
+        for repeat in range(1, config.repeats + 1)
+    }
+    expected_tool_ids = {
+        (overlay.scenario_id, ComparativeMode.LIVE_INVESTIGATION, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+
+    def metric_ids(items: Sequence[ComparativeMetric]) -> set[tuple[str, ComparativeMode, int]]:
+        return {(item.scenario_id, item.mode, item.repeat) for item in items}
+
+    applicable_rows_complete = (
+        metric_ids([row for row in rows if row.deterministic_risk_applicable])
+        == expected_deterministic_ids
+        and metric_ids(claim_rows) == expected_claim_ids
+        and metric_ids(retrieval_rows) == expected_retrieval_ids
+        and metric_ids(citation_rows) == expected_retrieval_ids
+        and metric_ids(abstention_rows) == expected_retrieval_ids
+        and metric_ids(tool_rows) == expected_tool_ids
+    )
     threshold_passed = (
         deterministic_match >= config.thresholds.deterministic_risk_match
         and (
@@ -739,11 +775,16 @@ def build_comparative_report(
         and citations >= config.thresholds.min_citation_grounding
         and abstention >= config.thresholds.min_abstention_accuracy
         and tool_selection >= config.thresholds.min_useful_tool_selection
+        and claim_support >= config.thresholds.min_claim_support
+        and sum(row.missed_findings for row in rows) <= config.thresholds.semantic_missed_findings
+        and sum(row.false_positive_citations for row in rows)
+        <= config.thresholds.semantic_false_positive_citations
         and sum(row.unauthorized_dispatches for row in rows)
         == config.thresholds.unauthorized_dispatches
         and sum(row.automatic_approval for row in rows) == config.thresholds.automatic_approvals
         and _p95(all_latencies) <= config.thresholds.max_p95_latency_seconds
         and (execution_mode != "LIVE" or actual_live_ids == expected_live_ids)
+        and (execution_mode != "LIVE" or applicable_rows_complete)
         and (execution_mode != "LIVE" or len(live) == config.live_run_count)
         and (execution_mode != "LIVE" or all(row.provider_marker for row in live))
         and (execution_mode != "LIVE" or all(row.mcp_marker for row in live))

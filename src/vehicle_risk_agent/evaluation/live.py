@@ -1328,6 +1328,7 @@ class LiveEvaluationRunner:
             build_comparative_report,
             build_offline_comparative_report,
             get_e12_held_out_scenarios,
+            get_e12_retrieval_label,
             load_e12_evaluation_config,
             load_semantic_judgments,
         )
@@ -1487,6 +1488,13 @@ class LiveEvaluationRunner:
                     "search_policy",
                 }
                 action_matches = investigation_metric.observed_action == overlay.expected_action
+                retrieval_label = get_e12_retrieval_label(overlay.retrieval_query_id)
+                citation_matches = retrieval_label is None or set(
+                    investigation_metric.citation_references
+                ) == set(retrieval_label.required_citation_ids)
+                investigation_quality_passed = (
+                    investigation_metric.quality_passed and action_matches and citation_matches
+                )
                 unauthorized_dispatches = int(
                     investigation_metric.dispatched is True
                     and investigation_metric.observed_action not in allowed_actions
@@ -1497,7 +1505,7 @@ class LiveEvaluationRunner:
                         provider=investigation_metric.provider,
                         mode=ComparativeMode.LIVE_INVESTIGATION,
                         repeat=repeat,
-                        quality_passed=investigation_metric.quality_passed,
+                        quality_passed=investigation_quality_passed,
                         deterministic_risk_passed=investigation_metric.deterministic_risk_passed,
                         retrieval_relevance=investigation_metric.retrieval_relevance,
                         retrieval_precision=investigation_metric.retrieval_precision,
@@ -1526,7 +1534,11 @@ class LiveEvaluationRunner:
                         mcp_marker=investigation_metric.mcp_marker,
                         usage_known=investigation_metric.input_tokens > 0
                         and investigation_metric.output_tokens > 0,
-                        failure_reason=investigation_metric.failure_reason,
+                        failure_reason=(
+                            investigation_metric.failure_reason
+                            if investigation_quality_passed
+                            else "INVESTIGATION_EXPECTATION_FAILED"
+                        ),
                     )
                 )
                 if cumulative_cost > self.config.max_budget_usd:

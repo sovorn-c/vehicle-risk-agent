@@ -429,6 +429,7 @@ class InvestigationResult(BaseModel):
         FieldExplanationResult | VehicleRevisionResponse | VehicleHistoryResult | None
     ) = None
     policy_citations: tuple[PolicyCitation, ...] = Field(default_factory=tuple)
+    observed_query: str | None = Field(default=None, max_length=200)
     limitation: InvestigationLimitation | None = None
     completed: bool = True
     dispatched: bool = False
@@ -443,6 +444,7 @@ class InvestigationResult(BaseModel):
             "policy_citation_refs": [
                 citation.passage_id for citation in self.policy_citations[:20]
             ],
+            "observed_query": self.observed_query,
             "completed": self.completed,
             "dispatched": self.dispatched,
             "limitation": self.limitation.model_dump() if self.limitation else None,

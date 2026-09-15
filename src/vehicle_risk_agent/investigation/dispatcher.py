@@ -176,6 +176,7 @@ class InvestigationDispatcher:
                 summary=f"Supplementary policy search returned {len(citations)} citations.",
                 references=tuple(citation.passage_id for citation in citations),
                 policy_citations=citations,
+                observed_query=query,
                 completed=True,
                 dispatched=True,
             )

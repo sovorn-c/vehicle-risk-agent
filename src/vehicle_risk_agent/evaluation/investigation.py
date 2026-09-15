@@ -6,6 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from vehicle_risk_agent.evidence.models import FieldExplanationResult
+from vehicle_risk_agent.investigation.models import VehicleHistoryResult
+
 
 class InvestigationScenario(BaseModel):
     """One intent-labelled scenario with action-level grading expectations."""
@@ -65,8 +68,10 @@ def grade_investigation_scenario(
     references: tuple[str, ...] = (),
     citation_references: tuple[str, ...] = (),
     completed: bool = True,
+    evidence_result: Any | None = None,
+    observed_query: str | None = None,
 ) -> bool:
-    """Grade stable actions and references, never exact generated prose."""
+    """Grade stable actions, typed results, and bounded references."""
     if observed_action != scenario.expected_action:
         return False
     if dispatched != scenario.expected_dispatched:
@@ -76,8 +81,19 @@ def grade_investigation_scenario(
     if not completed:
         return False
     if scenario.expected_action == "search_policy":
-        return bool(citation_references)
-    return bool(references)
+        if not citation_references:
+            return False
+        return scenario.expected_query is None or (
+            observed_query is not None
+            and scenario.expected_query.casefold() in observed_query.casefold()
+        )
+    if scenario.expected_action == "explain_vehicle_field":
+        return isinstance(evidence_result, FieldExplanationResult) and (
+            scenario.expected_field is None or evidence_result.field_name == scenario.expected_field
+        )
+    if scenario.expected_action == "get_vehicle_history":
+        return isinstance(evidence_result, VehicleHistoryResult) and bool(evidence_result.revisions)
+    return bool(references) and evidence_result is not None
 
 
 # Small aliases keep the evaluator API explicit for callers and tests.
@@ -106,4 +122,6 @@ def grade_scenario(scenario: InvestigationScenario, result: Any) -> bool:
         references=tuple(result.references),
         citation_references=tuple(citation.passage_id for citation in result.policy_citations),
         completed=bool(result.completed),
+        evidence_result=result.evidence_result,
+        observed_query=getattr(result, "observed_query", None),
     )
