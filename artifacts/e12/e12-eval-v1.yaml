@@ -1,0 +1,143 @@
+schema_version: 1
+id: e12-eval-v1
+frozen_at: '2026-09-12'
+status: declared-before-execution
+suite: e12-comparative
+provider: gemini
+model: gemini-3.1-flash-lite
+pricing:
+  input_usd_per_million_tokens: 0.25
+  output_usd_per_million_tokens: 1.50
+  source_url: https://ai.google.dev/gemini-api/docs/pricing
+  effective_at: null
+  checked_at: '2026-09-12'
+  note: Standard Gemini paid API rates. Batch, cache, and discount tiers are not assumed.
+alternate_providers:
+  anthropic:
+    model: claude-sonnet-4-6
+    pricing:
+      input_usd_per_million_tokens: 3.00
+      output_usd_per_million_tokens: 15.00
+      source_url: https://platform.claude.com/docs/en/about-claude/pricing
+      checked_at: '2026-09-12'
+repeats: 3
+live_report_p95_seconds: 30
+live_suite_cost_usd: 15.00
+live_unique_comparable_scenarios: 4
+live_modes:
+  - OFFLINE_BASELINE
+  - LIVE_DRAFTING
+  - LIVE_INVESTIGATION
+live_run_count: 24
+semantic_judgments_required: 8
+held_out:
+  source: e06 labelled evaluation matrix
+  count: 30
+  scenario_ids:
+    - sc-clean-01
+    - sc-clean-02
+    - sc-risk-ppsr-01
+    - sc-risk-stolen-02
+    - sc-risk-repairable-03
+    - sc-risk-statutory-04
+    - sc-risk-compound-05
+    - sc-inc-missing-ppsr-01
+    - sc-inc-missing-stolen-02
+    - sc-inc-missing-all-03
+    - sc-conflict-ppsr-01
+    - sc-conflict-stolen-02
+    - sc-temporal-cleared-01
+    - sc-temporal-multi-rev-02
+    - sc-abstain-non-nz-01
+    - sc-abstain-uncovered-topic-02
+    - sc-adv-auth-unauthorized-org-01
+    - sc-adv-auth-cross-tenant-02
+    - sc-adv-idempotent-repeat-01
+    - sc-adv-idempotent-key-02
+    - sc-adv-concurrency-01
+    - sc-adv-concurrency-02
+    - sc-adv-timeout-mcp-01
+    - sc-adv-timeout-parallel-02
+    - sc-adv-drift-malformed-vin-01
+    - sc-adv-drift-unknown-payload-02
+    - sc-adv-injection-override-01
+    - sc-adv-injection-jailbreak-02
+    - sc-adv-leakage-key-exfiltration-01
+    - sc-adv-leakage-system-prompt-02
+tuning_excluded:
+  note: Smoke/acceptance suites used to iterate prompts and live wiring. They are not the held-out comparative sample.
+  e10_live_general:
+    - scn-01-scored
+    - scn-02-incomplete
+    - scn-03-abstention
+  e11_live_v1:
+    - odometer-explanation
+    - required-evidence-policy
+    - identity-already-answered
+comparable_shared_inputs:
+  note: Same versioned vehicle fixtures across modes. Investigation overlays add a question and expected action class without copying e11-live-v1 wording.
+  scenarios:
+    - scenario_id: sc-clean-01
+      live_drafting: true
+      investigation_question: Does the current record already identify this vehicle's make and model?
+      expected_action: NO_ACTION
+      expected_field: null
+    - scenario_id: sc-risk-compound-05
+      live_drafting: true
+      investigation_question: Which Consumer Information Notice or write-off guidance applies to a statutory write-off listed in this record?
+      expected_action: search_policy
+      expected_field: null
+      retrieval_query_id: q-08
+      live_expected_labels:
+        assessment_outcome: SCORED
+        risk_band: CRITICAL
+        min_risk_score: 100
+        max_risk_score: 100
+        required_factor_ids:
+          - LISTED
+          - MATCH
+          - STATUTORY
+    - scenario_id: sc-conflict-ppsr-01
+      live_drafting: true
+      investigation_question: Explain the conflicting PPSR finance-interest values on the current snapshot.
+      expected_action: explain_vehicle_field
+      expected_field: ppsr_result
+    - scenario_id: sc-temporal-multi-rev-02
+      live_drafting: true
+      investigation_question: What older revision history exists before the current vehicle record?
+      expected_action: get_vehicle_history
+      expected_field: null
+deterministic_only:
+  note: Adversarial, authorization, concurrency, timeout, and contract-drift cases stay in the 30-scenario offline report. They are not comparable live investigation inputs.
+thresholds:
+  min_recall_at_5: 0.90
+  min_precision_at_5: 0.70
+  min_mrr: 0.80
+  min_abstention_accuracy: 0.95
+  min_citation_grounding: 1.00
+  deterministic_risk_match: 1.00
+  unauthorized_dispatches: 0
+  automatic_approvals: 0
+  min_useful_tool_selection: 0.75
+  semantic_claim_support: 1.00
+  min_claim_support: 0.90
+  semantic_missed_findings: 0
+  semantic_false_positive_citations: 0
+  max_p95_latency_seconds: 30.0
+compatibility:
+  general_suite_max_scenarios: 3
+  general_suite_max_budget_usd: 5.00
+  e11_suite_max_scenarios: 3
+  e11_suite_max_budget_usd: 3.00
+  e12_suite_max_unique_live_scenarios: 4
+  e12_suite_max_budget_usd: 15.00
+scorers:
+  deterministic_grader_version: grader-2026.1
+  retrieval_grader_version: retrieval-gate-02
+  investigation_grader_version: e12-investigation-heldout-v1
+  semantic_judge: human-reviewed-checklist
+  llm_judge_allowed_as_sole_oracle: false
+disclosure:
+  synthetic_vehicle_evidence: true
+  restricted_register_access: false
+  e11_gemini_live_validation: deferred-release-blocking
