@@ -95,6 +95,16 @@ def test_e12_rejects_caps_above_suite_limits(active_corpus: SimpleNamespace) -> 
                 ),
                 active_corpus=active_corpus,
             ).validate_readiness()
+        with pytest.raises(LiveEvaluationBudgetError, match="exactly 4"):
+            LiveEvaluationRunner(
+                LiveEvaluationConfig(
+                    suite="e12-comparative",
+                    enable_live_eval=True,
+                    max_budget_usd=15.0,
+                    max_scenarios=1,
+                ),
+                active_corpus=active_corpus,
+            ).validate_readiness()
         with pytest.raises(LiveEvaluationBudgetError, match="4"):
             LiveEvaluationRunner(
                 LiveEvaluationConfig(

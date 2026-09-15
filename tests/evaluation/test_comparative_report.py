@@ -454,6 +454,30 @@ def test_report_excludes_inapplicable_investigation_metrics() -> None:
     assert report.useful_tool_selection == 1.0
 
 
+def test_live_claim_support_excludes_offline_baseline_rows() -> None:
+    config = load_e12_evaluation_config()
+    metrics = [
+        _complete_live_metric(
+            "sc-clean-01",
+            ComparativeMode.OFFLINE_BASELINE,
+            0,
+            claim_support=0.0,
+            claim_support_applicable=True,
+        ),
+        _complete_live_metric(
+            "sc-clean-01",
+            ComparativeMode.LIVE_DRAFTING,
+            1,
+            claim_support=1.0,
+            claim_support_applicable=True,
+        ),
+    ]
+
+    report = build_comparative_report(config, metrics, execution_mode="LIVE")
+
+    assert report.claim_support == 1.0
+
+
 def test_live_report_cannot_pass_without_semantic_judgments() -> None:
     config = load_e12_evaluation_config()
     metrics = [

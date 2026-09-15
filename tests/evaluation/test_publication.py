@@ -45,6 +45,14 @@ def test_publication_helper_binds_canonical_report_bytes() -> None:
     assert publication.report_bytes_sha256 == expected_digest
 
 
+def test_publication_helper_rejects_report_with_forged_run_hash() -> None:
+    report = asyncio.run(build_offline_comparative_report())
+    forged_report = report.model_copy(update={"run_hash": "0" * 64})
+
+    with pytest.raises(ValueError, match="run_hash"):
+        publication_from_report(forged_report)
+
+
 def test_publication_helper_rejects_bytes_for_another_report() -> None:
     report = asyncio.run(build_offline_comparative_report())
 

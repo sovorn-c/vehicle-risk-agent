@@ -146,6 +146,54 @@ async def test_history_dispatch_returns_bounded_typed_revisions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_dispatch_rejects_foreign_revision_beyond_retention_bound() -> None:
+    class ForeignHistoryVehicle(FakeVehicleClient):
+        async def get_vehicle_history(
+            self, vin: str, limit: int = 20, before_revision: int | None = None
+        ) -> Any:
+            self.calls.append(("history", (vin, limit, before_revision)))
+            revisions = [
+                self.revision.model_copy(
+                    update={
+                        "revision_id": f"rev-{number}",
+                        "revision_number": number,
+                    }
+                )
+                for number in range(2, 7)
+            ]
+            revisions.append(
+                self.revision.model_copy(
+                    update={
+                        "revision_id": "foreign-rev-1",
+                        "revision_number": 1,
+                        "vin": "JH4KA9650MC000001",
+                    }
+                )
+            )
+            return revisions
+
+    vehicle = ForeignHistoryVehicle(revision())
+    dispatcher = InvestigationDispatcher(vehicle=vehicle, policy=FakePolicyRetriever())
+    proposal = InvestigationProposal.from_tool_input(
+        {
+            "kind": "REQUEST",
+            "action": "get_vehicle_history",
+            "arguments": {},
+        }
+    )
+
+    result = await dispatcher.dispatch(
+        "1HGCM82633A004352",
+        proposal,
+        current_revision=7,
+    )
+
+    assert result.completed is False
+    assert result.limitation is not None
+    assert result.limitation.code == "INVALID_RESULT"
+
+
+@pytest.mark.asyncio
 async def test_history_dispatch_rejects_duplicate_revisions() -> None:
     class InvalidHistoryVehicle(FakeVehicleClient):
         async def get_vehicle_history(
