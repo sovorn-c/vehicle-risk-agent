@@ -1,9 +1,9 @@
 {
-  "report_id": "e12-comparative-2026-09-15-22365",
-  "created_at": "2026-09-15T03:00:57.780475+00:00",
+  "report_id": "e12-comparative-2026-09-15-63262",
+  "created_at": "2026-09-15T03:04:43.148922+00:00",
   "config_id": "e12-eval-v1",
   "config_hash": "447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad",
-  "source_commit": "df520484be0c9b1fe12c965a210b874274d7f762",
+  "source_commit": "3753d2f87852812818c22c24595f51a1aebb15a0",
   "config_sha256": "cd8e4159c596ec38a3ee0c6dbc249088e03fbe3d5c3f6ce29ad8f01ba09dfee8",
   "judgments_sha256": "6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996",
   "provider": "gemini",
@@ -1149,5 +1149,5 @@
   "synthetic_vehicle_evidence": true,
   "restricted_register_access": false,
   "e11_gemini_live_validation": "deferred-release-blocking",
-  "run_hash": "6214b6c816264a19c479e674a76f69eab1bfd5a0a08e107bb3ae3608544ac361"
+  "run_hash": "00bf2e2e2b81469c702335296ac564c588cc6473ca84d2c31c8f818448f0f148"
 }
