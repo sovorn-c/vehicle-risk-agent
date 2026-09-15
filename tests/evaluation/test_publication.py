@@ -10,7 +10,9 @@ from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     build_offline_comparative_report,
 )
+from vehicle_risk_agent.evaluation.provenance import sha256_bytes
 from vehicle_risk_agent.evaluation.publication import (
+    publication_from_report,
     validate_publication,
     write_publication,
 )
@@ -32,6 +34,15 @@ def test_publication_binds_config_and_report_hashes(tmp_path: Path) -> None:
     assert len(publication.config_sha256) == 64
     assert len(publication.judgments_sha256) == 64
     assert validate_publication(report_path, publication_path) == publication
+
+
+def test_publication_helper_binds_canonical_report_bytes() -> None:
+    report = asyncio.run(build_offline_comparative_report())
+
+    publication = publication_from_report(report)
+
+    expected_digest = sha256_bytes(report.model_dump_json(indent=2).encode("utf-8"))
+    assert publication.report_bytes_sha256 == expected_digest
 
 
 def test_loading_rejects_tampered_report_with_stale_hash(tmp_path: Path) -> None:

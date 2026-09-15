@@ -11,7 +11,7 @@ from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     compute_report_run_hash,
 )
-from vehicle_risk_agent.evaluation.provenance import sha256_file
+from vehicle_risk_agent.evaluation.provenance import sha256_bytes, sha256_file
 
 
 class E12Publication(BaseModel):
@@ -34,14 +34,19 @@ class E12Publication(BaseModel):
     synthetic_vehicle_evidence: bool
 
 
-def publication_from_report(report: ComparativeReport) -> E12Publication:
+def publication_from_report(
+    report: ComparativeReport,
+    *,
+    report_bytes_sha256: str | None = None,
+) -> E12Publication:
     """Copy only non-sensitive identity and verdict fields from a report."""
+    digest = report_bytes_sha256 or sha256_bytes(report.model_dump_json(indent=2).encode("utf-8"))
     return E12Publication(
         report_id=report.report_id,
         config_id=report.config_id,
         config_hash=report.config_hash,
         report_hash=report.run_hash,
-        report_bytes_sha256="",
+        report_bytes_sha256=digest,
         source_commit=report.source_commit,
         config_sha256=report.config_sha256,
         judgments_sha256=report.judgments_sha256,
@@ -58,8 +63,10 @@ def write_publication(
 ) -> E12Publication:
     """Validate a report, bind its identity, and write a redacted pointer."""
     report = ComparativeReport.load_from_file(report_path)
-    publication = publication_from_report(report)
-    publication = publication.model_copy(update={"report_bytes_sha256": sha256_file(report_path)})
+    publication = publication_from_report(
+        report,
+        report_bytes_sha256=sha256_file(report_path),
+    )
     target = Path(publication_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(publication.model_dump_json(indent=2), encoding="utf-8")
@@ -75,8 +82,9 @@ def validate_publication(
     publication = E12Publication.model_validate_json(
         Path(publication_path).read_text(encoding="utf-8")
     )
-    expected = publication_from_report(report).model_copy(
-        update={"report_bytes_sha256": sha256_file(report_path)}
+    expected = publication_from_report(
+        report,
+        report_bytes_sha256=sha256_file(report_path),
     )
     if publication != expected:
         raise ValueError("e12 publication does not match the referenced report artifact")
