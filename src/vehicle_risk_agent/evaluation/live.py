@@ -37,6 +37,7 @@ class LiveEvaluationCorpusError(Exception):
 
 
 _SENTINEL = object()
+_E12_MAX_INPUT_TOKENS = 16_384
 _PROVIDER_CREDENTIALS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
@@ -336,6 +337,18 @@ def calculate_estimated_cost(
     return round(input_cost + output_cost, 6)
 
 
+def _e12_worst_case_call_cost(
+    pricing: ModelPricingConfig,
+    max_output_tokens: int,
+) -> float:
+    """Reserve a bounded input/output cost before an E12 provider call."""
+    return calculate_estimated_cost(
+        input_tokens=_E12_MAX_INPUT_TOKENS,
+        output_tokens=max_output_tokens,
+        pricing=pricing,
+    )
+
+
 def compute_p95_latency(latencies: list[float]) -> float:
     """Compute the 95th percentile latency from observed durations."""
     if not latencies:
@@ -631,13 +644,17 @@ class LiveEvaluationRunner:
                 f"must be positive and at most ${budget_cap:.2f}."
             )
         scenario_cap = 4 if self.config.suite == "e12-comparative" else 3
-        if self.config.max_scenarios is not None and (
-            self.config.max_scenarios <= 0 or self.config.max_scenarios > scenario_cap
-        ):
-            raise LiveEvaluationBudgetError(
-                f"Live evaluation refused: max scenarios {self.config.max_scenarios} "
-                f"must be between 1 and {scenario_cap}."
-            )
+        if self.config.max_scenarios is not None:
+            if self.config.suite == "e12-comparative" and self.config.max_scenarios != scenario_cap:
+                raise LiveEvaluationBudgetError(
+                    "Live evaluation refused: e12-comparative requires exactly "
+                    f"{scenario_cap} comparable scenarios."
+                )
+            if self.config.max_scenarios <= 0 or self.config.max_scenarios > scenario_cap:
+                raise LiveEvaluationBudgetError(
+                    f"Live evaluation refused: max scenarios {self.config.max_scenarios} "
+                    f"must be between 1 and {scenario_cap}."
+                )
 
         corpus_to_check = active_corpus if active_corpus is not _SENTINEL else self.active_corpus
         if corpus_to_check is None:
@@ -1115,8 +1132,9 @@ class LiveEvaluationRunner:
                     if persisted_draft.metadata:
                         input_tokens = int(persisted_draft.metadata.get("input_tokens", 0))
                         output_tokens = int(persisted_draft.metadata.get("output_tokens", 0))
-                    provider_marker = self.config.enable_live_eval and isinstance(
-                        effective_drafter, (AnthropicDraftingAdapter, GeminiDraftingAdapter)
+                    provider_marker = (
+                        self.config.enable_live_eval
+                        and getattr(effective_drafter, "provider", None) == self.config.provider
                     )
                     mcp_marker = self.config.enable_live_eval and isinstance(
                         effective_mcp, StreamableHttpVehicleMcpAdapter
@@ -1324,6 +1342,13 @@ class LiveEvaluationRunner:
         settings: Any | None = None,
     ) -> ComparativeReport:
         """Run the four frozen inputs in both live modes at three repeats."""
+        if drafting_adapter is not None and getattr(drafting_adapter, "provider", None) != (
+            self.config.provider
+        ):
+            raise LiveEvaluationBudgetError(
+                "Live evaluation refused: injected drafting adapter does not match "
+                "the selected provider."
+            )
         from vehicle_risk_agent.evaluation.comparative import (
             ComparativeMetric,
             ComparativeMode,
@@ -1351,6 +1376,21 @@ class LiveEvaluationRunner:
         offline_report = await build_offline_comparative_report(run_cfg)
         metrics: list[ComparativeMetric] = list(offline_report.metrics)
         cumulative_cost = 0.0
+        reserved_cost = 0.0
+        worst_case_call_cost = _e12_worst_case_call_cost(
+            self.pricing,
+            self.config.max_output_tokens,
+        )
+
+        def reserve_provider_call() -> None:
+            nonlocal reserved_cost
+            projected_cost = reserved_cost + worst_case_call_cost
+            if projected_cost > self.config.max_budget_usd:
+                raise LiveEvaluationBudgetError(
+                    "Live evaluation budget reservation exceeded before provider call."
+                )
+            reserved_cost = projected_cost
+
         for repeat in range(1, cfg.repeats + 1):
             for overlay in cfg.comparable_shared_inputs:
                 scenario = scenario_by_id[overlay.scenario_id]
@@ -1382,6 +1422,7 @@ class LiveEvaluationRunner:
                     active_corpus=self.active_corpus,
                 )
                 draft_runner._comparative_metrics = True
+                reserve_provider_call()
                 draft_record = await draft_runner.run_bounded_acceptance(
                     session_factory=session_factory,
                     mcp_adapter=mcp_adapter,
@@ -1464,6 +1505,7 @@ class LiveEvaluationRunner:
                 )
                 investigation_runner._allow_custom_investigation = True
                 investigation_runner._comparative_metrics = True
+                reserve_provider_call()
                 investigation_record = await investigation_runner.run_bounded_acceptance(
                     session_factory=session_factory,
                     mcp_adapter=mcp_adapter,
@@ -1712,8 +1754,8 @@ def main(args: list[str] | None = None) -> int:
                 f"Verdict: {record.release_verdict}.\n"
             )
             return 0 if record.verdict_passed else 1
-        except Exception as exc:
-            sys.stderr.write(f"Offline evaluation failed: {exc}\n")
+        except Exception:
+            sys.stderr.write("Offline evaluation failed: OFFLINE_EVALUATION_FAILED.\n")
             return 1
 
     config = LiveEvaluationConfig(
@@ -1795,12 +1837,12 @@ def main(args: list[str] | None = None) -> int:
                 f"Verdict: {record.release_verdict}.\n"
             )
         return 0 if record.verdict_passed else 1
-    except Exception as exc:
+    except Exception:
         if parsed.suite == "e12-comparative" and parsed.output_file:
             from vehicle_risk_agent.evaluation.comparative import build_blocked_report
 
             build_blocked_report(reason="LIVE_EXECUTION_FAILED").save_to_file(parsed.output_file)
-        sys.stderr.write(f"Live evaluation failed: {exc}\n")
+        sys.stderr.write("Live evaluation failed: LIVE_EXECUTION_FAILED.\n")
         return 1
 
 

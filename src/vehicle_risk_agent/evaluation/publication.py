@@ -41,6 +41,8 @@ def publication_from_report(
     report_bytes: bytes | None = None,
 ) -> E12Publication:
     """Copy only non-sensitive identity and verdict fields from a report."""
+    if report.run_hash != compute_report_run_hash(report):
+        raise ValueError("comparative report run_hash does not match its contents")
     canonical_bytes = report.model_dump_json(indent=2).encode("utf-8")
     if report_bytes is None:
         digest = sha256_bytes(canonical_bytes)

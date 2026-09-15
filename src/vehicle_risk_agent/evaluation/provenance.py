@@ -10,6 +10,7 @@ from pathlib import Path
 
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 UNKNOWN_SOURCE_COMMIT = "unknown"
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _git_head() -> str | None:
@@ -18,6 +19,7 @@ def _git_head() -> str | None:
             ["git", "rev-parse", "--verify", "HEAD"],
             capture_output=True,
             check=True,
+            cwd=_REPOSITORY_ROOT,
             text=True,
             timeout=2,
         )

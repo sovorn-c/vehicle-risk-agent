@@ -185,11 +185,7 @@ def test_report_rejects_fabricated_provenance_inputs() -> None:
 def test_report_rejects_modified_frozen_threshold_configuration() -> None:
     config = load_e12_evaluation_config()
     modified = config.model_copy(
-        update={
-            "thresholds": config.thresholds.model_copy(
-                update={"min_claim_support": 1.0}
-            )
-        }
+        update={"thresholds": config.thresholds.model_copy(update={"min_claim_support": 1.0})}
     )
 
     with pytest.raises(ValueError, match="frozen"):

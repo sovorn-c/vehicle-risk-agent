@@ -128,6 +128,8 @@ class InvestigationDispatcher:
                 revision_numbers = [item.revision_number for item in revisions]
                 if len(revision_numbers) != len(set(revision_numbers)):
                     raise ValueError("vehicle history response contains duplicate revisions")
+                if any(item.vin != vin for item in revisions):
+                    raise ValueError("vehicle history response does not match request")
                 history = tuple(
                     sorted(
                         revisions,
@@ -135,8 +137,6 @@ class InvestigationDispatcher:
                         reverse=True,
                     )[: self.history_limit]
                 )
-                if any(item.vin != vin for item in history):
-                    raise ValueError("vehicle history response does not match request")
                 history_result = VehicleHistoryResult(vin=vin, revisions=history)
                 return InvestigationResult(
                     action=typed.action,

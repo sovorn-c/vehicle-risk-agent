@@ -206,6 +206,26 @@ def _config_digest(config: E12EvaluationConfig) -> str:
     return sha256_bytes(config.model_dump_json(by_alias=True).encode("utf-8"))
 
 
+def _frozen_config_payload(config: E12EvaluationConfig) -> dict[str, Any]:
+    payload = config.model_dump(mode="json", by_alias=True)
+    for field in (
+        "provider",
+        "model",
+        "pricing_input_usd_per_million_tokens",
+        "pricing_output_usd_per_million_tokens",
+        "pricing_source_url",
+        "pricing_checked_at",
+    ):
+        payload.pop(field, None)
+    return payload
+
+
+def _validate_frozen_config(config: E12EvaluationConfig) -> None:
+    expected = load_e12_evaluation_config()
+    if _frozen_config_payload(config) != _frozen_config_payload(expected):
+        raise ValueError("configuration does not match frozen e12-eval-v1 inputs")
+
+
 def _judgments_digest(judgments: Sequence[Any] | None = None) -> str:
     """Digest supplied judgment values, or the tracked artifact when none are supplied."""
     if judgments:
@@ -709,6 +729,7 @@ def build_comparative_report(
     judgments_sha256: str | None = None,
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
+    _validate_frozen_config(config)
     expected_source_commit = resolve_source_commit()
     if source_commit is not None and source_commit != expected_source_commit:
         raise ValueError("source commit does not match the checked-out source")
@@ -737,7 +758,12 @@ def build_comparative_report(
     live_deterministic = [row for row in live if row.deterministic_risk_applicable]
     retrieval_rows = [row for row in rows if row.retrieval_applicable]
     citation_rows = [row for row in rows if row.citation_grounding_applicable]
-    claim_rows = [row for row in rows if row.claim_support_applicable]
+    claim_rows = [
+        row
+        for row in rows
+        if row.claim_support_applicable
+        and (execution_mode != "LIVE" or row.mode != ComparativeMode.OFFLINE_BASELINE)
+    ]
     abstention_rows = [row for row in rows if row.abstention_applicable]
     tool_rows = [row for row in rows if row.useful_tool_selection_applicable]
     all_latencies = [row.draft_latency_seconds for row in live]
@@ -788,11 +814,13 @@ def build_comparative_report(
         for overlay in config.comparable_shared_inputs
         for repeat in range(1, config.repeats + 1)
     }
-    expected_claim_ids = expected_offline_ids | {
+    expected_claim_ids = {
         (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
         for overlay in config.comparable_shared_inputs
         for repeat in range(1, config.repeats + 1)
     }
+    if execution_mode != "LIVE":
+        expected_claim_ids |= expected_offline_ids
     expected_retrieval_ids = {
         (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
         for overlay in config.comparable_shared_inputs

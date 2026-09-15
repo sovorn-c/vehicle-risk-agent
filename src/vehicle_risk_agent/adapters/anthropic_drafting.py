@@ -112,6 +112,8 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
     tests can patch it without ever constructing a live client.
     """
 
+    provider = "anthropic"
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-6",
