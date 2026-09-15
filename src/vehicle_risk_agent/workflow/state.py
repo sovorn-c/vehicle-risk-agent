@@ -10,6 +10,7 @@ from vehicle_risk_agent.domain.events import WorkflowProgressEvent
 from vehicle_risk_agent.evidence.models import SafeError
 from vehicle_risk_agent.evidence.snapshot import VehicleEvidenceSnapshot
 from vehicle_risk_agent.evidence.sufficiency import EvidenceSufficiencyResult
+from vehicle_risk_agent.investigation.models import InvestigationResult, ProviderUsage
 from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.reporting.models import ReportDraft
 from vehicle_risk_agent.risk.models import RiskResult
@@ -52,6 +53,9 @@ class AssessmentGraphState(TypedDict, total=False):
     events: Annotated[list[WorkflowProgressEvent], reduce_events]
     evidence_snapshot: VehicleEvidenceSnapshot | None
     sufficiency_result: EvidenceSufficiencyResult | None
+    investigation_enabled: bool
+    investigation_result: InvestigationResult | None
+    investigation_usage: ProviderUsage | None
     mcp_error: SafeError | None
     risk_result: RiskResult | None
     policy_citations: tuple[PolicyCitation, ...] | None

@@ -9,6 +9,7 @@ import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.persistence.models import (
     Base,
     PolicyPassageRecord,
@@ -18,8 +19,6 @@ from vehicle_risk_agent.persistence.models import (
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter, FakeRerankerAdapter
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
 from vehicle_risk_agent.retrieval.service import HybridRetrievalService
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

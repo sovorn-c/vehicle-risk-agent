@@ -82,9 +82,17 @@ class PinnedVersions(BaseModel):
     risk_policy_hash: str | None = Field(default=None, description="Active Risk Policy hash")
     mcp_contract_version: str = Field(default="v1", description="Pinned MCP contract version")
     model_version: str = Field(
-        default="claude-3-5-sonnet-20241022", description="Pinned drafting model version"
+        default="claude-sonnet-4-6", description="Pinned drafting model version"
     )
     prompt_version: str = Field(default="v1", description="Pinned prompt version")
+    index_version: str = Field(
+        default="pgvector-hnsw-v1", description="Pinned vector index version"
+    )
+    retrieval_version: str = Field(
+        default="retrieval-v1", description="Pinned retrieval implementation"
+    )
+    grader_version: str = Field(default="grader-v1", description="Pinned evaluation grader version")
+    code_version: str = Field(default="unknown", description="Pinned application code version")
 
 
 class ApproveReportCommand(BaseModel):

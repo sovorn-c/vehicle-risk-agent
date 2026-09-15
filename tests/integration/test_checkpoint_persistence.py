@@ -6,6 +6,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.mcp import (
     FakeVehicleMcpAdapter,
     StreamableHttpVehicleMcpAdapter,
@@ -21,8 +22,6 @@ from vehicle_risk_agent.evidence.models import (
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest.fixture

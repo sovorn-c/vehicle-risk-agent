@@ -1,0 +1,16 @@
+{
+  "publication_version": "e12-publication-v1",
+  "report_id": "e12-comparative-2026-09-15-26494",
+  "config_id": "e12-eval-v1",
+  "config_hash": "447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad",
+  "report_hash": "9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff",
+  "report_bytes_sha256": "b647dac2fb18dd8e8b7cfc8f3a24fcbb26afbe65ab4ccfab9d5bae8b15ae5e58",
+  "source_commit": "c2bb92d66557d0dbdbb5f29f9922d446790270b7",
+  "config_sha256": "18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd",
+  "judgments_sha256": "6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996",
+  "evaluation_input_sha256": "177cc9691dfa982e1ea9a6863dafbdb4682c4e0af1a6bcf82a88155ca51cc588",
+  "execution_mode": "BLOCKED",
+  "release_verdict": "BLOCKED",
+  "verdict_passed": false,
+  "synthetic_vehicle_evidence": true
+}

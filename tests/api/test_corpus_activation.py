@@ -7,11 +7,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.persistence.models import Base
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

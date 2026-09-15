@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.api.deps import get_db_session, get_mcp_adapter
@@ -27,7 +28,6 @@ from vehicle_risk_agent.evidence.snapshot import (
 )
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 OBSERVATION_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
 

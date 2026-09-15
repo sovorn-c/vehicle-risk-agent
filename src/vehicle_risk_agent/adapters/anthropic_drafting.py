@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -25,6 +25,7 @@ from vehicle_risk_agent.observability.telemetry import record_model_tokens
 from vehicle_risk_agent.reporting.models import (
     ClaimReference,
     ReportDraft,
+    compute_draft_hash,
 )
 from vehicle_risk_agent.reporting.protocol import (
     ReportDraftingContext,
@@ -110,6 +111,8 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
     All Anthropic API calls are routed through ``_call_anthropic_api`` so that
     tests can patch it without ever constructing a live client.
     """
+
+    provider = "anthropic"
 
     def __init__(
         self,
@@ -248,7 +251,9 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
         record_model_tokens(input_tokens, output_tokens, model=self.model)
 
         # Extract text block
-        text = message.content[0].text if message.content else ""
+        message_data = cast(Any, message)
+        content = getattr(message_data, "content", None)
+        text = getattr(content[0], "text", "") if content else ""
         return {
             "text": text,
             "input_tokens": input_tokens,
@@ -398,9 +403,17 @@ class AnthropicDraftingAdapter(ReportDraftingProtocol):
             **context.metadata,
         }
 
+        draft_hash = compute_draft_hash(
+            assessment_id=base_draft.assessment_id,
+            run_number=base_draft.run_number,
+            outcome=base_draft.outcome,
+            risk_result_id=base_draft.risk_result_id,
+            sections=new_sections,
+        )
         return base_draft.model_copy(
             update={
                 "sections": new_sections,
+                "draft_hash": draft_hash,
                 "metadata": metadata,
             }
         )

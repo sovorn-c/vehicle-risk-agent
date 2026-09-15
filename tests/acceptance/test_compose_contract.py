@@ -111,6 +111,9 @@ def test_compose_mcp_server_url_contract() -> None:
     assert mcp_url == "http://mcp:8080/mcp", (
         f"MCP_SERVER_URL in compose.yaml must be http://mcp:8080/mcp, got: {mcp_url}"
     )
+    mcp_env = data.get("services", {}).get("mcp", {}).get("environment", {})
+    assert "localhost" in mcp_env.get("VEHICLE_MCP_ALLOWED_HOSTS", "").split(",")
+    assert "localhost:8080" in mcp_env.get("VEHICLE_MCP_ALLOWED_HOSTS", "").split(",")
 
 
 def test_quickstart_compose_uses_hosted_mcp_without_sibling_repositories() -> None:

@@ -405,6 +405,51 @@ class ReportDraftRecord(Base):
     )
 
 
+class InvestigationLedgerRecord(Base):
+    """Durable budget, reservation, and recovery state for one run."""
+
+    __tablename__ = "investigation_ledgers"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "run_number", name="uq_investigation_ledger_run"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    assessment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    vin: Mapped[str] = mapped_column(String(17), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="READY")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    proposal_rounds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    supplementary_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    supplementary_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    projected_cost: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    actual_cost: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    current_request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    references_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    result_data_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    limits_json: Mapped[str] = mapped_column(Text, nullable=False)
+    pins_json: Mapped[str] = mapped_column(Text, nullable=False)
+    intent_questions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    intent_targets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    prior_report_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+
 class ReviewActionRecord(Base):
     """Authoritative persistent record for an immutable Review Action per Report Draft."""
 

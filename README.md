@@ -50,7 +50,7 @@ The Agent never queries the Pipeline API or database directly. MCP is its only v
 
 - **Evidence sufficiency before scoring:** Missing or conflicting required evidence produces an explicit incomplete outcome. It is never interpreted as clean.
 - **Deterministic risk calculation:** Versioned Python rules own the score, band, components, thresholds, and calculation hash. An LLM cannot change them.
-- **Policy RAG with abstention:** BM25 and pgvector retrieval use Reciprocal Rank Fusion. Weak retrieval returns no citation instead of inventing one.
+- **Policy RAG with abstention:** PostgreSQL full-text search and pgvector retrieval use Reciprocal Rank Fusion. Weak retrieval returns no citation instead of inventing one.
 - **Grounded report drafting:** Model and offline adapters can explain evidence and policy, but every analytical claim must remain attributable.
 - **Human-controlled release:** A report cannot leave `AWAITING_REVIEW` without an authorized approve, reject, or reinvestigate action.
 
@@ -85,7 +85,7 @@ flowchart TB
         direction LR
         API[FastAPI boundary<br/>auth, roles, rate limits, idempotency] --> GRAPH[Typed LangGraph workflow]
         GRAPH --> EVIDENCE[Evidence sufficiency]
-        EVIDENCE --> POLICY[Policy retrieval<br/>BM25 + pgvector + abstention]
+        EVIDENCE --> POLICY[Policy retrieval<br/>PostgreSQL FTS + pgvector + abstention]
         POLICY --> RISK[Deterministic risk engine]
         RISK --> DRAFT[Grounded report draft]
         DRAFT --> REVIEW[AWAITING_REVIEW]
@@ -224,6 +224,48 @@ curl -f http://localhost:8001/health
 curl -f http://localhost:8001/ready
 ```
 
+## Measured AI quality
+
+The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
+
+All vehicle evidence remains synthetic and the e11 Gemini live-validation gate remains a separate release blocker. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad`.
+The current blocked artifact is bound to source
+`c2bb92d66557d0dbdbb5f29f9922d446790270b7`, configuration
+`18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd`,
+judgments `6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996`,
+evaluation input `177cc9691dfa982e1ea9a6863dafbdb4682c4e0af1a6bcf82a88155ca51cc588`,
+report bytes `b647dac2fb18dd8e8b7cfc8f3a24fcbb26afbe65ab4ccfab9d5bae8b15ae5e58`,
+and report hash `9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff`.
+
+| Versioned artifact | Coverage | Published verdict |
+| --- | --- | --- |
+| `e12-eval-v1` offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — not live evidence |
+| `e12-eval-v1` live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
+
+Run the real, credential-gated walkthrough only when the operator has approved paid execution:
+
+```bash
+GEMINI_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
+  bash scripts/demo-measured-quality.sh
+# Optional explicit alternate:
+E12_PROVIDER=anthropic ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
+  bash scripts/demo-measured-quality.sh
+```
+
+For a deterministic control artifact, use the explicit offline command. It intentionally exits non-zero and writes `release_verdict: BLOCKED`:
+
+```bash
+uv run python -m vehicle_risk_agent.evaluation.live \\
+  --suite e12-comparative --offline \\
+  --output-file artifacts/e12-offline-control.json
+```
+
+The script also writes an artifact-bound publication pointer. It copies the report
+`source_commit`, `config_sha256`, `judgments_sha256`, `evaluation_input_sha256`,
+`report_bytes_sha256`, `config_hash`, `run_hash`, and verdict, and refuses a
+mismatched report/publication pair. The result is a measurement artifact, not a
+purchase, legal, financial, mechanical, insurance, or safety decision.
+
 ## API reference
 
 The API uses role-based bearer tokens, strict request schemas, and idempotency keys on mutating routes.
@@ -287,7 +329,7 @@ curl -X POST http://localhost:8001/api/v1/assessments \
 
 ## Verification
 
-Run the complete seven-stage local gate:
+Run the complete eight-stage local gate:
 
 ```bash
 bash scripts/check.sh
@@ -350,7 +392,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 - All PPSR, stolen, write-off, dealer, and assessment outcomes are synthetic.
 - The system does not connect to live NZTA, PPSR, Police, insurer, dealer, or other restricted-register services.
 - Hosted MCP availability has no SLA; full-local Compose is the authoritative evaluation path.
-- Offline drafting is the default. Live Anthropic drafting is optional and does not own scoring or workflow transitions.
+- Offline drafting is the default for ordinary assessments. E12 live drafting defaults to Gemini; explicit live Anthropic drafting remains optional and neither provider owns scoring or workflow transitions.
 
 ## Troubleshooting
 
@@ -359,7 +401,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 | Hosted MCP probe fails | Run `bash scripts/smoke-local.sh` with the full-local Compose stack |
 | `pgvector` extension is missing | Verify the database container uses `pgvector/pgvector:pg16` |
 | Port `54329` is occupied | Free the port or update `.env` and the Compose mapping |
-| Report uses offline drafting | Set `ANTHROPIC_API_KEY` only when live drafting is required |
+| Report uses offline drafting | Set the selected provider credential only when live drafting is required (`GEMINI_API_KEY` for E12 by default) |
 | Agent API is unhealthy | Run `docker compose logs agent-api` and verify migrations and dependency health |
 
 ## Cleanup

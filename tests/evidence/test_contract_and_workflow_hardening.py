@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.mcp import (
     FakeVehicleMcpAdapter,
     McpAdapterError,
@@ -56,8 +57,6 @@ from vehicle_risk_agent.evidence.sufficiency import (
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.models import Base, VehicleEvidenceSnapshotRecord
 from vehicle_risk_agent.workflow.runner import AssessmentRunner
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture
@@ -438,7 +437,7 @@ async def test_field_explanation_failure_fails_run_instead_of_completing() -> No
 
 def test_unconfigured_mcp_adapter_is_unavailable_not_fake() -> None:
     """Application wiring must fail closed when no MCP endpoint is configured."""
-    app = create_app(settings=Settings())
+    app = create_app(settings=Settings(mcp_server_url=None))
     assert isinstance(app.state.mcp_adapter, UnavailableVehicleMcpAdapter)
 
 

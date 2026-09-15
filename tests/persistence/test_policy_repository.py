@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.persistence.models import (
     Base,
     PolicyCorpusRecord,
@@ -24,8 +25,6 @@ from vehicle_risk_agent.persistence.policy_repository import PolicyRepository
 from vehicle_risk_agent.policy.ingestion import ingest_policy_source
 from vehicle_risk_agent.policy.models import AuthorityClassification, PolicySource
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

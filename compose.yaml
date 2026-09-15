@@ -73,7 +73,7 @@ services:
       VEHICLE_MCP_HTTP_HOST: 0.0.0.0
       VEHICLE_MCP_HTTP_PORT: 8080
       VEHICLE_MCP_ALLOW_INSECURE_BIND: "true"
-      VEHICLE_MCP_ALLOWED_HOSTS: mcp,mcp:8080
+      VEHICLE_MCP_ALLOWED_HOSTS: localhost,localhost:8080,mcp,mcp:8080
       VEHICLE_MCP_PIPELINE_BASE_URL: http://pipeline:8000
     ports:
       - "8080:8080"

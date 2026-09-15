@@ -30,6 +30,7 @@ def test_retrieval_configuration_defaults() -> None:
     assert config.rerank_candidate_cap == 20
     assert config.final_passage_cap == 5
     assert config.minimum_reranker_score == 0.35
+    assert config.minimum_relative_reranker_score == 0.8
 
 
 def test_manifest_hash_differs_when_retrieval_profile_or_revision_changes() -> None:
@@ -69,6 +70,15 @@ def test_manifest_hash_differs_when_retrieval_profile_or_revision_changes() -> N
         retrieval_config=RetrievalConfiguration(reranker_revision="rev-b"),
     )
     assert diff_reranker_rev.manifest_hash != base_manifest.manifest_hash
+
+    diff_relative_threshold = build_corpus_manifest(
+        corpus_id="corpus-v1",
+        name="Base",
+        description="Desc",
+        snapshot_ids=snapshot_ids,
+        retrieval_config=RetrievalConfiguration(minimum_relative_reranker_score=0.9),
+    )
+    assert diff_relative_threshold.manifest_hash != base_manifest.manifest_hash
 
 
 def test_corpus_manifest_creation_and_hash() -> None:

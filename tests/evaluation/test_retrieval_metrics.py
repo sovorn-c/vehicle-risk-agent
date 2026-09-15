@@ -3,13 +3,18 @@
 # story: e06s03
 # task: e06s03-t02
 
+from types import SimpleNamespace
+
 import pytest
 
 from vehicle_risk_agent.evaluation.retrieval import (
+    RetrievalEvaluationDataset,
     RetrievalMetricsEvaluator,
     RetrievalMetricsResult,
     RetrievalMetricsThresholds,
+    RetrievalQueryLabel,
     build_seeded_retrieval_service,
+    compute_query_metrics,
     get_seeded_retrieval_dataset,
 )
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
@@ -100,6 +105,112 @@ async def test_failure_when_citation_identity_is_missing() -> None:
 
     evaluator = RetrievalMetricsEvaluator(service=EmptyCitationService())
     result = await evaluator.evaluate_dataset(dataset)
+
+    assert result.citation_identity_accuracy == pytest.approx(2 / 12, abs=0.0001)
+    assert result.passed is False
+
+
+def test_precision_at_five_uses_returned_top_k_denominator() -> None:
+    metric = compute_query_metrics(
+        label=RetrievalQueryLabel(
+            query_id="q-test",
+            query="statutory write-off",
+            relevant_passage_ids=("gold",),
+            required_citation_ids=("gold",),
+        ),
+        retrieved_passage_ids=["wrong", "gold", "wrong"],
+        retrieved_citation_ids=["gold"],
+        is_abstention=False,
+    )
+
+    assert metric.precision_at_5 == pytest.approx(1 / 3, abs=0.0001)
+
+
+def test_query_metrics_rejects_inconsistent_answer_labels_and_duplicate_hits() -> None:
+    answered_without_gold = compute_query_metrics(
+        label=RetrievalQueryLabel(
+            query_id="q-invalid",
+            query="unlabelled answer",
+            relevant_passage_ids=(),
+        ),
+        retrieved_passage_ids=["gold"],
+        retrieved_citation_ids=["gold"],
+        is_abstention=False,
+    )
+    duplicated_gold = compute_query_metrics(
+        label=RetrievalQueryLabel(
+            query_id="q-duplicate",
+            query="duplicated answer",
+            relevant_passage_ids=("gold",),
+        ),
+        retrieved_passage_ids=["gold", "gold"],
+        retrieved_citation_ids=["gold"],
+        is_abstention=False,
+    )
+
+    assert answered_without_gold.recall_at_5 == 0.0
+    assert answered_without_gold.precision_at_5 == 0.0
+    assert answered_without_gold.reciprocal_rank == 0.0
+    assert answered_without_gold.citation_grounding_correct is False
+    assert duplicated_gold.recall_at_5 == 1.0
+    assert duplicated_gold.precision_at_5 == 0.5
+
+
+@pytest.mark.asyncio
+async def test_retrieval_gate_does_not_pass_without_answered_queries() -> None:
+    dataset = RetrievalEvaluationDataset(
+        dataset_id="no-answer-only",
+        corpus_version="test",
+        queries=(
+            RetrievalQueryLabel(
+                query_id="q-no-answer",
+                query="unsupported topic",
+                is_no_answer=True,
+            ),
+        ),
+        passages=(),
+    )
+
+    class AbstainingService:
+        async def retrieve(self, query: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                query=query,
+                citations=[],
+                is_abstention=True,
+            )
+
+    result = await RetrievalMetricsEvaluator(AbstainingService()).evaluate_dataset(dataset)
+
+    assert result.context_recall_at_5 == 0.0
+    assert result.context_precision_at_5 == 0.0
+    assert result.mrr == 0.0
+    assert result.passed is False
+
+
+@pytest.mark.asyncio
+async def test_no_answer_citation_error_counts_in_citation_gate() -> None:
+    dataset = RetrievalEvaluationDataset(
+        dataset_id="no-answer-citation",
+        corpus_version="test",
+        queries=(
+            RetrievalQueryLabel(
+                query_id="q-no-answer",
+                query="unsupported topic",
+                is_no_answer=True,
+            ),
+        ),
+        passages=(),
+    )
+
+    class LeakingService:
+        async def retrieve(self, query: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                query=query,
+                citations=[SimpleNamespace(passage_id="wrong")],
+                is_abstention=False,
+            )
+
+    result = await RetrievalMetricsEvaluator(LeakingService()).evaluate_dataset(dataset)
 
     assert result.citation_identity_accuracy == 0.0
     assert result.passed is False

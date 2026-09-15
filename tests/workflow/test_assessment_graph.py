@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.mcp import FakeVehicleMcpAdapter
 from vehicle_risk_agent.api.models import AssessmentContext, SaleType
 from vehicle_risk_agent.domain.assessment import AssessmentRunPhase
@@ -168,7 +169,7 @@ async def test_graph_execution_persists_events_to_event_store_when_configured(
     from vehicle_risk_agent.persistence.models import Base
     from vehicle_risk_agent.persistence.repository import AssessmentRepository
 
-    db_url = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
+    db_url = TEST_DB_URL
     engine = create_async_engine(db_url, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

@@ -1,13 +1,13 @@
 """Tests for Policy Corpus state transitions, validation, and single-active-corpus invariant."""
 
 # story: e02s02
-
 from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.persistence.policy_repository import PolicyRepository
 from vehicle_risk_agent.policy.corpus_lifecycle import (
@@ -23,8 +23,6 @@ from vehicle_risk_agent.policy.models import (
     PolicySource,
 )
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

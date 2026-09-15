@@ -1,7 +1,6 @@
 """Tests for SSE event streaming, replay, authorization, and heartbeats."""
 
 # story: e01s02
-
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -13,6 +12,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.api.routes import stream_assessment_events
 from vehicle_risk_agent.auth import Principal, Role
@@ -22,8 +22,6 @@ from vehicle_risk_agent.domain.events import WorkflowProgressEvent
 from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.models import Base
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

@@ -114,3 +114,21 @@ def test_ci_database_url_and_driver_contract() -> None:
     )
     assert "asyncpg" not in content, "CI must not reference uninstalled asyncpg driver"
     assert "psycopg" in content, "CI must use psycopg driver matching pyproject.toml"
+
+
+def test_release_inputs_and_coverage_gate_are_declared() -> None:
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    pyproject = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
+    preflight = (repo_root / "scripts" / "check.sh").read_text(encoding="utf-8")
+
+    assert "pytest-cov" in pyproject
+    assert "--cov=" in preflight
+    assert "--cov-branch" in preflight
+    assert "--cov-fail-under=" in preflight
+
+    for relative_path in (
+        "artifacts/e12/e12-eval-v1.yaml",
+        "artifacts/e12/e12-semantic-judgments.yaml",
+    ):
+        path = repo_root / relative_path
+        assert path.is_file(), f"missing tracked E12 release input: {relative_path}"

@@ -141,6 +141,9 @@ class UnavailableVehicleMcpAdapter:
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
+_EXPECTED_MCP_SERVER_NAME = "vehicle-intelligence-mcp"
+_EXPECTED_MCP_SERVER_VERSION = "0.3.0"
+
 
 class StreamableHttpVehicleMcpAdapter:
     """Official MCP client adapter for the Vehicle Intelligence Streamable HTTP server."""
@@ -157,6 +160,19 @@ class StreamableHttpVehicleMcpAdapter:
         self.max_retries = max_retries
         self.initial_backoff = initial_backoff
 
+    @staticmethod
+    def validate_server_identity(server_info: types.Implementation | None) -> None:
+        """Reject MCP sessions that do not identify the expected upstream server."""
+        if (
+            server_info is None
+            or server_info.name != _EXPECTED_MCP_SERVER_NAME
+            or server_info.version != _EXPECTED_MCP_SERVER_VERSION
+        ):
+            raise McpAdapterError(
+                category=SafeErrorCategory.PIPELINE_CONTRACT_ERROR,
+                message="MCP server identity does not match the Vehicle Intelligence contract",
+            )
+
     async def _call_once(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         with trace_boundary("mcp.call_tool", boundary="mcp", tool=tool_name):
             async with (
@@ -167,7 +183,8 @@ class StreamableHttpVehicleMcpAdapter:
                     read_timeout_seconds=self.timeout_seconds,
                 ) as session,
             ):
-                await session.initialize()
+                initialization = await session.initialize()
+                self.validate_server_identity(initialization.server_info)
                 return await session.call_tool(
                     tool_name,
                     arguments=arguments,
@@ -220,9 +237,12 @@ class StreamableHttpVehicleMcpAdapter:
                 message="MCP result did not contain structured JSON",
             ) from None
 
-    async def _call_with_retry(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    async def _call_with_retry(
+        self, tool_name: str, arguments: dict[str, Any], retry_limit: int | None = None
+    ) -> Any:
         backoff = self.initial_backoff
-        for attempt in range(self.max_retries + 1):
+        retries = self.max_retries if retry_limit is None else min(max(retry_limit, 0), 2)
+        for attempt in range(retries + 1):
             try:
                 result = await asyncio.wait_for(
                     self._call_once(tool_name, arguments), timeout=self.timeout_seconds
@@ -231,17 +251,17 @@ class StreamableHttpVehicleMcpAdapter:
             except asyncio.CancelledError:
                 raise
             except McpAdapterError as exc:
-                if not exc.retryable or attempt == self.max_retries:
+                if not exc.retryable or attempt == retries:
                     raise
             except TimeoutError as exc:
-                if attempt == self.max_retries:
+                if attempt == retries:
                     raise McpAdapterError(
                         category=SafeErrorCategory.PIPELINE_TIMEOUT,
                         message="MCP call timed out",
                         retryable=True,
                     ) from exc
             except Exception as exc:
-                if attempt == self.max_retries:
+                if attempt == retries:
                     raise McpAdapterError(
                         category=SafeErrorCategory.PIPELINE_UNAVAILABLE,
                         message="MCP transport failed",
@@ -252,6 +272,12 @@ class StreamableHttpVehicleMcpAdapter:
             backoff *= 2.0
 
         raise AssertionError("MCP retry loop exhausted without a result")
+
+    async def bounded_investigation_call(
+        self, tool_name: str, arguments: dict[str, Any], max_retries: int = 2
+    ) -> Any:
+        """Run a supplementary MCP call under the final retry ceiling."""
+        return await self._call_with_retry(tool_name, arguments, retry_limit=max_retries)
 
     @staticmethod
     def _require_contract(condition: bool) -> None:

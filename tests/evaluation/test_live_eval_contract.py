@@ -16,6 +16,7 @@ from vehicle_risk_agent.evaluation.live import (
     LiveEvaluationCorpusError,
     LiveEvaluationCredentialsError,
     LiveEvaluationRunner,
+    main,
 )
 
 
@@ -90,9 +91,42 @@ def test_security_isolation_no_key_leaked_in_repr_or_errors() -> None:
     assert sensitive_key not in dump
 
 
+def test_cli_sanitizes_unexpected_live_execution_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import asyncio
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(LiveEvaluationRunner, "validate_readiness", lambda _runner: None)
+
+    def fail_without_leaking(coro: object) -> object:
+        if hasattr(coro, "close"):
+            coro.close()
+        raise RuntimeError("provider secret and stack details")
+
+    monkeypatch.setattr(asyncio, "run", fail_without_leaking)
+
+    assert main(["--enable-live-eval", "--no-require-neural-corpus"]) == 1
+
+    captured = capsys.readouterr()
+    assert "LIVE_EXECUTION_FAILED" in captured.err
+    assert "provider secret" not in captured.err
+
+
+def test_e12_config_defaults_to_gemini_without_changing_general_defaults() -> None:
+    general = LiveEvaluationConfig()
+    e12 = LiveEvaluationConfig(suite="e12-comparative")
+
+    assert general.provider == "anthropic"
+    assert general.model == "claude-sonnet-4-6"
+    assert e12.provider == "gemini"
+    assert e12.model == "gemini-3.1-flash-lite"
+
+
 def test_live_evaluation_config_provider_bounds() -> None:
-    """Config enforces claude-sonnet-4-6 default, 2048 token cap, 30s timeout, 1 repair."""
+    """Config enforces Anthropic defaults and bounded live evaluation settings."""
     config = LiveEvaluationConfig()
+    assert config.provider == "anthropic"
     assert config.model == "claude-sonnet-4-6"
     assert config.max_output_tokens == 2048
     assert config.timeout_seconds == 30.0
@@ -263,10 +297,17 @@ def test_cli_main_refuses_without_consent(capsys: pytest.CaptureFixture[str]) ->
     assert "Live evaluation refused" in captured.err
 
 
-def test_cli_main_refuses_when_active_corpus_missing(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_main_refuses_when_active_corpus_missing(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """CLI exits with error code 1 when active neural corpus is missing."""
     from vehicle_risk_agent.evaluation.live import main
+    from vehicle_risk_agent.policy.corpus_lifecycle import CorpusLifecycleManager
 
+    async def no_active_corpus(_self: CorpusLifecycleManager) -> None:
+        return None
+
+    monkeypatch.setattr(CorpusLifecycleManager, "get_active_corpus", no_active_corpus)
     code = main(["--enable-live-eval", "--api-key", "sk-ant-test-key", "--dry-run"])
     assert code == 1
     captured = capsys.readouterr()
@@ -311,3 +352,84 @@ def test_cli_main_dry_run_with_active_corpus(capsys: pytest.CaptureFixture[str])
         assert code == 0
         captured = capsys.readouterr()
         assert "validated successfully (dry run)" in captured.out
+
+
+def test_cli_main_gemini_dry_run_uses_gemini_defaults(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI selects Gemini's model and environment credential for E11 dry runs."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from vehicle_risk_agent.evaluation.live import main
+
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-key")
+    monkeypatch.setenv("MCP_SERVER_URL", "http://localhost:8080/mcp")
+    valid_corpus = SimpleNamespace(
+        lifecycle_state="ACTIVE",
+        retrieval_config=SimpleNamespace(profile="neural"),
+    )
+    with patch(
+        "vehicle_risk_agent.policy.corpus_lifecycle.CorpusLifecycleManager.get_active_corpus",
+        new_callable=AsyncMock,
+    ) as mock_get:
+        mock_get.return_value = valid_corpus
+        code = main(
+            [
+                "--enable-live-eval",
+                "--suite",
+                "e11-investigation",
+                "--provider",
+                "gemini",
+                "--max-budget-usd",
+                "3.0",
+                "--dry-run",
+            ]
+        )
+    assert code == 0
+    assert "gemini-3.1-flash-lite" in capsys.readouterr().out
+
+
+def test_cli_main_e12_defaults_to_gemini(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """E12 selects Gemini when no provider flag is supplied."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from vehicle_risk_agent.evaluation.live import main
+
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-key")
+    monkeypatch.setenv("MCP_SERVER_URL", "http://localhost:8080/mcp")
+    corpus = SimpleNamespace(
+        lifecycle_state="ACTIVE",
+        retrieval_config=SimpleNamespace(profile="neural"),
+    )
+    with patch(
+        "vehicle_risk_agent.policy.corpus_lifecycle.CorpusLifecycleManager.get_active_corpus",
+        new_callable=AsyncMock,
+        return_value=corpus,
+    ):
+        code = main(["--enable-live-eval", "--suite", "e12-comparative", "--dry-run"])
+
+    assert code == 0
+    assert "gemini-3.1-flash-lite" in capsys.readouterr().out
+
+
+def test_cli_main_gemini_rejects_key_argument(capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI does not permit credential values on the E11 command line."""
+    from vehicle_risk_agent.evaluation.live import main
+
+    code = main(
+        [
+            "--enable-live-eval",
+            "--suite",
+            "e11-investigation",
+            "--provider",
+            "gemini",
+            "--api-key",
+            "secret",
+        ]
+    )
+    assert code == 1
+    assert "GEMINI_API_KEY" in capsys.readouterr().err

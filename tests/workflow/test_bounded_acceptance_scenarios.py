@@ -14,7 +14,6 @@ Asserts:
 # scenario: SC-e10s03-P0-02
 # scenario: SC-e10s03-P1-03
 # scenario: SC-e10s03-P1-04
-
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -28,6 +27,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_URL
 from vehicle_risk_agent.adapters.anthropic_drafting import (
     AnthropicDraftingAdapter,
     DraftingFailureError,
@@ -65,8 +65,6 @@ from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 from vehicle_risk_agent.risk.service import RiskPolicyService
 from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
-
-TEST_DB_URL = "postgresql+psycopg://postgres:postgres@localhost:54329/postgres"
 
 
 @pytest_asyncio.fixture

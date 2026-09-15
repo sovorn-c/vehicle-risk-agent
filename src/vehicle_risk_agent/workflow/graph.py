@@ -1,5 +1,8 @@
 """LangGraph workflow definition for Assessment Runs."""
 
+import hashlib
+import json
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
@@ -18,18 +21,31 @@ from vehicle_risk_agent.evidence.models import (
     VehicleRevisionResponse,
 )
 from vehicle_risk_agent.evidence.parallel import explain_fields_in_parallel
-from vehicle_risk_agent.evidence.snapshot import create_evidence_snapshot
+from vehicle_risk_agent.evidence.snapshot import (
+    VehicleEvidenceSnapshot,
+    create_evidence_snapshot,
+)
 from vehicle_risk_agent.evidence.sufficiency import (
     REQUIRED_EVIDENCE_FIELDS,
     SufficiencyOutcome,
     evaluate_evidence_sufficiency,
 )
+from vehicle_risk_agent.investigation.context import build_investigation_context
+from vehicle_risk_agent.investigation.dispatcher import InvestigationDispatcher
+from vehicle_risk_agent.investigation.models import (
+    ALLOWED_EVIDENCE_TARGETS,
+    InvestigationLimitation,
+    InvestigationResult,
+    VehicleHistoryResult,
+)
+from vehicle_risk_agent.investigation.protocol import InvestigationProvider
+from vehicle_risk_agent.investigation.repository import InvestigationLedgerStatus
 from vehicle_risk_agent.observability.telemetry import (
     record_model_tokens,
     trace_boundary,
 )
 from vehicle_risk_agent.reporting.offline import OfflineReportDraftingAdapter
-from vehicle_risk_agent.reporting.protocol import ReportDraftingContext
+from vehicle_risk_agent.reporting.protocol import EvidenceItem, ReportDraftingContext
 from vehicle_risk_agent.risk.calculator import calculate_risk_result
 from vehicle_risk_agent.risk.models import RiskPolicy, build_risk_policy_v1
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
@@ -181,6 +197,307 @@ async def node_evaluating_sufficiency(
     }
 
 
+async def node_investigating(
+    state: AssessmentGraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Run optional bounded supplementary investigation after mandatory evidence."""
+    progress = await _emit_progress(
+        state,
+        AssessmentRunPhase.INVESTIGATING,
+        "Running bounded supplementary investigation",
+        config,
+    )
+    configurable = config.get("configurable", {}) if config else {}
+    provider: InvestigationProvider | None = configurable.get("investigation_provider")
+    dispatcher = configurable.get("investigation_dispatcher")
+    snapshot = state.get("evidence_snapshot")
+    ledger = configurable.get("investigation_ledger")
+    if provider is None or snapshot is None:
+        return {**progress, "investigation_result": None}
+    if ledger is None:
+        return {
+            **progress,
+            "investigation_result": InvestigationResult(
+                summary="Supplementary investigation was not completed.",
+                limitation=InvestigationLimitation(
+                    code="INVESTIGATION_LEDGER_UNAVAILABLE",
+                    message="The supplementary investigation ledger was unavailable.",
+                ),
+                completed=False,
+                dispatched=False,
+            ),
+        }
+    if dispatcher is None:
+        vehicle = configurable.get("mcp_adapter")
+        policy = configurable.get("retrieval_service")
+        if vehicle is None or policy is None:
+            return {
+                **progress,
+                "investigation_result": InvestigationResult(
+                    summary="Supplementary investigation was not completed.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_UNAVAILABLE",
+                        message="The supplementary investigation boundary was unavailable.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                ),
+            }
+        dispatcher = InvestigationDispatcher(vehicle=vehicle, policy=policy)
+    revision = VehicleRevisionResponse(
+        vin=snapshot.vin,
+        revision_id=snapshot.revision_id,
+        revision_number=snapshot.revision_number,
+        material_hash=snapshot.material_hash,
+        canonical_fields=dict(snapshot.canonical_fields),
+        field_provenance=dict(snapshot.field_provenance),
+        conflicts=tuple(snapshot.conflicts),
+        confidence=snapshot.confidence,
+        as_of=snapshot.as_of,
+        published_at=snapshot.published_at,
+        synthetic_notice=snapshot.synthetic_notice,
+    )
+    configured_targets = tuple(configurable.get("investigation_targets", ()))
+    evidence_targets = (
+        configured_targets
+        or tuple(
+            field_name
+            for field_name in snapshot.canonical_fields
+            if field_name in ALLOWED_EVIDENCE_TARGETS
+        )[:5]
+    )
+    context = build_investigation_context(
+        revision=revision,
+        questions=state["context"].questions,
+        evidence_targets=evidence_targets,
+        prior_results=tuple(snapshot.field_explanations.values()),
+    )
+    provider_usage = None
+    reservation_hash: str | None = None
+    existing = None
+    if ledger is not None:
+        existing = await ledger.get_ledger(state["assessment_id"], state["run_number"])
+        if existing is None:
+            return {
+                **progress,
+                "investigation_result": InvestigationResult(
+                    summary="Supplementary investigation was not completed.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_LEDGER_UNAVAILABLE",
+                        message="The supplementary investigation ledger was unavailable.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                ),
+            }
+        limits = existing.limits
+        if existing is not None and existing.status == InvestigationLedgerStatus.COMPLETED:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
+            from vehicle_risk_agent.investigation.models import InvestigationAction
+
+            replay_action = (
+                InvestigationAction(existing.result_action) if existing.result_action else None
+            )
+            result = InvestigationResult(
+                action=replay_action,
+                summary=existing.result_summary or "Supplementary investigation completed.",
+                references=existing.references,
+                completed=True,
+                dispatched=existing.result_action is not None,
+            )
+            return {**progress, "investigation_result": result}
+        if existing is not None and existing.status == InvestigationLedgerStatus.INDETERMINATE:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
+            result = InvestigationResult(
+                summary="Supplementary investigation stopped after an indeterminate external call.",
+                references=existing.references,
+                limitation=InvestigationLimitation(
+                    code="INDETERMINATE_EXTERNAL_CALL",
+                    message="The result of an interrupted external call cannot be safely replayed.",
+                ),
+                completed=False,
+                dispatched=True,
+            )
+            return {**progress, "investigation_result": result}
+        if existing is not None and existing.status == InvestigationLedgerStatus.EXHAUSTED:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
+            result = InvestigationResult(
+                summary="Supplementary investigation limit was exhausted.",
+                limitation=InvestigationLimitation(
+                    code="INVESTIGATION_LIMIT",
+                    message="The bounded investigation budget was exhausted.",
+                ),
+                completed=False,
+                dispatched=False,
+            )
+            return {**progress, "investigation_result": result}
+    try:
+        if ledger is not None:
+            proposal_reservation = await ledger.reserve_proposal(
+                state["assessment_id"], state["run_number"]
+            )
+            if proposal_reservation.status != InvestigationLedgerStatus.COUNTING:
+                result = InvestigationResult(
+                    summary="Supplementary investigation limit was exhausted.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_LIMIT",
+                        message="The bounded investigation budget was exhausted.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                )
+                return {**progress, "investigation_result": result}
+        provider_result = await provider.propose(context)
+        provider_usage = provider_result.usage
+        if ledger is not None:
+            proposal_completed = await ledger.complete_proposal(
+                state["assessment_id"],
+                state["run_number"],
+                provider_usage.input_tokens,
+                provider_usage.output_tokens,
+            )
+            if proposal_completed.status != InvestigationLedgerStatus.READY:
+                result = InvestigationResult(
+                    summary="Supplementary investigation limit was exhausted.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_TOKEN_LIMIT",
+                        message="The bounded model token budget was exhausted.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                )
+                return {
+                    **progress,
+                    "investigation_result": result,
+                    "investigation_usage": provider_usage,
+                }
+            if provider_result.proposal.kind == "NO_ACTION":
+                result = await dispatcher.dispatch(
+                    snapshot.vin,
+                    provider_result.proposal,
+                    current_revision=snapshot.revision_number,
+                )
+                if ledger is not None:
+                    await ledger.complete_no_action(
+                        state["assessment_id"],
+                        state["run_number"],
+                        result.summary,
+                        result=result,
+                    )
+                return {
+                    **progress,
+                    "investigation_result": result,
+                    "investigation_usage": provider_usage,
+                }
+            reservation_hash = hashlib.sha256(
+                json.dumps(
+                    provider_result.proposal.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            action_reservation = await ledger.reserve_action(
+                state["assessment_id"],
+                state["run_number"],
+                reservation_hash,
+                float(
+                    limits.projected_cost(
+                        provider_usage.input_tokens,
+                        provider_usage.output_tokens,
+                    )
+                ),
+            )
+            if action_reservation.status != InvestigationLedgerStatus.ACTION_IN_FLIGHT:
+                result = InvestigationResult(
+                    summary="Supplementary investigation limit was exhausted.",
+                    limitation=InvestigationLimitation(
+                        code="INVESTIGATION_LIMIT",
+                        message="The bounded investigation budget was exhausted.",
+                    ),
+                    completed=False,
+                    dispatched=False,
+                )
+                return {
+                    **progress,
+                    "investigation_result": result,
+                    "investigation_usage": provider_usage,
+                }
+        result = await dispatcher.dispatch(
+            snapshot.vin,
+            provider_result.proposal,
+            current_revision=snapshot.revision_number,
+        )
+        retry_count = 0
+        if (
+            ledger is not None
+            and reservation_hash is not None
+            and result.limitation is not None
+            and result.limitation.code == "UPSTREAM_UNAVAILABLE"
+        ):
+            retry_cost = float(
+                limits.projected_cost(
+                    provider_usage.input_tokens,
+                    provider_usage.output_tokens,
+                )
+            )
+            for _ in range(limits.max_supplementary_retries):
+                retry_reservation = await ledger.reserve_retry(
+                    state["assessment_id"],
+                    state["run_number"],
+                    reservation_hash,
+                    retry_cost,
+                )
+                if retry_reservation.status != InvestigationLedgerStatus.ACTION_IN_FLIGHT:
+                    break
+                retry_count += 1
+                result = await dispatcher.dispatch(
+                    snapshot.vin,
+                    provider_result.proposal,
+                    current_revision=snapshot.revision_number,
+                )
+                if result.completed:
+                    break
+
+        if ledger is not None and reservation_hash is not None:
+            await ledger.complete_action(
+                state["assessment_id"],
+                state["run_number"],
+                reservation_hash,
+                float(
+                    limits.projected_cost(
+                        provider_usage.input_tokens,
+                        provider_usage.output_tokens,
+                    )
+                )
+                * (retry_count + 1),
+                result.summary,
+                result.references,
+                action=result.action.value if result.action else None,
+                result=result,
+            )
+    except Exception:
+        if ledger is not None:
+            with suppress(Exception):
+                await ledger.recover_inflight(state["assessment_id"], state["run_number"])
+        result = InvestigationResult(
+            summary="Supplementary investigation was not completed.",
+            limitation=InvestigationLimitation(
+                code="INVESTIGATION_UNAVAILABLE",
+                message="The optional investigation provider was unavailable.",
+            ),
+            completed=False,
+            dispatched=False,
+        )
+    return {
+        **progress,
+        "investigation_result": result,
+        "investigation_usage": provider_usage,
+    }
+
+
 async def _resolve_policy(configurable: dict[str, Any]) -> RiskPolicy:
     """Retrieve active RiskPolicy from repository, or ensure default v1 exists in database."""
     policy_repo: RiskPolicyRepository | None = configurable.get("policy_repo")
@@ -293,6 +610,7 @@ async def node_retrieving_policy(
     )
     configurable = config.get("configurable", {}) if config else {}
     citations_override = configurable.get("policy_citations")
+    investigation_result = state.get("investigation_result")
     with trace_boundary(
         "retrieval.policy",
         boundary="retrieval",
@@ -301,15 +619,15 @@ async def node_retrieving_policy(
     ):
         if citations_override is not None:
             citations = tuple(citations_override)
+        elif investigation_result is not None and investigation_result.policy_citations:
+            citations = tuple(investigation_result.policy_citations)
         else:
             retrieval_service = configurable.get("retrieval_service")
             if retrieval_service is None:
                 citations = ()
             else:
                 questions = state["context"].questions
-                query = "vehicle sale consumer protection" + (
-                    " " + " ".join(questions) if questions else ""
-                )
+                query = " ".join(questions) if questions else "vehicle sale consumer protection"
                 retrieval_result = await retrieval_service.retrieve(query)
                 citations = tuple(retrieval_result.citations)
     return {
@@ -355,6 +673,141 @@ async def node_evaluating_risk(
     }
 
 
+_HISTORY_EVIDENCE_CAP = 5
+_HISTORY_FIELD_CAP = 10
+_HISTORY_VALUE_CAP = 120
+
+
+def _bounded_history_value(value: Any) -> str:
+    """Format one historical value without allowing unbounded prompt content."""
+    return str(value)[:_HISTORY_VALUE_CAP]
+
+
+def _history_changes(
+    revision: VehicleRevisionResponse,
+    current_fields: dict[str, Any] | None,
+) -> str:
+    """Describe allow-listed fields that differ from the current revision."""
+    if current_fields is None:
+        return "unknown"
+    names = sorted(
+        (set(revision.canonical_fields) | set(current_fields)) & ALLOWED_EVIDENCE_TARGETS
+    )
+    changes = [
+        (
+            f"{name}={_bounded_history_value(revision.canonical_fields.get(name, '<absent>'))}"
+            f"->{_bounded_history_value(current_fields.get(name, '<absent>'))}"
+        )
+        for name in names
+        if revision.canonical_fields.get(name) != current_fields.get(name)
+    ]
+    return ",".join(changes[:_HISTORY_FIELD_CAP]) or "none"
+
+
+def _history_evidence_item(
+    revision: VehicleRevisionResponse,
+    current_fields: dict[str, Any] | None,
+) -> EvidenceItem:
+    """Build one bounded, attributable report item for a historical revision."""
+    synthetic = revision.synthetic_notice is not None or any(
+        link.synthetic for links in revision.field_provenance.values() for link in links
+    )
+    value = (
+        f"revision={revision.revision_number}; revision_id={revision.revision_id}; "
+        f"as_of={revision.as_of.isoformat()}; published_at={revision.published_at.isoformat()}; "
+        f"changed_fields={_history_changes(revision, current_fields)}"
+    )
+    return EvidenceItem(
+        field_name="vehicle_history",
+        value=value,
+        observation_id=revision.revision_id,
+        source_system="vehicle-intelligence-mcp",
+        source_record_id=revision.revision_id,
+        retrieved_at=revision.published_at,
+        is_synthetic=synthetic,
+        explanation=f"Historical vehicle revision {revision.revision_number}.",
+    )
+
+
+def _history_revisions(
+    result: InvestigationResult | None,
+    snapshot: VehicleEvidenceSnapshot | None,
+) -> tuple[VehicleRevisionResponse, ...]:
+    """Combine and bound historical revisions from mandatory and supplementary reads."""
+    revisions: list[VehicleRevisionResponse] = list(snapshot.history if snapshot else ())
+    if result is not None:
+        evidence_result = result.evidence_result
+        if isinstance(evidence_result, VehicleHistoryResult):
+            revisions.extend(evidence_result.revisions)
+        elif isinstance(evidence_result, VehicleRevisionResponse):
+            revisions.append(evidence_result)
+    unique_by_number: dict[int, VehicleRevisionResponse] = {}
+    for revision in revisions:
+        existing = unique_by_number.get(revision.revision_number)
+        if existing is not None and existing != revision:
+            raise ValueError("vehicle history contains conflicting revision numbers")
+        unique_by_number[revision.revision_number] = revision
+    return tuple(
+        sorted(unique_by_number.values(), key=lambda item: item.revision_number, reverse=True)[
+            :_HISTORY_EVIDENCE_CAP
+        ]
+    )
+
+
+def _revision_field_evidence_items(revision: VehicleRevisionResponse) -> tuple[EvidenceItem, ...]:
+    """Project a single revision into attributable field evidence items."""
+    items: list[EvidenceItem] = []
+    for field_name, value in list(revision.canonical_fields.items())[:20]:
+        links = revision.field_provenance.get(field_name, ())
+        link = links[0] if links else None
+        synthetic = revision.synthetic_notice is not None or any(item.synthetic for item in links)
+        items.append(
+            EvidenceItem(
+                field_name=field_name,
+                value=value,
+                observation_id=link.observation_id if link else revision.revision_id,
+                source_system=link.source_system if link else "vehicle-intelligence-mcp",
+                source_record_id=link.source_record_id if link else revision.revision_id,
+                retrieved_at=link.retrieved_at if link else revision.published_at,
+                is_synthetic=synthetic,
+                confidence_score=revision.confidence.field_scores.get(field_name),
+            )
+        )
+    return tuple(items)
+
+
+def _investigation_evidence_items(
+    result: InvestigationResult | None,
+    snapshot: VehicleEvidenceSnapshot | None = None,
+) -> tuple[EvidenceItem, ...]:
+    """Project supplementary and historical evidence into report-safe items."""
+    items: list[EvidenceItem] = []
+    if result is not None and isinstance(result.evidence_result, FieldExplanationResult):
+        items.extend(
+            EvidenceItem(
+                field_name=result.evidence_result.field_name,
+                value=result.evidence_result.value,
+                observation_id=link.observation_id,
+                source_system=link.source_system,
+                source_record_id=link.source_record_id,
+                retrieved_at=link.retrieved_at,
+                is_synthetic=link.synthetic,
+                confidence_score=result.evidence_result.field_confidence_score,
+                explanation=result.evidence_result.rationale,
+            )
+            for link in result.evidence_result.provenance[:20]
+        )
+    elif result is not None and isinstance(result.evidence_result, VehicleRevisionResponse):
+        items.extend(_revision_field_evidence_items(result.evidence_result))
+
+    current_fields = snapshot.canonical_fields if snapshot is not None else None
+    items.extend(
+        _history_evidence_item(revision, current_fields)
+        for revision in _history_revisions(result, snapshot)
+    )
+    return tuple(items)
+
+
 async def node_drafting_report(
     state: AssessmentGraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -373,6 +826,7 @@ async def node_drafting_report(
     if risk_result is None:
         raise ValueError("Cannot draft report without risk_result")
 
+    investigation_result = state.get("investigation_result")
     draft_context = ReportDraftingContext(
         assessment_id=state["assessment_id"],
         run_number=state["run_number"],
@@ -380,7 +834,13 @@ async def node_drafting_report(
         vin=state.get("vin", ""),
         risk_result=risk_result,
         evidence_snapshot=snapshot,
+        evidence_items=_investigation_evidence_items(investigation_result, snapshot),
         policy_citations=tuple(policy_citations),
+        metadata=(
+            {"investigation": investigation_result.safe_metadata()}
+            if investigation_result is not None
+            else {}
+        ),
     )
     configurable = config.get("configurable", {}) if config else {}
     drafter = configurable.get("drafting_adapter") or OfflineReportDraftingAdapter()
@@ -430,14 +890,21 @@ def route_after_evidence(
 
 def route_after_sufficiency(
     state: AssessmentGraphState,
-) -> Literal["node_incomplete", "node_failed", "node_retrieving_policy"]:
+) -> Literal["node_incomplete", "node_failed", "node_investigating", "node_retrieving_policy"]:
     """Route strictly based on evidence sufficiency outcome."""
     result = state.get("sufficiency_result")
     if result is None or result.outcome == SufficiencyOutcome.UNAVAILABLE:
         return "node_failed"
     if result.outcome == SufficiencyOutcome.INCOMPLETE:
+        # A bounded investigation may still collect supplementary evidence before
+        # the incomplete report is drafted. Callers without a provider keep the
+        # fail-closed terminal path above.
+        if state.get("investigation_enabled", False):
+            return "node_investigating"
         return "node_incomplete"
     if result.outcome == SufficiencyOutcome.COMPLETE:
+        if state.get("investigation_enabled", False):
+            return "node_investigating"
         return "node_retrieving_policy"
     return "node_failed"
 
@@ -449,6 +916,7 @@ def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
     builder.add_node("collecting_evidence", node_collecting_evidence)
     builder.add_node("evaluating_sufficiency", node_evaluating_sufficiency)
     builder.add_node("incomplete", node_incomplete)
+    builder.add_node("investigating", node_investigating)
     builder.add_node("failed", node_failed)
     builder.add_node("retrieving_policy", node_retrieving_policy)
     builder.add_node("evaluating_risk", node_evaluating_risk)
@@ -470,10 +938,12 @@ def build_assessment_graph() -> StateGraph:  # type: ignore[type-arg]
         {
             "node_incomplete": "incomplete",
             "node_failed": "failed",
+            "node_investigating": "investigating",
             "node_retrieving_policy": "retrieving_policy",
         },
     )
     builder.add_edge("incomplete", END)
+    builder.add_edge("investigating", "retrieving_policy")
     builder.add_edge("failed", END)
     builder.add_edge("retrieving_policy", "evaluating_risk")
     builder.add_edge("evaluating_risk", "drafting_report")

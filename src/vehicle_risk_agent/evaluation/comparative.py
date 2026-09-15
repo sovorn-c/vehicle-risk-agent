@@ -1,0 +1,1143 @@
+"""Held-out comparative evaluation contracts for e12."""
+
+# story: e12s01
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from vehicle_risk_agent.evaluation.graders import CompositeDomainGrader
+from vehicle_risk_agent.evaluation.matrix import get_evaluation_matrix
+from vehicle_risk_agent.evaluation.models import EvaluationScenario, ExpectedEvaluationLabels
+from vehicle_risk_agent.evaluation.provenance import (
+    UNKNOWN_SOURCE_COMMIT,
+    is_real_source_commit,
+    resolve_source_commit,
+    sha256_bytes,
+    sha256_file,
+)
+from vehicle_risk_agent.evaluation.retrieval import (
+    RetrievalQueryLabel,
+    compute_query_metrics,
+    get_seeded_retrieval_dataset,
+)
+from vehicle_risk_agent.evaluation.runner import ScenarioRunner
+from vehicle_risk_agent.risk.models import RiskFactor
+
+
+class ComparativeMode(StrEnum):
+    """Execution modes included in the comparative report."""
+
+    OFFLINE_BASELINE = "OFFLINE_BASELINE"
+    LIVE_DRAFTING = "LIVE_DRAFTING"
+    LIVE_INVESTIGATION = "LIVE_INVESTIGATION"
+
+
+class ComparativeThresholds(BaseModel):
+    """Frozen thresholds that determine comparative quality gates."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    min_recall_at_5: float = Field(ge=0.0, le=1.0)
+    min_precision_at_5: float = Field(ge=0.0, le=1.0)
+    min_mrr: float = Field(ge=0.0, le=1.0)
+    min_abstention_accuracy: float = Field(ge=0.0, le=1.0)
+    min_citation_grounding: float = Field(ge=0.0, le=1.0)
+    deterministic_risk_match: float = Field(ge=0.0, le=1.0)
+    unauthorized_dispatches: int = Field(ge=0)
+    automatic_approvals: int = Field(ge=0)
+    min_useful_tool_selection: float = Field(ge=0.0, le=1.0)
+    semantic_claim_support: float = Field(ge=0.0, le=1.0)
+    min_claim_support: float = Field(default=0.9, ge=0.0, le=1.0)
+    semantic_missed_findings: int = Field(ge=0)
+    semantic_false_positive_citations: int = Field(ge=0)
+    max_p95_latency_seconds: float = Field(gt=0.0)
+
+
+class InvestigationOverlay(BaseModel):
+    """Frozen question and expected action for a comparable investigation input."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scenario_id: str = Field(min_length=1)
+    live_drafting: bool
+    investigation_question: str = Field(min_length=1, max_length=500)
+    expected_action: str = Field(min_length=1)
+    expected_field: str | None = None
+    retrieval_query_id: str | None = None
+    live_expected_labels: ExpectedEvaluationLabels | None = None
+
+
+class E12EvaluationConfig(BaseModel):
+    """Validated representation of ``specs/evaluation/e12-eval-v1.yaml``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = "1"
+    config_id: str = Field(alias="id", min_length=1)
+    frozen_at: str
+    suite: str
+    provider: str
+    model: str
+    pricing_input_usd_per_million: float = Field(gt=0.0)
+    pricing_output_usd_per_million: float = Field(gt=0.0)
+    pricing_source_url: str
+    pricing_checked_at: str
+    repeats: int = Field(ge=1)
+    live_report_p95_seconds: float = Field(gt=0.0)
+    live_suite_cost_usd: float = Field(gt=0.0)
+    live_unique_comparable_scenarios: int = Field(ge=1)
+    live_run_count: int = Field(ge=1)
+    live_modes: tuple[ComparativeMode, ...] = (
+        ComparativeMode.OFFLINE_BASELINE,
+        ComparativeMode.LIVE_DRAFTING,
+        ComparativeMode.LIVE_INVESTIGATION,
+    )
+    semantic_judgments_required: int = Field(ge=1)
+    held_out_scenario_ids: tuple[str, ...]
+    tuning_excluded_scenario_ids: tuple[str, ...]
+    comparable_shared_inputs: tuple[InvestigationOverlay, ...]
+    thresholds: ComparativeThresholds
+    deterministic_grader_version: str
+    retrieval_grader_version: str
+    investigation_grader_version: str
+    semantic_judge: str
+    synthetic_vehicle_evidence: bool
+    restricted_register_access: bool
+    e11_gemini_live_validation: str
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> E12EvaluationConfig:
+        if len(self.held_out_scenario_ids) != 30:
+            raise ValueError("e12-eval-v1 must contain exactly 30 held-out scenario IDs")
+        if len(set(self.held_out_scenario_ids)) != len(self.held_out_scenario_ids):
+            raise ValueError("e12-eval-v1 held-out scenario IDs must be unique")
+        if len(self.comparable_shared_inputs) != self.live_unique_comparable_scenarios:
+            raise ValueError("comparable input count must match live_unique_comparable_scenarios")
+        if self.live_run_count != self.live_unique_comparable_scenarios * self.repeats * 2:
+            raise ValueError("live_run_count must cover both live modes at every repeat")
+        if self.suite != "e12-comparative":
+            raise ValueError("e12 config must declare suite e12-comparative")
+        if self.live_modes != tuple(ComparativeMode):
+            raise ValueError("e12 config must declare all three comparative modes")
+        return self
+
+    @classmethod
+    def from_mapping(cls, data: dict[str, Any]) -> E12EvaluationConfig:
+        """Convert the authored nested YAML shape into a strict model."""
+        pricing = data.get("pricing", {})
+        held_out = data.get("held_out", {})
+        excluded = data.get("tuning_excluded", {})
+        shared = data.get("comparable_shared_inputs", {})
+        scorers = data.get("scorers", {})
+        disclosure = data.get("disclosure", {})
+        thresholds = data.get("thresholds", {})
+        return cls.model_validate(
+            {
+                "schema_version": str(data.get("schema_version", "1")),
+                "id": data["id"],
+                "frozen_at": data["frozen_at"],
+                "suite": data["suite"],
+                "provider": data.get("provider", "anthropic"),
+                "model": data["model"],
+                "pricing_input_usd_per_million": pricing["input_usd_per_million_tokens"],
+                "pricing_output_usd_per_million": pricing["output_usd_per_million_tokens"],
+                "pricing_source_url": pricing["source_url"],
+                "pricing_checked_at": pricing["checked_at"],
+                "repeats": data["repeats"],
+                "live_report_p95_seconds": data["live_report_p95_seconds"],
+                "live_suite_cost_usd": data["live_suite_cost_usd"],
+                "live_unique_comparable_scenarios": data["live_unique_comparable_scenarios"],
+                "live_run_count": data["live_run_count"],
+                "live_modes": tuple(
+                    data.get(
+                        "live_modes", ("OFFLINE_BASELINE", "LIVE_DRAFTING", "LIVE_INVESTIGATION")
+                    )
+                ),
+                "semantic_judgments_required": data["semantic_judgments_required"],
+                "held_out_scenario_ids": tuple(held_out["scenario_ids"]),
+                "tuning_excluded_scenario_ids": tuple(
+                    excluded.get("e10_live_general", ()) + excluded.get("e11_live_v1", ())
+                ),
+                "comparable_shared_inputs": tuple(shared["scenarios"]),
+                "thresholds": thresholds,
+                "deterministic_grader_version": scorers["deterministic_grader_version"],
+                "retrieval_grader_version": scorers["retrieval_grader_version"],
+                "investigation_grader_version": scorers["investigation_grader_version"],
+                "semantic_judge": scorers["semantic_judge"],
+                "synthetic_vehicle_evidence": disclosure["synthetic_vehicle_evidence"],
+                "restricted_register_access": disclosure["restricted_register_access"],
+                "e11_gemini_live_validation": disclosure["e11_gemini_live_validation"],
+            }
+        )
+
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+_TRACKED_E12_CONFIG = _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-eval-v1.yaml"
+_LEGACY_E12_CONFIG = _REPOSITORY_ROOT / "specs" / "evaluation" / "e12-eval-v1.yaml"
+_TRACKED_E12_JUDGMENTS = _REPOSITORY_ROOT / "artifacts" / "e12" / "e12-semantic-judgments.yaml"
+_LEGACY_E12_JUDGMENTS = _REPOSITORY_ROOT / "specs" / "verifications" / "e12-semantic-judgments.yaml"
+_EMPTY_DIGEST = sha256_bytes(b"")
+
+
+def _resolve_input_path(
+    path: str | Path | None,
+    tracked_path: Path,
+    legacy_path: Path,
+) -> Path:
+    if path is not None:
+        return Path(path)
+    if tracked_path.is_file():
+        return tracked_path
+    return legacy_path
+
+
+def _config_digest(config: E12EvaluationConfig) -> str:
+    """Digest the validated configuration supplied to this evaluation."""
+    return sha256_bytes(config.model_dump_json(by_alias=True).encode("utf-8"))
+
+
+def _frozen_config_payload(config: E12EvaluationConfig) -> dict[str, Any]:
+    payload = config.model_dump(mode="json", by_alias=True)
+    for field in (
+        "provider",
+        "model",
+        "pricing_input_usd_per_million",
+        "pricing_output_usd_per_million",
+        "pricing_source_url",
+        "pricing_checked_at",
+    ):
+        payload.pop(field, None)
+    return payload
+
+
+def _validate_frozen_config(config: E12EvaluationConfig) -> None:
+    expected = load_e12_evaluation_config()
+    if _frozen_config_payload(config) != _frozen_config_payload(expected):
+        raise ValueError("configuration does not match frozen e12-eval-v1 inputs")
+    if config.provider == expected.provider:
+        if config.model != expected.model or (
+            config.pricing_input_usd_per_million != expected.pricing_input_usd_per_million
+            or config.pricing_output_usd_per_million != expected.pricing_output_usd_per_million
+            or config.pricing_source_url != expected.pricing_source_url
+            or config.pricing_checked_at != expected.pricing_checked_at
+        ):
+            raise ValueError("provider pricing does not match frozen e12-eval-v1 inputs")
+        return
+    if (
+        config.provider != "anthropic"
+        or config.model != "claude-sonnet-4-6"
+        or config.pricing_input_usd_per_million != 3.0
+        or config.pricing_output_usd_per_million != 15.0
+        or config.pricing_source_url != "https://platform.claude.com/docs/en/about-claude/pricing"
+        or config.pricing_checked_at != expected.pricing_checked_at
+    ):
+        raise ValueError("provider configuration is not an allowed E12 variant")
+
+
+def _judgments_digest(judgments: Sequence[Any] | None = None) -> str:
+    """Digest supplied judgment values, or the tracked artifact when none are supplied."""
+    if judgments:
+        payload = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+            for item in judgments
+        ]
+        return sha256_bytes(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+    path = _resolve_input_path(None, _TRACKED_E12_JUDGMENTS, _LEGACY_E12_JUDGMENTS)
+    return sha256_file(path) if path.is_file() else _EMPTY_DIGEST
+
+
+# Public aliases make the authored contract discoverable without exposing the YAML shape.
+ComparativeEvaluationConfig = E12EvaluationConfig
+
+
+def load_e12_evaluation_config(
+    path: str | Path | None = None,
+) -> E12EvaluationConfig:
+    """Load and validate the frozen e12 comparative configuration."""
+    target = _resolve_input_path(path, _TRACKED_E12_CONFIG, _LEGACY_E12_CONFIG)
+    raw = yaml.safe_load(target.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("e12 evaluation configuration must be a YAML object")
+    return E12EvaluationConfig.from_mapping(raw)
+
+
+def _live_labels_match(
+    live_labels: ExpectedEvaluationLabels,
+    scenario_labels: ExpectedEvaluationLabels,
+) -> bool:
+    return (
+        live_labels.assessment_outcome == scenario_labels.assessment_outcome
+        and live_labels.risk_band == scenario_labels.risk_band
+        and live_labels.min_risk_score == scenario_labels.min_risk_score
+        and live_labels.max_risk_score == scenario_labels.max_risk_score
+        and set(live_labels.required_factor_ids) == set(scenario_labels.required_factor_ids)
+    )
+
+
+def validate_e12_split(
+    config: E12EvaluationConfig,
+    scenarios: Sequence[EvaluationScenario] | None = None,
+) -> None:
+    """Reject held-out contamination, missing IDs, or copied e11 wording."""
+    matrix = list(scenarios or get_evaluation_matrix())
+    by_id = {scenario.scenario_id: scenario for scenario in matrix}
+    missing = set(config.held_out_scenario_ids) - set(by_id)
+    if missing:
+        raise ValueError(f"held-out scenarios are missing from e06 matrix: {sorted(missing)}")
+    if set(config.held_out_scenario_ids) & set(config.tuning_excluded_scenario_ids):
+        raise ValueError("held-out and tuning-excluded scenario IDs overlap")
+    for overlay in config.comparable_shared_inputs:
+        if overlay.scenario_id not in config.held_out_scenario_ids:
+            raise ValueError(f"comparable input {overlay.scenario_id} is not held out")
+        lowered = overlay.investigation_question.lower()
+        if any(
+            term in lowered
+            for term in ("odometer discrepancy", "required vehicle evidence remains unresolved")
+        ):
+            raise ValueError("e12 investigation overlay copies e11-live-v1 wording")
+        expected_actions = {
+            "sc-clean-01": ("NO_ACTION", None, None),
+            "sc-risk-compound-05": ("search_policy", None, "q-08"),
+            "sc-conflict-ppsr-01": ("explain_vehicle_field", "ppsr_result", None),
+            "sc-temporal-multi-rev-02": ("get_vehicle_history", None, None),
+        }
+        expected = expected_actions.get(overlay.scenario_id)
+        if (
+            expected is None
+            or (
+                overlay.expected_action,
+                overlay.expected_field,
+                overlay.retrieval_query_id,
+            )
+            != expected
+        ):
+            raise ValueError(f"unexpected e12 overlay contract for {overlay.scenario_id}")
+        if overlay.retrieval_query_id is not None:
+            retrieval_ids = {query.query_id for query in get_seeded_retrieval_dataset().queries}
+            if overlay.retrieval_query_id not in retrieval_ids:
+                raise ValueError(f"unknown retrieval query {overlay.retrieval_query_id}")
+        if overlay.scenario_id == "sc-risk-compound-05":
+            expected_live = overlay.live_expected_labels
+            if expected_live is None or (
+                expected_live.risk_band != "CRITICAL"
+                or expected_live.min_risk_score != 100
+                or expected_live.max_risk_score != 100
+                or set(expected_live.required_factor_ids) != {"LISTED", "MATCH", "STATUTORY"}
+            ):
+                raise ValueError("compound E12 overlay must pin the upstream fixture labels")
+            if not _live_labels_match(expected_live, by_id[overlay.scenario_id].expected_labels):
+                raise ValueError("live overlay labels must match the held-out scenario labels")
+        elif overlay.live_expected_labels is not None:
+            if not _live_labels_match(
+                overlay.live_expected_labels,
+                by_id[overlay.scenario_id].expected_labels,
+            ):
+                raise ValueError("live overlay labels must match the held-out scenario labels")
+        if not overlay.live_drafting:
+            raise ValueError(f"e12 overlay {overlay.scenario_id} must be live comparable")
+
+
+def get_e12_held_out_scenarios(
+    config: E12EvaluationConfig | None = None,
+    scenarios: Sequence[EvaluationScenario] | None = None,
+) -> tuple[EvaluationScenario, ...]:
+    """Return the frozen 30-scenario held-out set in declared order."""
+    cfg = config or load_e12_evaluation_config()
+    source = list(scenarios or get_evaluation_matrix())
+    validate_e12_split(cfg, source)
+    by_id = {scenario.scenario_id: scenario for scenario in source}
+    return tuple(by_id[scenario_id] for scenario_id in cfg.held_out_scenario_ids)
+
+
+class SemanticJudgment(BaseModel):
+    """Human-reviewed semantic judgment for one first-repeat live result."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scenario_id: str
+    mode: ComparativeMode
+    repeat: int = Field(ge=1)
+    claim_support: float = Field(ge=0.0, le=1.0)
+    missed_findings: int = Field(ge=0)
+    false_positive_citations: int = Field(ge=0)
+    reviewer_id: str = Field(min_length=1)
+    evaluation_input_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class ComparativeMetric(BaseModel):
+    """Sanitized metric row for one scenario/mode/repeat."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scenario_id: str
+    mode: ComparativeMode
+    repeat: int = Field(ge=0)
+    quality_passed: bool
+    deterministic_risk_passed: bool
+    retrieval_relevance: float = Field(ge=0.0, le=1.0)
+    retrieval_precision: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    retrieval_applicable: bool = True
+    citation_grounding: float = Field(ge=0.0, le=1.0)
+    citation_grounding_applicable: bool = True
+    claim_support: float = Field(default=0.0, ge=0.0, le=1.0)
+    claim_support_applicable: bool = True
+    abstention_correct: bool
+    abstention_applicable: bool = True
+    useful_tool_selection: float = Field(ge=0.0, le=1.0)
+    useful_tool_selection_applicable: bool = False
+    deterministic_risk_applicable: bool = True
+    retrieved_passage_ids: tuple[str, ...] = ()
+    retrieved_citation_ids: tuple[str, ...] = ()
+    draft_latency_seconds: float = Field(ge=0.0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    estimated_cost_usd: float = Field(ge=0.0)
+    missed_findings: int = Field(default=0, ge=0)
+    false_positive_citations: int = Field(default=0, ge=0)
+    unauthorized_dispatches: int = Field(default=0, ge=0)
+    automatic_approval: bool = False
+    provider: str = "anthropic"
+    provider_marker: bool = False
+    mcp_marker: bool = False
+    usage_known: bool = False
+    failure_reason: str | None = None
+
+
+class ComparativeReport(BaseModel):
+    """Immutable, redacted three-mode comparative evaluation artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    report_id: str
+    created_at: str
+    config_id: str
+    config_hash: str
+    source_commit: str = Field(
+        default=UNKNOWN_SOURCE_COMMIT,
+        pattern=r"^(?:[0-9a-f]{40}|unknown)$",
+    )
+    config_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
+    judgments_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
+    evaluation_input_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
+    provider: str
+    model: str
+    execution_mode: str
+    repeats: int
+    pricing_input_usd_per_million: float
+    pricing_output_usd_per_million: float
+    pricing_source_url: str
+    pricing_checked_at: str
+    live_suite_cost_usd: float
+    thresholds: ComparativeThresholds
+    held_out_scenario_ids: tuple[str, ...]
+    modes: tuple[ComparativeMode, ...]
+    total_runs: int
+    offline_runs: int
+    live_runs: int
+    metrics: tuple[ComparativeMetric, ...]
+    semantic_judgments: tuple[SemanticJudgment, ...] = ()
+    semantic_judgments_required: int
+    semantic_gate_passed: bool
+    deterministic_risk_match: float
+    live_deterministic_risk_match: float
+    retrieval_relevance: float
+    retrieval_precision: float
+    retrieval_mrr: float
+    claim_support: float
+    citation_grounding: float
+    abstention_accuracy: float
+    useful_tool_selection: float
+    missed_findings: int
+    false_positive_citations: int
+    unauthorized_dispatches: int
+    automatic_approvals: int
+    p95_latency_seconds: float
+    total_input_tokens: int
+    total_output_tokens: int
+    total_estimated_cost_usd: float
+    release_verdict: str
+    verdict_passed: bool
+    blocker_reason: str | None = None
+    synthetic_vehicle_evidence: bool
+    restricted_register_access: bool
+    e11_gemini_live_validation: str
+    run_hash: str
+
+    @property
+    def suite_version(self) -> str:
+        """Expose the version shape shared with the legacy evaluation record."""
+        return self.config_id
+
+    @property
+    def total_scenarios(self) -> int:
+        """Expose held-out scenario coverage for shared runner callers."""
+        return len(self.held_out_scenario_ids)
+
+    @property
+    def scenarios(self) -> tuple[Any, ...]:
+        """Expose metric rows for callers that consume either evaluation record."""
+        return self.metrics
+
+    def save_to_file(self, path: str | Path) -> None:
+        """Write the sanitized report as JSON."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+
+    @classmethod
+    def load_from_file(cls, path: str | Path) -> ComparativeReport:
+        """Load and validate a report artifact."""
+        report = cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
+        if report.run_hash != compute_report_run_hash(report):
+            raise ValueError("comparative report run_hash does not match its contents")
+        return report
+
+
+def validate_report_integrity(report: ComparativeReport) -> None:
+    """Validate report provenance and cross-field release-state invariants."""
+    config = load_e12_evaluation_config().model_copy(
+        update={
+            "provider": report.provider,
+            "model": report.model,
+            "pricing_input_usd_per_million": report.pricing_input_usd_per_million,
+            "pricing_output_usd_per_million": report.pricing_output_usd_per_million,
+            "pricing_source_url": report.pricing_source_url,
+            "pricing_checked_at": report.pricing_checked_at,
+        }
+    )
+    _validate_frozen_config(config)
+    if not is_real_source_commit(report.source_commit):
+        raise ValueError("report source commit is not an existing Git commit")
+    if report.config_id != config.config_id:
+        raise ValueError("report config ID does not match the tracked configuration")
+    if report.config_hash != _report_hash_payload(config.model_dump(mode="json", by_alias=True)):
+        raise ValueError("report config hash does not match the tracked configuration")
+    if report.config_sha256 != _config_digest(config):
+        raise ValueError("report config digest does not match the tracked configuration")
+    if report.judgments_sha256 != _judgments_digest(report.semantic_judgments):
+        raise ValueError("report judgment digest does not match the supplied judgments")
+    expected_input_digest = _evaluation_input_digest(
+        config,
+        report.metrics,
+        report.source_commit,
+        report.config_sha256,
+    )
+    if report.evaluation_input_sha256 != expected_input_digest:
+        raise ValueError("report evaluation input digest does not match its contents")
+    if report.release_verdict not in {"BLOCKED", "FAIL", "PASS"}:
+        raise ValueError("report release verdict is not an allowed state")
+    if report.execution_mode != "LIVE" and (
+        report.release_verdict != "BLOCKED" or report.verdict_passed
+    ):
+        raise ValueError("non-live reports must remain BLOCKED and not passed")
+    if report.verdict_passed != (report.release_verdict == "PASS"):
+        raise ValueError("report verdict and release state are inconsistent")
+    if report.release_verdict == "PASS" and (
+        report.execution_mode != "LIVE"
+        or report.blocker_reason is not None
+        or not report.semantic_gate_passed
+    ):
+        raise ValueError("report PASS state does not satisfy release invariants")
+
+
+def _p95(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, math.ceil(len(ordered) * 0.95) - 1))
+    return round(ordered[index], 3)
+
+
+def load_semantic_judgments(
+    path: str | Path | None = None,
+) -> tuple[SemanticJudgment, ...]:
+    """Load operator judgments, returning no evidence when the file is absent."""
+    target = _resolve_input_path(path, _TRACKED_E12_JUDGMENTS, _LEGACY_E12_JUDGMENTS)
+    if not target.is_file():
+        return ()
+    raw = yaml.safe_load(target.read_text(encoding="utf-8"))
+    values = raw.get("judgments", ()) if isinstance(raw, dict) else raw
+    if not isinstance(values, list):
+        raise ValueError("semantic judgment artifact must contain a judgments list")
+    return tuple(SemanticJudgment.model_validate(value) for value in values)
+
+
+def semantic_gate_passes(
+    judgments: Sequence[SemanticJudgment],
+    config: E12EvaluationConfig,
+    *,
+    evaluation_input_sha256: str | None = None,
+) -> bool:
+    """Require exactly the declared first-repeat human judgments for live PASS."""
+    expected = {
+        (overlay.scenario_id, mode, 1)
+        for overlay in config.comparable_shared_inputs
+        for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
+    }
+    actual = {(item.scenario_id, item.mode, item.repeat) for item in judgments}
+    if (
+        evaluation_input_sha256 is None
+        or len(judgments) != config.semantic_judgments_required
+        or actual != expected
+    ):
+        return False
+    if any(item.evaluation_input_sha256 != evaluation_input_sha256 for item in judgments):
+        return False
+    return all(
+        item.claim_support >= config.thresholds.semantic_claim_support
+        and item.missed_findings <= config.thresholds.semantic_missed_findings
+        and item.false_positive_citations <= config.thresholds.semantic_false_positive_citations
+        for item in judgments
+    )
+
+
+def _evaluation_input_digest(
+    config: E12EvaluationConfig,
+    metrics: Sequence[ComparativeMetric],
+    source_commit: str,
+    config_sha256: str,
+) -> str:
+    """Bind semantic judgments to the exact source, config, and live metric inputs."""
+    payload = {
+        "config": config.model_dump(mode="json", by_alias=True),
+        "source_commit": source_commit,
+        "config_sha256": config_sha256,
+        "metrics": [row.model_dump(mode="json") for row in metrics],
+    }
+    return _report_hash_payload(payload)
+
+
+def _report_hash_payload(report: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def compute_report_run_hash(report: ComparativeReport) -> str:
+    """Recompute the report hash from its validated, serialized contents."""
+    payload = report.model_dump(mode="json")
+    payload.pop("run_hash", None)
+    return _report_hash_payload(payload)
+
+
+def _label(labels: Any, name: str, default: Any = None) -> Any:
+    return labels.get(name, default) if isinstance(labels, dict) else getattr(labels, name, default)
+
+
+def _label_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
+
+
+def get_e12_retrieval_label(query_id: str | None) -> RetrievalQueryLabel | None:
+    """Return the frozen retrieval label used by an E12 comparable input."""
+    if query_id is None:
+        return None
+    return next(
+        (query for query in get_seeded_retrieval_dataset().queries if query.query_id == query_id),
+        None,
+    )
+
+
+def deterministic_labels_match(labels: Any, draft: Any | None) -> bool:
+    """Compare only graph-owned risk outputs with frozen scenario labels."""
+    if draft is None or labels is None:
+        return False
+    sufficiency = _label(labels, "sufficiency_outcome")
+    if sufficiency is not None:
+        is_incomplete = bool(getattr(draft, "is_incomplete", False))
+        expected_incomplete = _label_value(sufficiency) == "INCOMPLETE"
+        if is_incomplete != expected_incomplete:
+            return False
+    assessment_outcome = _label(labels, "assessment_outcome")
+    if assessment_outcome is not None and _label_value(draft.outcome) != _label_value(
+        assessment_outcome
+    ):
+        return False
+    risk_band = _label(labels, "risk_band")
+    if risk_band is not None and _label_value(draft.band) != _label_value(risk_band):
+        return False
+    min_score = _label(labels, "min_risk_score")
+    if min_score is not None and (draft.score is None or draft.score < min_score):
+        return False
+    max_score = _label(labels, "max_risk_score")
+    if max_score is not None and (draft.score is None or draft.score > max_score):
+        return False
+    required_factor_ids = _label(labels, "required_factor_ids", ())
+    if not set(required_factor_ids).issubset(set(draft.all_risk_factor_refs)):
+        return False
+    citation_refs = set(draft.all_policy_citation_refs)
+    expected_citations = _label(labels, "expected_citations", ())
+    if not set(expected_citations).issubset(citation_refs):
+        return False
+    return not (_label(labels, "should_abstain") is True and citation_refs)
+
+
+def deterministic_draft_matches(
+    scenario: EvaluationScenario,
+    draft: Any | None,
+) -> bool:
+    """Compare a draft with the frozen scenario's deterministic labels."""
+    return deterministic_labels_match(scenario.expected_labels, draft)
+
+
+def measure_report_draft(
+    scenario: EvaluationScenario,
+    expected_action: str,
+    draft: Any | None,
+) -> dict[str, float | int | bool]:
+    """Measure observable draft references without turning unavailable gold labels into passes."""
+    return measure_report_draft_labels(scenario.expected_labels, expected_action, draft)
+
+
+def measure_report_draft_labels(
+    labels: Any,
+    expected_action: str,
+    draft: Any | None,
+    *,
+    retrieval_label: RetrievalQueryLabel | None = None,
+    retrieved_passage_ids: Sequence[str] | None = None,
+    retrieved_citation_ids: Sequence[str] | None = None,
+) -> dict[str, float | int | bool]:
+    """Measure a report using explicit ranked retrieval and citation labels.
+
+    Metrics without a frozen label are marked inapplicable. Their numeric values
+    remain for backward-compatible row serialization but are excluded from report
+    aggregates and gates.
+    """
+    policy_expected = expected_action == "search_policy"
+    if retrieval_label is not None and not policy_expected:
+        raise ValueError("retrieval labels require a search_policy action")
+    retrieval_applicable = retrieval_label is not None
+    citation_applicable = retrieval_label is not None or bool(
+        _label(labels, "expected_citations", ())
+    )
+    abstention_applicable = retrieval_label is not None
+    if draft is None or labels is None:
+        return {
+            "retrieval_relevance": 0.0,
+            "retrieval_precision": 0.0,
+            "retrieval_mrr": 0.0,
+            "retrieval_applicable": retrieval_applicable,
+            "claim_support": 0.0,
+            "claim_support_applicable": False,
+            "citation_grounding": 0.0,
+            "citation_grounding_applicable": citation_applicable,
+            "abstention_correct": False,
+            "abstention_applicable": abstention_applicable,
+            "useful_tool_selection": 0.0,
+            "useful_tool_selection_applicable": False,
+            "missed_findings": len(_label(labels, "required_factor_ids", ())),
+            "false_positive_citations": 0,
+        }
+
+    observed_refs = tuple(draft.all_policy_citation_refs)
+    observed = set(observed_refs)
+    expected = set(_label(labels, "expected_citations", ()))
+    retrieved_passages = list(retrieved_passage_ids or ())
+    retrieved_citations = list(retrieved_citation_ids or ())
+    if retrieval_label is not None:
+        retrieval = compute_query_metrics(
+            retrieval_label,
+            retrieved_passages,
+            retrieved_citations,
+            is_abstention=not retrieved_passages,
+        )
+        retrieval_relevance = retrieval.recall_at_5
+        retrieval_precision = retrieval.precision_at_5
+        retrieval_mrr = retrieval.reciprocal_rank
+        abstention_correct = retrieval.abstention_correct
+        expected = set(retrieval_label.required_citation_ids)
+    else:
+        retrieval_relevance = 0.0
+        retrieval_precision = 0.0
+        retrieval_mrr = 0.0
+        abstention_correct = False
+
+    claims = tuple(draft.all_claims)
+    known_risk_factors = {factor.value for factor in RiskFactor}
+    risk_section = getattr(getattr(draft, "sections", None), "risk_score_and_band", None)
+    triggered_risk_factors = set(
+        getattr(risk_section, "risk_factor_refs", draft.all_risk_factor_refs)
+    )
+    allowed_risk_factors = triggered_risk_factors & known_risk_factors
+    supported_claims = sum(
+        bool(claim.evidence_refs or claim.policy_citation_refs or claim.risk_factor_refs)
+        and (
+            not claim.risk_factor_refs or set(claim.risk_factor_refs).issubset(allowed_risk_factors)
+        )
+        for claim in claims
+    )
+    policy_claims = tuple(claim for claim in claims if claim.policy_citation_refs)
+    if citation_applicable:
+        allowed_citations = set(retrieved_citations)
+        grounded_claims = sum(
+            set(claim.policy_citation_refs).issubset(allowed_citations) for claim in policy_claims
+        )
+        citation_grounding = grounded_claims / len(policy_claims) if policy_claims else 0.0
+    else:
+        citation_grounding = 1.0
+    claim_support = supported_claims / len(claims) if claims else 0.0
+    return {
+        "retrieval_relevance": retrieval_relevance,
+        "retrieval_precision": retrieval_precision,
+        "retrieval_mrr": retrieval_mrr,
+        "retrieval_applicable": retrieval_applicable,
+        "claim_support": claim_support,
+        "claim_support_applicable": True,
+        "citation_grounding": citation_grounding,
+        "citation_grounding_applicable": citation_applicable,
+        "abstention_correct": abstention_correct,
+        "abstention_applicable": abstention_applicable,
+        "useful_tool_selection": 0.0,
+        "useful_tool_selection_applicable": False,
+        "missed_findings": len(
+            set(_label(labels, "required_factor_ids", ())) - set(draft.all_risk_factor_refs)
+        ),
+        "false_positive_citations": len(observed - expected),
+    }
+
+
+def build_comparative_report(
+    config: E12EvaluationConfig,
+    metrics: Sequence[ComparativeMetric],
+    *,
+    semantic_judgments: Sequence[SemanticJudgment] = (),
+    execution_mode: str = "LIVE",
+    blocker_reason: str | None = None,
+    source_commit: str | None = None,
+    config_sha256: str | None = None,
+    judgments_sha256: str | None = None,
+) -> ComparativeReport:
+    """Aggregate metrics and apply the fail-closed comparative verdict rules."""
+    _validate_frozen_config(config)
+    expected_source_commit = resolve_source_commit()
+    if source_commit is not None and source_commit != expected_source_commit:
+        raise ValueError("source commit does not match the checked-out source")
+    resolved_source_commit = source_commit or expected_source_commit
+    expected_config_sha256 = _config_digest(config)
+    if config_sha256 is not None and config_sha256 != expected_config_sha256:
+        raise ValueError("config digest does not match the supplied configuration")
+    resolved_config_sha256 = config_sha256 or expected_config_sha256
+    expected_judgments_sha256 = _judgments_digest(semantic_judgments)
+    if judgments_sha256 is not None and judgments_sha256 != expected_judgments_sha256:
+        raise ValueError("judgment digest does not match the supplied judgments")
+    resolved_judgments_sha256 = judgments_sha256 or expected_judgments_sha256
+    rows = tuple(metrics)
+    evaluation_input_sha256 = _evaluation_input_digest(
+        config,
+        rows,
+        resolved_source_commit,
+        resolved_config_sha256,
+    )
+    deterministic = [
+        row
+        for row in rows
+        if row.mode == ComparativeMode.OFFLINE_BASELINE and row.deterministic_risk_applicable
+    ]
+    live = [row for row in rows if row.mode != ComparativeMode.OFFLINE_BASELINE]
+    live_deterministic = [row for row in live if row.deterministic_risk_applicable]
+    retrieval_rows = [row for row in rows if row.retrieval_applicable]
+    citation_rows = [row for row in rows if row.citation_grounding_applicable]
+    claim_rows = [
+        row
+        for row in rows
+        if row.claim_support_applicable
+        and (execution_mode != "LIVE" or row.mode != ComparativeMode.OFFLINE_BASELINE)
+    ]
+    abstention_rows = [row for row in rows if row.abstention_applicable]
+    tool_rows = [row for row in rows if row.useful_tool_selection_applicable]
+    all_latencies = [row.draft_latency_seconds for row in live]
+
+    def average(values: Sequence[float]) -> float:
+        return sum(values) / len(values) if values else 0.0
+
+    deterministic_match = average([float(row.deterministic_risk_passed) for row in deterministic])
+    live_deterministic_match = average(
+        [float(row.deterministic_risk_passed) for row in live_deterministic]
+    )
+    retrieval = average([row.retrieval_relevance for row in retrieval_rows])
+    precision = average([row.retrieval_precision for row in retrieval_rows])
+    mrr = average([row.retrieval_mrr for row in retrieval_rows])
+    claim_support = average([row.claim_support for row in claim_rows])
+    citations = average([row.citation_grounding for row in citation_rows])
+    abstention = average([float(row.abstention_correct) for row in abstention_rows])
+    tool_selection = average([row.useful_tool_selection for row in tool_rows])
+    semantic = tuple(semantic_judgments)
+    semantic_passed = (
+        semantic_gate_passes(
+            semantic,
+            config,
+            evaluation_input_sha256=evaluation_input_sha256,
+        )
+        if live
+        else False
+    )
+    provenance_bound = (
+        is_real_source_commit(resolved_source_commit)
+        and resolved_config_sha256 != _EMPTY_DIGEST
+        and resolved_judgments_sha256 != _EMPTY_DIGEST
+    )
+    quality = bool(rows) and all(row.quality_passed for row in rows)
+    expected_live_ids = {
+        (overlay.scenario_id, mode, repeat)
+        for overlay in config.comparable_shared_inputs
+        for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
+        for repeat in range(1, config.repeats + 1)
+    }
+    actual_live_ids = {(row.scenario_id, row.mode, row.repeat) for row in live}
+    expected_offline_ids = {
+        (scenario_id, ComparativeMode.OFFLINE_BASELINE, 0)
+        for scenario_id in config.held_out_scenario_ids
+    }
+    expected_deterministic_ids = expected_offline_ids | {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+    expected_claim_ids = {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+    if execution_mode != "LIVE":
+        expected_claim_ids |= expected_offline_ids
+    expected_retrieval_ids = {
+        (overlay.scenario_id, ComparativeMode.LIVE_DRAFTING, repeat)
+        for overlay in config.comparable_shared_inputs
+        if overlay.retrieval_query_id is not None
+        for repeat in range(1, config.repeats + 1)
+    }
+    expected_tool_ids = {
+        (overlay.scenario_id, ComparativeMode.LIVE_INVESTIGATION, repeat)
+        for overlay in config.comparable_shared_inputs
+        for repeat in range(1, config.repeats + 1)
+    }
+
+    def metric_ids(
+        items: Sequence[ComparativeMetric],
+    ) -> tuple[set[tuple[str, ComparativeMode, int]], bool]:
+        ids = [(item.scenario_id, item.mode, item.repeat) for item in items]
+        return set(ids), len(ids) == len(set(ids))
+
+    def complete_metric_class(
+        items: Sequence[ComparativeMetric],
+        expected: set[tuple[str, ComparativeMode, int]],
+    ) -> bool:
+        actual, unique = metric_ids(items)
+        return unique and len(items) == len(expected) and actual == expected
+
+    applicable_rows_complete = (
+        complete_metric_class(
+            [row for row in rows if row.deterministic_risk_applicable],
+            expected_deterministic_ids,
+        )
+        and complete_metric_class(claim_rows, expected_claim_ids)
+        and complete_metric_class(retrieval_rows, expected_retrieval_ids)
+        and complete_metric_class(citation_rows, expected_retrieval_ids)
+        and complete_metric_class(abstention_rows, expected_retrieval_ids)
+        and complete_metric_class(tool_rows, expected_tool_ids)
+    )
+    threshold_passed = (
+        deterministic_match >= config.thresholds.deterministic_risk_match
+        and (
+            execution_mode != "LIVE"
+            or live_deterministic_match >= config.thresholds.deterministic_risk_match
+        )
+        and bool(retrieval_rows)
+        and bool(citation_rows)
+        and bool(abstention_rows)
+        and bool(tool_rows)
+        and retrieval >= config.thresholds.min_recall_at_5
+        and precision >= config.thresholds.min_precision_at_5
+        and mrr >= config.thresholds.min_mrr
+        and citations >= config.thresholds.min_citation_grounding
+        and abstention >= config.thresholds.min_abstention_accuracy
+        and tool_selection >= config.thresholds.min_useful_tool_selection
+        and claim_support >= config.thresholds.min_claim_support
+        and sum(row.missed_findings for row in rows) <= config.thresholds.semantic_missed_findings
+        and sum(row.false_positive_citations for row in rows)
+        <= config.thresholds.semantic_false_positive_citations
+        and sum(row.unauthorized_dispatches for row in rows)
+        == config.thresholds.unauthorized_dispatches
+        and sum(row.automatic_approval for row in rows) == config.thresholds.automatic_approvals
+        and _p95(all_latencies) <= config.thresholds.max_p95_latency_seconds
+        and (execution_mode != "LIVE" or actual_live_ids == expected_live_ids)
+        and (execution_mode != "LIVE" or applicable_rows_complete)
+        and (execution_mode != "LIVE" or len(live) == config.live_run_count)
+        and (execution_mode != "LIVE" or all(row.provider_marker for row in live))
+        and (execution_mode != "LIVE" or all(row.mcp_marker for row in live))
+        and (execution_mode != "LIVE" or all(row.usage_known for row in live))
+        and (execution_mode != "LIVE" or provenance_bound)
+        and (
+            execution_mode != "LIVE"
+            or sum(row.estimated_cost_usd for row in live) <= config.live_suite_cost_usd
+        )
+    )
+    verdict_passed = (
+        execution_mode == "LIVE"
+        and blocker_reason is None
+        and quality
+        and threshold_passed
+        and semantic_passed
+    )
+    verdict = (
+        "PASS"
+        if verdict_passed
+        else (
+            "BLOCKED"
+            if execution_mode != "LIVE" or blocker_reason is not None or not semantic_passed
+            else "FAIL"
+        )
+    )
+    now = datetime.now(UTC).isoformat()
+    report_id = f"e12-comparative-{now[:10]}-{abs(hash(now)) % 100000:05d}"
+    base = {
+        "report_id": report_id,
+        "created_at": now,
+        "config_id": config.config_id,
+        "config_hash": _report_hash_payload(config.model_dump(mode="json", by_alias=True)),
+        "source_commit": resolved_source_commit,
+        "config_sha256": resolved_config_sha256,
+        "judgments_sha256": resolved_judgments_sha256,
+        "evaluation_input_sha256": evaluation_input_sha256,
+        "provider": config.provider,
+        "model": config.model,
+        "execution_mode": execution_mode,
+        "repeats": config.repeats,
+        "pricing_input_usd_per_million": config.pricing_input_usd_per_million,
+        "pricing_output_usd_per_million": config.pricing_output_usd_per_million,
+        "pricing_source_url": config.pricing_source_url,
+        "pricing_checked_at": config.pricing_checked_at,
+        "live_suite_cost_usd": config.live_suite_cost_usd,
+        "thresholds": config.thresholds,
+        "held_out_scenario_ids": config.held_out_scenario_ids,
+        "modes": config.live_modes,
+        "total_runs": len(rows),
+        "offline_runs": len(deterministic),
+        "live_runs": len(live),
+        "metrics": rows,
+        "semantic_judgments": semantic,
+        "semantic_judgments_required": config.semantic_judgments_required,
+        "semantic_gate_passed": semantic_passed,
+        "deterministic_risk_match": round(deterministic_match, 4),
+        "live_deterministic_risk_match": round(live_deterministic_match, 4),
+        "retrieval_relevance": round(retrieval, 4),
+        "retrieval_precision": round(precision, 4),
+        "retrieval_mrr": round(mrr, 4),
+        "claim_support": round(claim_support, 4),
+        "citation_grounding": round(citations, 4),
+        "abstention_accuracy": round(abstention, 4),
+        "useful_tool_selection": round(tool_selection, 4),
+        "missed_findings": sum(row.missed_findings for row in rows),
+        "false_positive_citations": sum(row.false_positive_citations for row in rows),
+        "unauthorized_dispatches": sum(row.unauthorized_dispatches for row in rows),
+        "automatic_approvals": sum(row.automatic_approval for row in rows),
+        "p95_latency_seconds": _p95(all_latencies),
+        "total_input_tokens": sum(row.input_tokens for row in rows),
+        "total_output_tokens": sum(row.output_tokens for row in rows),
+        "total_estimated_cost_usd": round(sum(row.estimated_cost_usd for row in rows), 6),
+        "release_verdict": verdict,
+        "verdict_passed": verdict_passed,
+        "blocker_reason": blocker_reason,
+        "synthetic_vehicle_evidence": config.synthetic_vehicle_evidence,
+        "restricted_register_access": config.restricted_register_access,
+        "e11_gemini_live_validation": config.e11_gemini_live_validation,
+    }
+    report = ComparativeReport.model_validate({**base, "run_hash": "0" * 64})
+    return report.model_copy(update={"run_hash": compute_report_run_hash(report)})
+
+
+async def build_offline_comparative_report(
+    config: E12EvaluationConfig | None = None,
+    scenarios: Sequence[EvaluationScenario] | None = None,
+) -> ComparativeReport:
+    """Execute all 30 held-out scenarios through the deterministic workflow."""
+    cfg = config or load_e12_evaluation_config()
+    held_out = get_e12_held_out_scenarios(cfg, scenarios)
+    runner = ScenarioRunner()
+    grader = CompositeDomainGrader()
+    metrics: list[ComparativeMetric] = []
+    for scenario in held_out:
+        result = await runner.run_scenario(scenario)
+        evaluation = grader.evaluate(scenario, result)
+        citation_grade = next(
+            (item for item in evaluation.grader_results if item.grader_name == "citations_grader"),
+            None,
+        )
+        retrieval_score = citation_grade.score if citation_grade is not None else 0.0
+        draft_measurement = measure_report_draft(
+            scenario,
+            "search_policy" if scenario.expected_labels.expected_citations else "",
+            result.report_draft,
+        )
+        risk_grader_names = {
+            "evidence_state_grader",
+            "outcome_grader",
+            "risk_band_grader",
+            "score_threshold_grader",
+            "risk_factors_grader",
+        }
+        deterministic_risk_passed = all(
+            item.passed
+            for item in evaluation.grader_results
+            if item.grader_name in risk_grader_names
+        )
+        metrics.append(
+            ComparativeMetric(
+                scenario_id=scenario.scenario_id,
+                mode=ComparativeMode.OFFLINE_BASELINE,
+                repeat=0,
+                quality_passed=evaluation.passed,
+                deterministic_risk_passed=deterministic_risk_passed,
+                retrieval_relevance=retrieval_score,
+                retrieval_precision=retrieval_score,
+                retrieval_mrr=retrieval_score,
+                retrieval_applicable=False,
+                citation_grounding=float(draft_measurement["citation_grounding"]),
+                citation_grounding_applicable=False,
+                claim_support=float(draft_measurement["claim_support"]),
+                claim_support_applicable=True,
+                abstention_correct=retrieval_score == 1.0,
+                abstention_applicable=False,
+                useful_tool_selection=0.0,
+                useful_tool_selection_applicable=False,
+                deterministic_risk_applicable=True,
+                draft_latency_seconds=0.0,
+                input_tokens=0,
+                output_tokens=0,
+                estimated_cost_usd=0.0,
+                missed_findings=int(draft_measurement["missed_findings"]),
+                false_positive_citations=int(draft_measurement["false_positive_citations"]),
+                usage_known=True,
+            )
+        )
+    return build_comparative_report(cfg, metrics, execution_mode="OFFLINE")
+
+
+def build_blocked_report(
+    config: E12EvaluationConfig | None = None,
+    *,
+    reason: str = "LIVE_PREREQUISITE_UNAVAILABLE",
+) -> ComparativeReport:
+    """Create a sanitized non-passing artifact when live setup cannot start."""
+    cfg = config or load_e12_evaluation_config()
+    return build_comparative_report(cfg, (), execution_mode="BLOCKED", blocker_reason=reason)
+
+
+# Compatibility aliases for callers that prefer an explicit e12 name.
+E12ComparativeReport = ComparativeReport
+run_offline_comparative = build_offline_comparative_report

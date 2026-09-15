@@ -107,13 +107,22 @@ class GroundingValidator:
         """
         allowed_ev = set(context.allowed_evidence_ids)
         allowed_cit = set(context.allowed_citation_ids)
+        allowed_factors = {
+            factor.factor.value for factor in context.risk_result.factors if factor.triggered
+        }
         unsupported_cit = {
             c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
         }
 
         ungrounded: list[ClaimReference] = []
         for claim in self._all_claims(draft):
-            if self._claim_is_ungrounded(claim, allowed_ev, allowed_cit, unsupported_cit):
+            if self._claim_is_ungrounded(
+                claim,
+                allowed_ev,
+                allowed_cit,
+                allowed_factors,
+                unsupported_cit,
+            ):
                 ungrounded.append(claim)
 
         is_valid = len(ungrounded) == 0
@@ -125,10 +134,10 @@ class GroundingValidator:
         )
 
     def repair(self, draft: ReportDraft, context: GroundingContext) -> ReportDraft:
-        """Strip ungrounded evidence_refs and policy_citation_refs from all claims.
+        """Strip ungrounded claim references from all claims.
 
         - Score, band, and findings sections are NEVER modified.
-        - Only evidence_refs and policy_citation_refs are stripped from claims.
+        - Evidence, policy, and risk-factor references are stripped from claims.
         - Raises RepairExhaustedError if called a second time.
         """
         if self._repair_count >= 1:
@@ -138,12 +147,20 @@ class GroundingValidator:
         self._repair_count += 1
 
         allowed_ev = set(context.allowed_evidence_ids)
+        allowed_factors = {
+            factor.factor.value for factor in context.risk_result.factors if factor.triggered
+        }
         unsupported_cit = {
             c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
         }
         valid_cit = set(context.allowed_citation_ids) - unsupported_cit
 
-        new_sections = self._repair_sections(draft.sections, allowed_ev, valid_cit)
+        new_sections = self._repair_sections(
+            draft.sections,
+            allowed_ev,
+            valid_cit,
+            allowed_factors,
+        )
         return draft.model_copy(update={"sections": new_sections})
 
     # ------------------------------------------------------------------
@@ -176,12 +193,15 @@ class GroundingValidator:
         claim: ClaimReference,
         allowed_ev: set[str],
         allowed_cit: set[str],
+        allowed_factors: set[str],
         unsupported_cit: set[str] | None = None,
     ) -> bool:
         """Return True if claim references IDs outside allowlists or unsupported citations."""
         if any(ref and ref not in allowed_ev for ref in claim.evidence_refs):
             return True
         if any(ref and ref not in allowed_cit for ref in claim.policy_citation_refs):
+            return True
+        if any(ref and ref not in allowed_factors for ref in claim.risk_factor_refs):
             return True
         if not unsupported_cit:
             return False
@@ -192,6 +212,7 @@ class GroundingValidator:
         sections: ReportSections,
         allowed_ev: set[str],
         allowed_cit: set[str],
+        allowed_factors: set[str],
     ) -> ReportSections:
         """Return a copy of sections with ungrounded refs stripped from claims.
 
@@ -203,7 +224,9 @@ class GroundingValidator:
         ) -> tuple[ClaimReference, ...]:
             if not claims:
                 return ()
-            return tuple(self._repair_claim(c, allowed_ev, allowed_cit) for c in claims)
+            return tuple(
+                self._repair_claim(c, allowed_ev, allowed_cit, allowed_factors) for c in claims
+            )
 
         def _repair_section(section: BaseModel | None) -> BaseModel | None:
             """Repair claims within a section object if it has a 'claims' field."""
@@ -240,10 +263,22 @@ class GroundingValidator:
         claim: ClaimReference,
         allowed_ev: set[str],
         allowed_cit: set[str],
+        allowed_factors: set[str],
     ) -> ClaimReference:
         """Return a copy of the claim with ungrounded refs stripped."""
         new_ev = tuple(r for r in claim.evidence_refs if r in allowed_ev)
         new_cit = tuple(r for r in claim.policy_citation_refs if r in allowed_cit)
-        if new_ev == claim.evidence_refs and new_cit == claim.policy_citation_refs:
+        new_factors = tuple(r for r in claim.risk_factor_refs if r in allowed_factors)
+        if (
+            new_ev == claim.evidence_refs
+            and new_cit == claim.policy_citation_refs
+            and new_factors == claim.risk_factor_refs
+        ):
             return claim
-        return claim.model_copy(update={"evidence_refs": new_ev, "policy_citation_refs": new_cit})
+        return claim.model_copy(
+            update={
+                "evidence_refs": new_ev,
+                "policy_citation_refs": new_cit,
+                "risk_factor_refs": new_factors,
+            }
+        )

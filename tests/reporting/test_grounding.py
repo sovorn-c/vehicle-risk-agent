@@ -434,3 +434,50 @@ def test_grounding_rejects_unsupported_citation_only_claims() -> None:
     repaired = validator.repair(draft, ctx)
     res2 = GroundingValidator().validate(repaired, ctx)
     assert res2.is_valid
+
+
+def test_grounding_rejects_unknown_risk_factor_claim_references() -> None:
+    from vehicle_risk_agent.reporting.grounding import GroundingValidator
+
+    claim = ClaimReference(
+        claim_id="claim-unknown-factor",
+        statement="Claim with an unknown factor reference",
+        risk_factor_refs=("NOT_A_REAL_FACTOR",),
+    )
+    draft = _make_draft_with_claims((claim,))
+
+    result = GroundingValidator().validate(draft, _make_grounding_context())
+
+    assert result.is_valid is False
+    assert result.ungrounded_claims == (claim,)
+
+
+def test_grounding_rejects_untriggered_risk_factor_claim_references() -> None:
+    from vehicle_risk_agent.reporting.grounding import GroundingValidator
+    from vehicle_risk_agent.risk.models import RiskFactor, RiskFactorResult
+
+    base_risk_result = _make_risk_result()
+    risk_result = base_risk_result.model_copy(
+        update={
+            "factors": (
+                *base_risk_result.factors,
+                RiskFactorResult(
+                    factor=RiskFactor.REPAIRABLE,
+                    triggered=False,
+                    weight=20,
+                    evidence_field="writeoff_status",
+                ),
+            )
+        }
+    )
+    claim = ClaimReference(
+        claim_id="claim-untriggered-factor",
+        statement="Claim with an untriggered factor reference",
+        risk_factor_refs=("REPAIRABLE",),
+    )
+    draft = _make_draft_with_claims((claim,))
+
+    result = GroundingValidator().validate(draft, _make_grounding_context(risk_result=risk_result))
+
+    assert result.is_valid is False
+    assert result.ungrounded_claims == (claim,)
