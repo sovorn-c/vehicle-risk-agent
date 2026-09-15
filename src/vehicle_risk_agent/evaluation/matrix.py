@@ -29,6 +29,9 @@ from vehicle_risk_agent.policy.models import PolicyCitation
 from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand
 
 _FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+_CLEAN_FIXTURE_VIN = "1HGCR2F85HA000000"
+_RISKY_FIXTURE_VIN = "1FA6P8CF8H5000000"
+_CONFLICT_FIXTURE_VIN = "WAUZZZ8K7BA000000"
 
 
 def _vin(idx: int) -> str:
@@ -100,9 +103,9 @@ def get_evaluation_matrix() -> list[EvaluationScenario]:
             title="Clean Vehicle Dealer Sale",
             description="Clean dealer vehicle with all required fields clear.",
             category=ScenarioCategory.CLEAN,
-            vin=_vin(1),
+            vin=_CLEAN_FIXTURE_VIN,
             context=AssessmentContext(sale_type=SaleType.DEALER),
-            mock_vehicle_revisions=(_make_rev(_vin(1), "rev-c1", 1),),
+            mock_vehicle_revisions=(_make_rev(_CLEAN_FIXTURE_VIN, "rev-c1", 1),),
             mock_citations=(_citation("pid-c1", "Clear Vehicle Status"),),
             expected_labels=ExpectedEvaluationLabels(
                 sufficiency_outcome=SufficiencyOutcome.COMPLETE,
@@ -248,13 +251,18 @@ def get_evaluation_matrix() -> list[EvaluationScenario]:
             scenario_id="sc-risk-compound-05",
             version="1.0.0",
             title="Compound Stolen and Statutory Write-Off",
-            description="Stolen and statutory write-off compound to CRITICAL risk (85).",
+            description="Matched, stolen, and statutory records produce CRITICAL risk (100).",
             category=ScenarioCategory.RISKY,
-            vin=_vin(7),
+            vin=_RISKY_FIXTURE_VIN,
             context=AssessmentContext(sale_type=SaleType.AUCTION),
             mock_vehicle_revisions=(
                 _make_rev(
-                    _vin(7), "rev-r5", 1, stolen="REPORTED_STOLEN", writeoff="STATUTORY_WRITEOFF"
+                    _RISKY_FIXTURE_VIN,
+                    "rev-r5",
+                    1,
+                    ppsr="MATCH",
+                    stolen="REPORTED_STOLEN",
+                    writeoff="STATUTORY_WRITEOFF",
                 ),
             ),
             mock_citations=(_citation("pid-r5", "Compound Adverse Register Entries"),),
@@ -262,9 +270,9 @@ def get_evaluation_matrix() -> list[EvaluationScenario]:
                 sufficiency_outcome=SufficiencyOutcome.COMPLETE,
                 assessment_outcome=AssessmentOutcome.SCORED,
                 risk_band=RiskBand.CRITICAL,
-                min_risk_score=85.0,
-                max_risk_score=85.0,
-                required_factor_ids=("LISTED", "STATUTORY"),
+                min_risk_score=100.0,
+                max_risk_score=100.0,
+                required_factor_ids=("LISTED", "MATCH", "STATUTORY"),
             ),
             prohibited_labels=ProhibitedEvaluationLabels(
                 prohibited_outcomes=(AssessmentOutcome.FAILED,),
@@ -363,9 +371,11 @@ def get_evaluation_matrix() -> list[EvaluationScenario]:
             title="Unresolved PPSR Conflict",
             description="Conflicting finance status across sources withholds score.",
             category=ScenarioCategory.CONFLICT,
-            vin=_vin(11),
+            vin=_CONFLICT_FIXTURE_VIN,
             context=AssessmentContext(sale_type=SaleType.DEALER),
-            mock_vehicle_revisions=(_make_rev(_vin(11), "rev-cf1", 1, conflicts=(c1,)),),
+            mock_vehicle_revisions=(
+                _make_rev(_CONFLICT_FIXTURE_VIN, "rev-cf1", 1, conflicts=(c1,)),
+            ),
             expected_labels=ExpectedEvaluationLabels(
                 sufficiency_outcome=SufficiencyOutcome.INCOMPLETE,
                 assessment_outcome=AssessmentOutcome.INCOMPLETE,
@@ -449,12 +459,12 @@ def get_evaluation_matrix() -> list[EvaluationScenario]:
             title="Multiple Inspection Revisions",
             description="Multiple revisions tracking clean ownership history over time.",
             category=ScenarioCategory.TEMPORAL,
-            vin=_vin(14),
+            vin=_CLEAN_FIXTURE_VIN,
             context=AssessmentContext(sale_type=SaleType.PRIVATE),
             mock_vehicle_revisions=(
-                _make_rev(_vin(14), "rev-t2-3", 3),
-                _make_rev(_vin(14), "rev-t2-2", 2),
-                _make_rev(_vin(14), "rev-t2-1", 1),
+                _make_rev(_CLEAN_FIXTURE_VIN, "rev-t2-3", 3),
+                _make_rev(_CLEAN_FIXTURE_VIN, "rev-t2-2", 2),
+                _make_rev(_CLEAN_FIXTURE_VIN, "rev-t2-1", 1),
             ),
             mock_citations=(_citation("pid-t2", "Inspection History Standards"),),
             expected_labels=ExpectedEvaluationLabels(

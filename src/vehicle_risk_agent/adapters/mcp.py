@@ -141,6 +141,9 @@ class UnavailableVehicleMcpAdapter:
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
+_EXPECTED_MCP_SERVER_NAME = "vehicle-intelligence-mcp"
+_EXPECTED_MCP_SERVER_VERSION = "0.3.0"
+
 
 class StreamableHttpVehicleMcpAdapter:
     """Official MCP client adapter for the Vehicle Intelligence Streamable HTTP server."""
@@ -157,6 +160,19 @@ class StreamableHttpVehicleMcpAdapter:
         self.max_retries = max_retries
         self.initial_backoff = initial_backoff
 
+    @staticmethod
+    def validate_server_identity(server_info: types.Implementation | None) -> None:
+        """Reject MCP sessions that do not identify the expected upstream server."""
+        if (
+            server_info is None
+            or server_info.name != _EXPECTED_MCP_SERVER_NAME
+            or server_info.version != _EXPECTED_MCP_SERVER_VERSION
+        ):
+            raise McpAdapterError(
+                category=SafeErrorCategory.PIPELINE_CONTRACT_ERROR,
+                message="MCP server identity does not match the Vehicle Intelligence contract",
+            )
+
     async def _call_once(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         with trace_boundary("mcp.call_tool", boundary="mcp", tool=tool_name):
             async with (
@@ -167,7 +183,8 @@ class StreamableHttpVehicleMcpAdapter:
                     read_timeout_seconds=self.timeout_seconds,
                 ) as session,
             ):
-                await session.initialize()
+                initialization = await session.initialize()
+                self.validate_server_identity(initialization.server_info)
                 return await session.call_tool(
                     tool_name,
                     arguments=arguments,

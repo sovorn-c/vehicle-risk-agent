@@ -42,12 +42,6 @@ _PROVIDER_CREDENTIALS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
 }
-_E12_LIVE_FIXTURE_VINS = {
-    "sc-clean-01": "1HGCR2F85HA000000",
-    "sc-risk-compound-05": "1FA6P8CF8H5000000",
-    "sc-conflict-ppsr-01": "WAUZZZ8K7BA000000",
-    "sc-temporal-multi-rev-02": "1HGCR2F85HA000000",
-}
 
 
 class ModelPricingConfig(BaseModel):
@@ -1396,7 +1390,7 @@ class LiveEvaluationRunner:
                 scenario = scenario_by_id[overlay.scenario_id]
                 common_payload = {
                     "scenario_id": scenario.scenario_id,
-                    "vin": _E12_LIVE_FIXTURE_VINS[scenario.scenario_id],
+                    "vin": scenario.vin,
                     "sale_type": scenario.context.sale_type,
                     "questions": [overlay.investigation_question],
                     "expected_outcome": (
@@ -1407,9 +1401,7 @@ class LiveEvaluationRunner:
                     "expected_action": overlay.expected_action,
                     "expected_field": overlay.expected_field,
                     "retrieval_query_id": overlay.retrieval_query_id,
-                    "expected_labels": (
-                        overlay.live_expected_labels or scenario.expected_labels
-                    ).model_dump(),
+                    "expected_labels": scenario.expected_labels.model_dump(),
                 }
                 draft_runner = LiveEvaluationRunner(
                     config=self.config.model_copy(

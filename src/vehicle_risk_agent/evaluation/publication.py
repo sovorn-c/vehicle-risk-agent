@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     compute_report_run_hash,
+    validate_report_integrity,
 )
 from vehicle_risk_agent.evaluation.provenance import sha256_bytes
 
@@ -43,6 +44,7 @@ def publication_from_report(
     """Copy only non-sensitive identity and verdict fields from a report."""
     if report.run_hash != compute_report_run_hash(report):
         raise ValueError("comparative report run_hash does not match its contents")
+    validate_report_integrity(report)
     canonical_bytes = report.model_dump_json(indent=2).encode("utf-8")
     if report_bytes is None:
         digest = sha256_bytes(canonical_bytes)

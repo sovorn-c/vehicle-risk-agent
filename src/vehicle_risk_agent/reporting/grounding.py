@@ -107,7 +107,9 @@ class GroundingValidator:
         """
         allowed_ev = set(context.allowed_evidence_ids)
         allowed_cit = set(context.allowed_citation_ids)
-        allowed_factors = {factor.factor.value for factor in context.risk_result.factors}
+        allowed_factors = {
+            factor.factor.value for factor in context.risk_result.factors if factor.triggered
+        }
         unsupported_cit = {
             c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
         }
@@ -145,7 +147,9 @@ class GroundingValidator:
         self._repair_count += 1
 
         allowed_ev = set(context.allowed_evidence_ids)
-        allowed_factors = {factor.factor.value for factor in context.risk_result.factors}
+        allowed_factors = {
+            factor.factor.value for factor in context.risk_result.factors if factor.triggered
+        }
         unsupported_cit = {
             c.passage_id for c in context.policy_citations if not c.text or not c.text.strip()
         }

@@ -274,6 +274,19 @@ def load_e12_evaluation_config(
     return E12EvaluationConfig.from_mapping(raw)
 
 
+def _live_labels_match(
+    live_labels: ExpectedEvaluationLabels,
+    scenario_labels: ExpectedEvaluationLabels,
+) -> bool:
+    return (
+        live_labels.assessment_outcome == scenario_labels.assessment_outcome
+        and live_labels.risk_band == scenario_labels.risk_band
+        and live_labels.min_risk_score == scenario_labels.min_risk_score
+        and live_labels.max_risk_score == scenario_labels.max_risk_score
+        and set(live_labels.required_factor_ids) == set(scenario_labels.required_factor_ids)
+    )
+
+
 def validate_e12_split(
     config: E12EvaluationConfig,
     scenarios: Sequence[EvaluationScenario] | None = None,
@@ -325,8 +338,14 @@ def validate_e12_split(
                 or set(expected_live.required_factor_ids) != {"LISTED", "MATCH", "STATUTORY"}
             ):
                 raise ValueError("compound E12 overlay must pin the upstream fixture labels")
+            if not _live_labels_match(expected_live, by_id[overlay.scenario_id].expected_labels):
+                raise ValueError("live overlay labels must match the held-out scenario labels")
         elif overlay.live_expected_labels is not None:
-            raise ValueError(f"unexpected live labels for {overlay.scenario_id}")
+            if not _live_labels_match(
+                overlay.live_expected_labels,
+                by_id[overlay.scenario_id].expected_labels,
+            ):
+                raise ValueError("live overlay labels must match the held-out scenario labels")
         if not overlay.live_drafting:
             raise ValueError(f"e12 overlay {overlay.scenario_id} must be live comparable")
 
@@ -486,6 +505,53 @@ class ComparativeReport(BaseModel):
         if report.run_hash != compute_report_run_hash(report):
             raise ValueError("comparative report run_hash does not match its contents")
         return report
+
+
+def validate_report_integrity(report: ComparativeReport) -> None:
+    """Validate report provenance and cross-field release-state invariants."""
+    config = load_e12_evaluation_config().model_copy(
+        update={
+            "provider": report.provider,
+            "model": report.model,
+            "pricing_input_usd_per_million": report.pricing_input_usd_per_million,
+            "pricing_output_usd_per_million": report.pricing_output_usd_per_million,
+            "pricing_source_url": report.pricing_source_url,
+            "pricing_checked_at": report.pricing_checked_at,
+        }
+    )
+    _validate_frozen_config(config)
+    if not is_real_source_commit(report.source_commit):
+        raise ValueError("report source commit is not an existing Git commit")
+    if report.config_id != config.config_id:
+        raise ValueError("report config ID does not match the tracked configuration")
+    if report.config_hash != _report_hash_payload(config.model_dump(mode="json", by_alias=True)):
+        raise ValueError("report config hash does not match the tracked configuration")
+    if report.config_sha256 != _config_digest(config):
+        raise ValueError("report config digest does not match the tracked configuration")
+    if report.judgments_sha256 != _judgments_digest(report.semantic_judgments):
+        raise ValueError("report judgment digest does not match the supplied judgments")
+    expected_input_digest = _evaluation_input_digest(
+        config,
+        report.metrics,
+        report.source_commit,
+        report.config_sha256,
+    )
+    if report.evaluation_input_sha256 != expected_input_digest:
+        raise ValueError("report evaluation input digest does not match its contents")
+    if report.release_verdict not in {"BLOCKED", "FAIL", "PASS"}:
+        raise ValueError("report release verdict is not an allowed state")
+    if report.execution_mode != "LIVE" and (
+        report.release_verdict != "BLOCKED" or report.verdict_passed
+    ):
+        raise ValueError("non-live reports must remain BLOCKED and not passed")
+    if report.verdict_passed != (report.release_verdict == "PASS"):
+        raise ValueError("report verdict and release state are inconsistent")
+    if report.release_verdict == "PASS" and (
+        report.execution_mode != "LIVE"
+        or report.blocker_reason is not None
+        or not report.semantic_gate_passed
+    ):
+        raise ValueError("report PASS state does not satisfy release invariants")
 
 
 def _p95(values: Sequence[float]) -> float:
@@ -702,15 +768,16 @@ def measure_report_draft_labels(
         abstention_correct = False
 
     claims = tuple(draft.all_claims)
-    allowed_risk_factors = {factor.value for factor in RiskFactor}
+    known_risk_factors = {factor.value for factor in RiskFactor}
+    risk_section = getattr(getattr(draft, "sections", None), "risk_score_and_band", None)
+    triggered_risk_factors = set(
+        getattr(risk_section, "risk_factor_refs", draft.all_risk_factor_refs)
+    )
+    allowed_risk_factors = triggered_risk_factors & known_risk_factors
     supported_claims = sum(
-        bool(
-            claim.evidence_refs
-            or claim.policy_citation_refs
-            or (
-                claim.risk_factor_refs
-                and set(claim.risk_factor_refs).issubset(allowed_risk_factors)
-            )
+        bool(claim.evidence_refs or claim.policy_citation_refs or claim.risk_factor_refs)
+        and (
+            not claim.risk_factor_refs or set(claim.risk_factor_refs).issubset(allowed_risk_factors)
         )
         for claim in claims
     )

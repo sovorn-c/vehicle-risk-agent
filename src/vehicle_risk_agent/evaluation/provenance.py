@@ -42,8 +42,20 @@ def resolve_source_commit() -> str:
 
 
 def is_real_source_commit(value: str) -> bool:
-    """Return whether a provenance value identifies a concrete Git commit."""
-    return bool(_COMMIT_PATTERN.fullmatch(value))
+    """Return whether a provenance value identifies an existing Git commit."""
+    if not _COMMIT_PATTERN.fullmatch(value):
+        return False
+    try:
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{value}^{{commit}}"],
+            capture_output=True,
+            check=True,
+            cwd=_REPOSITORY_ROOT,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
 
 
 def sha256_bytes(value: bytes) -> str:
