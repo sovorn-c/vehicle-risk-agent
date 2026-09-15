@@ -1,10 +1,16 @@
 """Deterministic contracts for the bounded e11 live-investigation suite."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from vehicle_risk_agent.evaluation.investigation import e11_scenarios
+from vehicle_risk_agent.evaluation.investigation import (
+    InvestigationScenario,
+    grade_scenario,
+    e11_scenarios,
+)
+from vehicle_risk_agent.investigation.models import InvestigationAction
 from vehicle_risk_agent.evaluation.live import (
     LiveEvaluationBudgetError,
     LiveEvaluationConfig,
@@ -25,6 +31,44 @@ def test_e11_scenarios_are_exactly_labelled() -> None:
     assert scenarios[1].expected_action == "search_policy"
     assert scenarios[2].expected_action == "NO_ACTION"
     assert scenarios[2].expected_dispatched is False
+
+
+def test_investigation_grading_rejects_wrong_field_result() -> None:
+    scenario = InvestigationScenario(
+        scenario_id="conflict",
+        intent="Explain the PPSR conflict.",
+        evidence_targets=("ppsr_result",),
+        expected_action="explain_vehicle_field",
+        expected_field="ppsr_result",
+    )
+    result = SimpleNamespace(
+        action=InvestigationAction.EXPLAIN_VEHICLE_FIELD,
+        dispatched=True,
+        completed=True,
+        references=("obs-1",),
+        policy_citations=(),
+        evidence_result=SimpleNamespace(field_name="stolen_status"),
+    )
+
+    assert grade_scenario(scenario, result) is False
+
+
+def test_investigation_grading_rejects_untyped_history_result() -> None:
+    scenario = InvestigationScenario(
+        scenario_id="history",
+        intent="Find older revisions.",
+        expected_action="get_vehicle_history",
+    )
+    result = SimpleNamespace(
+        action=InvestigationAction.GET_VEHICLE_HISTORY,
+        dispatched=True,
+        completed=True,
+        references=("rev-1",),
+        policy_citations=(),
+        evidence_result=None,
+    )
+
+    assert grade_scenario(scenario, result) is False
 
 
 def test_e11_offline_control_is_blocked_and_redacted(tmp_path: Path) -> None:

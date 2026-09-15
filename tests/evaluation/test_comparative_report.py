@@ -118,6 +118,68 @@ def test_ranked_retrieval_and_policy_claim_grounding_use_applicable_labels() -> 
     assert metrics["citation_grounding_applicable"] is True
 
 
+def test_missing_ranked_retrieval_does_not_fallback_to_report_citations() -> None:
+    label = RetrievalQueryLabel(
+        query_id="q-test",
+        query="statutory write-off",
+        relevant_passage_ids=("gold",),
+        required_citation_ids=("gold",),
+    )
+    claim = SimpleNamespace(
+        evidence_refs=(),
+        policy_citation_refs=("gold",),
+        risk_factor_refs=(),
+    )
+    draft = SimpleNamespace(
+        all_policy_citation_refs=("gold",),
+        all_claims=(claim,),
+        all_risk_factor_refs=(),
+    )
+
+    metrics = measure_report_draft_labels(
+        {},
+        "search_policy",
+        draft,
+        retrieval_label=label,
+        retrieved_passage_ids=[],
+        retrieved_citation_ids=[],
+    )
+
+    assert metrics["retrieval_relevance"] == 0.0
+    assert metrics["retrieval_precision"] == 0.0
+    assert metrics["citation_grounding"] == 0.0
+    assert metrics["false_positive_citations"] == 0
+
+
+def test_no_answer_with_extra_citation_counts_as_false_positive() -> None:
+    label = RetrievalQueryLabel(
+        query_id="q-no-answer",
+        query="unsupported topic",
+        is_no_answer=True,
+    )
+    claim = SimpleNamespace(
+        evidence_refs=(),
+        policy_citation_refs=("wrong",),
+        risk_factor_refs=(),
+    )
+    draft = SimpleNamespace(
+        all_policy_citation_refs=("wrong",),
+        all_claims=(claim,),
+        all_risk_factor_refs=(),
+    )
+
+    metrics = measure_report_draft_labels(
+        {},
+        "search_policy",
+        draft,
+        retrieval_label=label,
+        retrieved_passage_ids=["wrong"],
+        retrieved_citation_ids=["wrong"],
+    )
+
+    assert metrics["false_positive_citations"] == 1
+
+
 def test_report_excludes_inapplicable_investigation_metrics() -> None:
     config = load_e12_evaluation_config()
     common: dict[str, Any] = {

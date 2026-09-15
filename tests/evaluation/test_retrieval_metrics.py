@@ -10,7 +10,9 @@ from vehicle_risk_agent.evaluation.retrieval import (
     RetrievalMetricsResult,
     RetrievalMetricsThresholds,
     build_seeded_retrieval_service,
+    compute_query_metrics,
     get_seeded_retrieval_dataset,
+    RetrievalQueryLabel,
 )
 from vehicle_risk_agent.policy.corpus_models import RetrievalConfiguration
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter
@@ -103,6 +105,22 @@ async def test_failure_when_citation_identity_is_missing() -> None:
 
     assert result.citation_identity_accuracy == 0.0
     assert result.passed is False
+
+
+def test_precision_at_five_uses_returned_top_k_denominator() -> None:
+    metric = compute_query_metrics(
+        label=RetrievalQueryLabel(
+            query_id="q-test",
+            query="statutory write-off",
+            relevant_passage_ids=("gold",),
+            required_citation_ids=("gold",),
+        ),
+        retrieved_passage_ids=["wrong", "gold", "wrong"],
+        retrieved_citation_ids=["gold"],
+        is_abstention=False,
+    )
+
+    assert metric.precision_at_5 == pytest.approx(1 / 3)
 
 
 @pytest.mark.asyncio
