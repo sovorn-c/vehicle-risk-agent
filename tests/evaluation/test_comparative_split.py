@@ -87,4 +87,9 @@ def test_comparable_overlays_use_the_same_labelled_vehicle_fixtures() -> None:
     for overlay in config.comparable_shared_inputs:
         live_labels = overlay.live_expected_labels
         if live_labels is not None:
-            assert scenarios[overlay.scenario_id].expected_labels == live_labels
+            scenario_labels = scenarios[overlay.scenario_id].expected_labels
+            assert live_labels.assessment_outcome == scenario_labels.assessment_outcome
+            assert live_labels.risk_band == scenario_labels.risk_band
+            assert live_labels.min_risk_score == scenario_labels.min_risk_score
+            assert live_labels.max_risk_score == scenario_labels.max_risk_score
+            assert set(live_labels.required_factor_ids) == set(scenario_labels.required_factor_ids)

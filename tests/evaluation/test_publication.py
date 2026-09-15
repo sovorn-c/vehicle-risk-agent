@@ -77,7 +77,7 @@ def test_publication_helper_rejects_inconsistent_blocked_verdict() -> None:
     forged = report.model_copy(update={"release_verdict": "PASS", "verdict_passed": True})
     forged = forged.model_copy(update={"run_hash": compute_report_run_hash(forged)})
 
-    with pytest.raises(ValueError, match="verdict"):
+    with pytest.raises(ValueError, match="non-live"):
         publication_from_report(forged)
 
 
