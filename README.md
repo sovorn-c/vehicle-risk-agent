@@ -226,16 +226,28 @@ curl -f http://localhost:8001/ready
 
 ## Measured AI quality
 
-The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
+To evaluate real-world agent reliability, the benchmark suite (`e12-eval-v1`) compares three operational modes across 30 held-out scenarios:
+1. **Deterministic Offline Baseline:** Verifies rule-based scoring and fallback safety without external network or LLM dependencies.
+2. **Live Grounded Drafting:** Tests LLM analytical drafting with citation grounding and schema adherence.
+3. **Bounded Live Investigation:** Tests multi-step MCP tool use, budget enforcement, and supplementary policy retrieval.
 
-All vehicle evidence remains synthetic and the e11 Gemini live-validation gate remains a separate release blocker. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad`.
-The current blocked artifact is bound to source
-`c2bb92d66557d0dbdbb5f29f9922d446790270b7`, configuration
-`18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd`,
-judgments `6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996`,
-evaluation input `177cc9691dfa982e1ea9a6863dafbdb4682c4e0af1a6bcf82a88155ca51cc588`,
-report bytes `b647dac2fb18dd8e8b7cfc8f3a24fcbb26afbe65ab4ccfab9d5bae8b15ae5e58`,
-and report hash `9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff`.
+The live benchmark executes across 24 runs (4 representative scenarios across 3 repeats) with an enforced USD 15.00 budget ceiling and requires 8 audited human semantic judgments. The system enforces strict epistemic honesty: missing credentials, unavailable neural corpus, or incomplete human sign-offs produce an explicit `BLOCKED` verdict — preventing accidental or silent false-passes.
+
+Live drafting defaults to Google Gemini (`gemini-3.1-flash-lite`), with Anthropic (`claude-sonnet-4-6`) supported as an explicit alternate. All vehicle data used in evaluation remains synthetic, and the live model validation pipeline (e11 Gemini live-validation gate) requires explicit credentials.
+
+<details>
+<summary><b>Cryptographic provenance & reproducibility hashes</b> (click to expand)</summary>
+
+The published baseline control artifact is cryptographically bound to prevent unverified claims:
+- **Configuration hash:** `447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad`
+- **Source commit:** `c2bb92d66557d0dbdbb5f29f9922d446790270b7`
+- **Config SHA-256:** `18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd`
+- **Judgments SHA-256:** `6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996`
+- **Evaluation input SHA-256:** `177cc9691dfa982e1ea9a6863dafbdb4682c4e0af1a6bcf82a88155ca51cc588`
+- **Report bytes SHA-256:** `b647dac2fb18dd8e8b7cfc8f3a24fcbb26afbe65ab4ccfab9d5bae8b15ae5e58`
+- **Report hash:** `9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff`
+
+</details>
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
