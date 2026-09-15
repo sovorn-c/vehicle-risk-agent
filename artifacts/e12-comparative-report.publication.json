@@ -1,11 +1,15 @@
 {
   "publication_version": "e12-publication-v1",
-  "report_id": "e12-comparative-2026-09-14-90427",
+  "report_id": "e12-comparative-2026-09-15-22365",
   "config_id": "e12-eval-v1",
-  "config_hash": "c408daddaeaf503eafd2e74f1e7f7c329e86b9050707280b10f54ac5b942ab3a",
-  "report_hash": "a43e14cf400dc2fa972cd70fbcd6b2d45b76478f970e593036fa4b28cdcac3ef",
-  "execution_mode": "LIVE",
-  "release_verdict": "PASS",
-  "verdict_passed": true,
+  "config_hash": "447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad",
+  "report_hash": "6214b6c816264a19c479e674a76f69eab1bfd5a0a08e107bb3ae3608544ac361",
+  "report_bytes_sha256": "9a65dc2ca1cb55d7d584c746bff2bcf5e7cc2845572aa35c2ae1e5f9b8829acf",
+  "source_commit": "df520484be0c9b1fe12c965a210b874274d7f762",
+  "config_sha256": "cd8e4159c596ec38a3ee0c6dbc249088e03fbe3d5c3f6ce29ad8f01ba09dfee8",
+  "judgments_sha256": "6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996",
+  "execution_mode": "OFFLINE",
+  "release_verdict": "BLOCKED",
+  "verdict_passed": false,
   "synthetic_vehicle_evidence": true
 }
