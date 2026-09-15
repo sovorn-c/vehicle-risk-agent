@@ -119,10 +119,16 @@ class InvestigationDispatcher:
                         before_revision=current_revision,
                     )
                 revisions = [VehicleRevisionResponse.model_validate(item) for item in raw_history]
-                by_revision = {item.revision_number: item for item in revisions}
+                if current_revision is not None and any(
+                    item.revision_number >= current_revision for item in revisions
+                ):
+                    raise ValueError("vehicle history response contains a non-historical revision")
+                revision_numbers = [item.revision_number for item in revisions]
+                if len(revision_numbers) != len(set(revision_numbers)):
+                    raise ValueError("vehicle history response contains duplicate revisions")
                 history = tuple(
                     sorted(
-                        by_revision.values(),
+                        revisions,
                         key=lambda item: item.revision_number,
                         reverse=True,
                     )[: self.history_limit]

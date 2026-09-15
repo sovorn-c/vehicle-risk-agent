@@ -356,8 +356,9 @@ def compute_query_metrics(
     retrieved_cit_set = set(retrieved_citation_ids)
 
     if label.is_no_answer:
-        abstention_correct = is_abstention and len(retrieved_passage_ids) == 0
-        citation_correct = len(retrieved_cit_set) == 0
+        consistent_label = not rel_set and not req_cit_set
+        abstention_correct = consistent_label and is_abstention and len(retrieved_passage_ids) == 0
+        citation_correct = consistent_label and len(retrieved_cit_set) == 0
         return PerQueryRetrievalMetric(
             query_id=label.query_id,
             query=label.query,
@@ -373,14 +374,24 @@ def compute_query_metrics(
         )
 
     abstention_correct = not is_abstention
-    citation_correct = req_cit_set.issubset(retrieved_cit_set) if req_cit_set else True
+    citation_correct = req_cit_set.issubset(retrieved_cit_set) if req_cit_set else False
 
     if not rel_set:
-        recall = 1.0
-        precision = 1.0
-        rr = 1.0
+        return PerQueryRetrievalMetric(
+            query_id=label.query_id,
+            query=label.query,
+            is_no_answer=False,
+            retrieved_passage_ids=tuple(retrieved_passage_ids),
+            relevant_passage_ids=label.relevant_passage_ids,
+            required_citation_ids=label.required_citation_ids,
+            recall_at_5=0.0,
+            precision_at_5=0.0,
+            reciprocal_rank=0.0,
+            abstention_correct=False,
+            citation_grounding_correct=False,
+        )
     else:
-        hits = [pid for pid in top_k_ids if pid in rel_set]
+        hits = {pid for pid in top_k_ids if pid in rel_set}
         recall = len(hits) / len(rel_set)
 
         rr = 0.0
@@ -463,16 +474,16 @@ class RetrievalMetricsEvaluator:
         answered = [m for m in query_metrics if not m.is_no_answer]
         no_answer = [m for m in query_metrics if m.is_no_answer]
 
-        avg_recall = sum(m.recall_at_5 for m in answered) / len(answered) if answered else 1.0
-        avg_precision = sum(m.precision_at_5 for m in answered) / len(answered) if answered else 1.0
-        avg_mrr = sum(m.reciprocal_rank for m in answered) / len(answered) if answered else 1.0
+        avg_recall = sum(m.recall_at_5 for m in answered) / len(answered) if answered else 0.0
+        avg_precision = sum(m.precision_at_5 for m in answered) / len(answered) if answered else 0.0
+        avg_mrr = sum(m.reciprocal_rank for m in answered) / len(answered) if answered else 0.0
         abstention_acc = (
-            sum(1 for m in no_answer if m.abstention_correct) / len(no_answer) if no_answer else 1.0
+            sum(1 for m in no_answer if m.abstention_correct) / len(no_answer) if no_answer else 0.0
         )
         citation_acc = (
-            sum(1 for m in answered if m.citation_grounding_correct) / len(answered)
-            if answered
-            else 1.0
+            sum(1 for m in query_metrics if m.citation_grounding_correct) / len(query_metrics)
+            if query_metrics
+            else 0.0
         )
 
         passed = (

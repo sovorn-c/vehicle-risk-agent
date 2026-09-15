@@ -243,3 +243,72 @@ async def test_completed_ledger_replays_typed_result_without_provider_call() -> 
     )
 
     assert result["investigation_result"] == expected
+
+
+@pytest.mark.asyncio
+async def test_exhausted_ledger_replays_persisted_typed_result_without_provider_call() -> None:
+    revision = VehicleRevisionResponse(
+        vin="1HGCM82633A004352",
+        revision_id="rev-history-exhausted",
+        revision_number=1,
+        material_hash="c" * 64,
+        canonical_fields={"make": "Honda"},
+        confidence=ConfidenceAssessment(
+            score=90,
+            band=ConfidenceBand.HIGH,
+            rule_version="v1",
+            explanation="verified",
+        ),
+        as_of=datetime.now(UTC),
+        published_at=datetime.now(UTC),
+    )
+    expected = InvestigationResult(
+        action=InvestigationAction.GET_VEHICLE_HISTORY,
+        summary="history persisted before budget exhaustion",
+        references=(revision.revision_id,),
+        evidence_result=VehicleHistoryResult(vin=revision.vin, revisions=(revision,)),
+        completed=True,
+        dispatched=True,
+    )
+    snapshot = create_evidence_snapshot("assessment-exhausted-replay", 1, revision)
+
+    class Provider:
+        async def propose(self, _context: InvestigationContext) -> ProviderProposalResult:
+            raise AssertionError("an exhausted ledger replay must not call the provider")
+
+    class Ledger:
+        async def get_ledger(self, *_args: Any) -> Any:
+            return SimpleNamespace(
+                status="EXHAUSTED",
+                result=expected,
+                limits=InvestigationLimits.final(),
+            )
+
+    class Dispatcher:
+        async def dispatch(self, *_args: Any, **_kwargs: Any) -> InvestigationResult:
+            raise AssertionError("an exhausted ledger replay must not call the dispatcher")
+
+    result = await node_investigating(
+        {
+            "assessment_id": "assessment-exhausted-replay",
+            "run_number": 1,
+            "vin": revision.vin,
+            "context": AssessmentContext(
+                sale_type=SaleType.DEALER,
+                questions=["Find history."],
+            ),
+            "phase": AssessmentRunPhase.PENDING,
+            "visited_phases": [AssessmentRunPhase.PENDING],
+            "events": [],
+            "evidence_snapshot": snapshot,
+        },
+        {
+            "configurable": {
+                "investigation_provider": Provider(),
+                "investigation_ledger": Ledger(),
+                "investigation_dispatcher": Dispatcher(),
+            }
+        },
+    )
+
+    assert result["investigation_result"] == expected

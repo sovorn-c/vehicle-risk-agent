@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from vehicle_risk_agent.evidence.models import FieldExplanationResult
+from vehicle_risk_agent.evidence.models import FieldExplanationResult, VehicleRevisionResponse
 from vehicle_risk_agent.investigation.models import VehicleHistoryResult
 
 
@@ -21,6 +21,7 @@ class InvestigationScenario(BaseModel):
     evidence_targets: tuple[str, ...] = Field(default_factory=tuple)
     expected_action: str
     expected_field: str | None = None
+    expected_revision_number: int | None = Field(default=None, ge=1)
     expected_query: str | None = None
     expected_dispatched: bool = True
     expected_outcome: str = "SCORED"
@@ -93,7 +94,12 @@ def grade_investigation_scenario(
         )
     if scenario.expected_action == "get_vehicle_history":
         return isinstance(evidence_result, VehicleHistoryResult) and bool(evidence_result.revisions)
-    return bool(references) and evidence_result is not None
+    if scenario.expected_action == "get_vehicle_revision":
+        return isinstance(evidence_result, VehicleRevisionResponse) and (
+            scenario.expected_revision_number is None
+            or evidence_result.revision_number == scenario.expected_revision_number
+        )
+    return False
 
 
 # Small aliases keep the evaluator API explicit for callers and tests.

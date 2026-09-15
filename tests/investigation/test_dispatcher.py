@@ -118,13 +118,6 @@ async def test_history_dispatch_returns_bounded_typed_revisions() -> None:
                         "material_hash": "c" * 64,
                     }
                 ),
-                self.revision.model_copy(
-                    update={
-                        "revision_id": "rev-1",
-                        "revision_number": 1,
-                        "material_hash": "b" * 64,
-                    }
-                ),
             ]
 
     vehicle = HistoryVehicle(revision())
@@ -142,6 +135,61 @@ async def test_history_dispatch_returns_bounded_typed_revisions() -> None:
     assert isinstance(result.evidence_result, VehicleHistoryResult)
     assert tuple(item.revision_number for item in result.evidence_result.revisions) == (2, 1)
     assert result.references == ("rev-2", "rev-1")
+
+
+@pytest.mark.asyncio
+async def test_history_dispatch_rejects_duplicate_revisions() -> None:
+    class InvalidHistoryVehicle(FakeVehicleClient):
+        async def get_vehicle_history(
+            self, vin: str, limit: int = 20, before_revision: int | None = None
+        ) -> Any:
+            self.calls.append(("history", (vin, limit, before_revision)))
+            return [
+                self.revision.model_copy(update={"revision_id": "rev-old-1", "revision_number": 1}),
+                self.revision.model_copy(update={"revision_id": "rev-old-2", "revision_number": 1}),
+            ]
+
+    vehicle = InvalidHistoryVehicle(revision())
+    dispatcher = InvestigationDispatcher(vehicle=vehicle, policy=FakePolicyRetriever())
+    proposal = InvestigationProposal.from_tool_input(
+        {
+            "kind": "REQUEST",
+            "action": "get_vehicle_history",
+            "arguments": {},
+        }
+    )
+
+    result = await dispatcher.dispatch(
+        "1HGCM82633A004352",
+        proposal,
+    )
+
+    assert result.completed is False
+    assert result.limitation is not None
+    assert result.limitation.code == "INVALID_RESULT"
+
+
+@pytest.mark.asyncio
+async def test_history_dispatch_rejects_current_or_future_revisions() -> None:
+    vehicle = FakeVehicleClient(revision())
+    dispatcher = InvestigationDispatcher(vehicle=vehicle, policy=FakePolicyRetriever())
+    proposal = InvestigationProposal.from_tool_input(
+        {
+            "kind": "REQUEST",
+            "action": "get_vehicle_history",
+            "arguments": {},
+        }
+    )
+
+    result = await dispatcher.dispatch(
+        "1HGCM82633A004352",
+        proposal,
+        current_revision=3,
+    )
+
+    assert result.completed is False
+    assert result.limitation is not None
+    assert result.limitation.code == "INVALID_RESULT"
 
 
 @pytest.mark.asyncio

@@ -12,12 +12,7 @@ _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 UNKNOWN_SOURCE_COMMIT = "unknown"
 
 
-def resolve_source_commit() -> str:
-    """Resolve the exact source revision used for an evaluation run."""
-    for variable in ("SOURCE_COMMIT", "GIT_COMMIT", "COMMIT_SHA"):
-        value = os.environ.get(variable, "").strip().lower()
-        if value:
-            return value if _COMMIT_PATTERN.fullmatch(value) else UNKNOWN_SOURCE_COMMIT
+def _git_head() -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--verify", "HEAD"],
@@ -27,9 +22,21 @@ def resolve_source_commit() -> str:
             timeout=2,
         )
     except (OSError, subprocess.SubprocessError):
-        return UNKNOWN_SOURCE_COMMIT
+        return None
     commit = result.stdout.strip().lower()
-    return commit if _COMMIT_PATTERN.fullmatch(commit) else UNKNOWN_SOURCE_COMMIT
+    return commit if _COMMIT_PATTERN.fullmatch(commit) else None
+
+
+def resolve_source_commit() -> str:
+    """Resolve the exact source revision used for an evaluation run."""
+    head = _git_head()
+    for variable in ("SOURCE_COMMIT", "GIT_COMMIT", "COMMIT_SHA"):
+        value = os.environ.get(variable, "").strip().lower()
+        if value:
+            if _COMMIT_PATTERN.fullmatch(value) and value == head:
+                return value
+            return UNKNOWN_SOURCE_COMMIT
+    return head or UNKNOWN_SOURCE_COMMIT
 
 
 def is_real_source_commit(value: str) -> bool:

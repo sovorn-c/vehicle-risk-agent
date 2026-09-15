@@ -10,7 +10,7 @@ from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     build_offline_comparative_report,
 )
-from vehicle_risk_agent.evaluation.provenance import sha256_bytes
+from vehicle_risk_agent.evaluation.provenance import resolve_source_commit, sha256_bytes
 from vehicle_risk_agent.evaluation.publication import (
     publication_from_report,
     validate_publication,
@@ -86,3 +86,11 @@ def test_publication_rejects_wrong_source_commit(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="does not match"):
         validate_publication(report_path, publication_path)
+
+
+def test_source_commit_environment_value_must_match_checked_out_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOURCE_COMMIT", "0" * 40)
+
+    assert resolve_source_commit() == "unknown"

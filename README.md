@@ -253,7 +253,11 @@ uv run python -m vehicle_risk_agent.evaluation.live \\
   --output-file artifacts/e12-offline-control.json
 ```
 
-The script also writes an artifact-bound publication pointer. It copies the report `config_hash`, `run_hash`, and verdict, and refuses a mismatched report/publication pair. The result is a measurement artifact, not a purchase, legal, financial, mechanical, insurance, or safety decision.
+The script also writes an artifact-bound publication pointer. It copies the report
+`source_commit`, `config_sha256`, `judgments_sha256`, `evaluation_input_sha256`,
+`report_bytes_sha256`, `config_hash`, `run_hash`, and verdict, and refuses a
+mismatched report/publication pair. The result is a measurement artifact, not a
+purchase, legal, financial, mechanical, insurance, or safety decision.
 
 ## API reference
 
@@ -318,7 +322,7 @@ curl -X POST http://localhost:8001/api/v1/assessments \
 
 ## Verification
 
-Run the complete seven-stage local gate:
+Run the complete eight-stage local gate:
 
 ```bash
 bash scripts/check.sh

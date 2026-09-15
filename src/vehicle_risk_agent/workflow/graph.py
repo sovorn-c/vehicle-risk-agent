@@ -321,6 +321,19 @@ async def node_investigating(
                 dispatched=True,
             )
             return {**progress, "investigation_result": result}
+        if existing is not None and existing.status == InvestigationLedgerStatus.EXHAUSTED:
+            if existing.result is not None:
+                return {**progress, "investigation_result": existing.result}
+            result = InvestigationResult(
+                summary="Supplementary investigation limit was exhausted.",
+                limitation=InvestigationLimitation(
+                    code="INVESTIGATION_LIMIT",
+                    message="The bounded investigation budget was exhausted.",
+                ),
+                completed=False,
+                dispatched=False,
+            )
+            return {**progress, "investigation_result": result}
     try:
         if ledger is not None:
             proposal_reservation = await ledger.reserve_proposal(

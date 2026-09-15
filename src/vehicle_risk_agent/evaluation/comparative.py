@@ -202,13 +202,20 @@ def _resolve_input_path(
 
 
 def _config_digest(config: E12EvaluationConfig) -> str:
-    path = _resolve_input_path(None, _TRACKED_E12_CONFIG, _LEGACY_E12_CONFIG)
-    if path.is_file():
-        return sha256_file(path)
+    """Digest the validated configuration supplied to this evaluation."""
     return sha256_bytes(config.model_dump_json(by_alias=True).encode("utf-8"))
 
 
-def _judgments_digest() -> str:
+def _judgments_digest(judgments: Sequence[Any] | None = None) -> str:
+    """Digest supplied judgment values, or the tracked artifact when none are supplied."""
+    if judgments:
+        payload = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+            for item in judgments
+        ]
+        return sha256_bytes(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
     path = _resolve_input_path(None, _TRACKED_E12_JUDGMENTS, _LEGACY_E12_JUDGMENTS)
     return sha256_file(path) if path.is_file() else _EMPTY_DIGEST
 
@@ -309,6 +316,7 @@ class SemanticJudgment(BaseModel):
     missed_findings: int = Field(ge=0)
     false_positive_citations: int = Field(ge=0)
     reviewer_id: str = Field(min_length=1)
+    evaluation_input_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class ComparativeMetric(BaseModel):
@@ -366,6 +374,7 @@ class ComparativeReport(BaseModel):
     )
     config_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
     judgments_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
+    evaluation_input_sha256: str = Field(default=_EMPTY_DIGEST, pattern=r"^[0-9a-f]{64}$")
     provider: str
     model: str
     execution_mode: str
@@ -465,6 +474,8 @@ def load_semantic_judgments(
 def semantic_gate_passes(
     judgments: Sequence[SemanticJudgment],
     config: E12EvaluationConfig,
+    *,
+    evaluation_input_sha256: str | None = None,
 ) -> bool:
     """Require exactly the declared first-repeat human judgments for live PASS."""
     expected = {
@@ -473,7 +484,13 @@ def semantic_gate_passes(
         for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
     }
     actual = {(item.scenario_id, item.mode, item.repeat) for item in judgments}
-    if len(judgments) != config.semantic_judgments_required or actual != expected:
+    if (
+        evaluation_input_sha256 is None
+        or len(judgments) != config.semantic_judgments_required
+        or actual != expected
+    ):
+        return False
+    if any(item.evaluation_input_sha256 != evaluation_input_sha256 for item in judgments):
         return False
     return all(
         item.claim_support >= config.thresholds.semantic_claim_support
@@ -481,6 +498,22 @@ def semantic_gate_passes(
         and item.false_positive_citations <= config.thresholds.semantic_false_positive_citations
         for item in judgments
     )
+
+
+def _evaluation_input_digest(
+    config: E12EvaluationConfig,
+    metrics: Sequence[ComparativeMetric],
+    source_commit: str,
+    config_sha256: str,
+) -> str:
+    """Bind semantic judgments to the exact source, config, and live metric inputs."""
+    payload = {
+        "config": config.model_dump(mode="json", by_alias=True),
+        "source_commit": source_commit,
+        "config_sha256": config_sha256,
+        "metrics": [row.model_dump(mode="json") for row in metrics],
+    }
+    return _report_hash_payload(payload)
 
 
 def _report_hash_payload(report: dict[str, Any]) -> str:
@@ -676,10 +709,25 @@ def build_comparative_report(
     judgments_sha256: str | None = None,
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
-    resolved_source_commit = source_commit or resolve_source_commit()
-    resolved_config_sha256 = config_sha256 or _config_digest(config)
-    resolved_judgments_sha256 = judgments_sha256 or _judgments_digest()
+    expected_source_commit = resolve_source_commit()
+    if source_commit is not None and source_commit != expected_source_commit:
+        raise ValueError("source commit does not match the checked-out source")
+    resolved_source_commit = source_commit or expected_source_commit
+    expected_config_sha256 = _config_digest(config)
+    if config_sha256 is not None and config_sha256 != expected_config_sha256:
+        raise ValueError("config digest does not match the supplied configuration")
+    resolved_config_sha256 = config_sha256 or expected_config_sha256
+    expected_judgments_sha256 = _judgments_digest(semantic_judgments)
+    if judgments_sha256 is not None and judgments_sha256 != expected_judgments_sha256:
+        raise ValueError("judgment digest does not match the supplied judgments")
+    resolved_judgments_sha256 = judgments_sha256 or expected_judgments_sha256
     rows = tuple(metrics)
+    evaluation_input_sha256 = _evaluation_input_digest(
+        config,
+        rows,
+        resolved_source_commit,
+        resolved_config_sha256,
+    )
     deterministic = [
         row
         for row in rows
@@ -709,7 +757,15 @@ def build_comparative_report(
     abstention = average([float(row.abstention_correct) for row in abstention_rows])
     tool_selection = average([row.useful_tool_selection for row in tool_rows])
     semantic = tuple(semantic_judgments)
-    semantic_passed = semantic_gate_passes(semantic, config) if live else False
+    semantic_passed = (
+        semantic_gate_passes(
+            semantic,
+            config,
+            evaluation_input_sha256=evaluation_input_sha256,
+        )
+        if live
+        else False
+    )
     provenance_bound = (
         is_real_source_commit(resolved_source_commit)
         and resolved_config_sha256 != _EMPTY_DIGEST
@@ -749,17 +805,29 @@ def build_comparative_report(
         for repeat in range(1, config.repeats + 1)
     }
 
-    def metric_ids(items: Sequence[ComparativeMetric]) -> set[tuple[str, ComparativeMode, int]]:
-        return {(item.scenario_id, item.mode, item.repeat) for item in items}
+    def metric_ids(
+        items: Sequence[ComparativeMetric],
+    ) -> tuple[set[tuple[str, ComparativeMode, int]], bool]:
+        ids = [(item.scenario_id, item.mode, item.repeat) for item in items]
+        return set(ids), len(ids) == len(set(ids))
+
+    def complete_metric_class(
+        items: Sequence[ComparativeMetric],
+        expected: set[tuple[str, ComparativeMode, int]],
+    ) -> bool:
+        actual, unique = metric_ids(items)
+        return unique and len(items) == len(expected) and actual == expected
 
     applicable_rows_complete = (
-        metric_ids([row for row in rows if row.deterministic_risk_applicable])
-        == expected_deterministic_ids
-        and metric_ids(claim_rows) == expected_claim_ids
-        and metric_ids(retrieval_rows) == expected_retrieval_ids
-        and metric_ids(citation_rows) == expected_retrieval_ids
-        and metric_ids(abstention_rows) == expected_retrieval_ids
-        and metric_ids(tool_rows) == expected_tool_ids
+        complete_metric_class(
+            [row for row in rows if row.deterministic_risk_applicable],
+            expected_deterministic_ids,
+        )
+        and complete_metric_class(claim_rows, expected_claim_ids)
+        and complete_metric_class(retrieval_rows, expected_retrieval_ids)
+        and complete_metric_class(citation_rows, expected_retrieval_ids)
+        and complete_metric_class(abstention_rows, expected_retrieval_ids)
+        and complete_metric_class(tool_rows, expected_tool_ids)
     )
     threshold_passed = (
         deterministic_match >= config.thresholds.deterministic_risk_match
@@ -823,6 +891,7 @@ def build_comparative_report(
         "source_commit": resolved_source_commit,
         "config_sha256": resolved_config_sha256,
         "judgments_sha256": resolved_judgments_sha256,
+        "evaluation_input_sha256": evaluation_input_sha256,
         "provider": config.provider,
         "model": config.model,
         "execution_mode": execution_mode,

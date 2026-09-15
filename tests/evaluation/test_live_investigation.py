@@ -71,6 +71,25 @@ def test_investigation_grading_rejects_untyped_history_result() -> None:
     assert grade_scenario(scenario, result) is False
 
 
+def test_investigation_grading_rejects_untyped_revision_result() -> None:
+    scenario = InvestigationScenario(
+        scenario_id="revision",
+        intent="Inspect one exact revision.",
+        expected_action="get_vehicle_revision",
+        expected_revision_number=2,
+    )
+    result = SimpleNamespace(
+        action=InvestigationAction.GET_VEHICLE_REVISION,
+        dispatched=True,
+        completed=True,
+        references=("rev-2",),
+        policy_citations=(),
+        evidence_result=object(),
+    )
+
+    assert grade_scenario(scenario, result) is False
+
+
 def test_e11_offline_control_is_blocked_and_redacted(tmp_path: Path) -> None:
     output = tmp_path / "e11-offline.json"
     runner = LiveEvaluationRunner(

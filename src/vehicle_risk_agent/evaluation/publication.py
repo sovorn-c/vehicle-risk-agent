@@ -28,6 +28,7 @@ class E12Publication(BaseModel):
     source_commit: str
     config_sha256: str
     judgments_sha256: str
+    evaluation_input_sha256: str
     execution_mode: str
     release_verdict: str
     verdict_passed: bool
@@ -50,6 +51,7 @@ def publication_from_report(
         source_commit=report.source_commit,
         config_sha256=report.config_sha256,
         judgments_sha256=report.judgments_sha256,
+        evaluation_input_sha256=report.evaluation_input_sha256,
         execution_mode=report.execution_mode,
         release_verdict=report.release_verdict,
         verdict_passed=report.verdict_passed,

@@ -1,9 +1,12 @@
 """Contracts for the e12 comparative report and fail-closed verdict."""
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeMetric,
@@ -19,7 +22,45 @@ from vehicle_risk_agent.evaluation.comparative import (
     measure_report_draft_labels,
     semantic_gate_passes,
 )
+from vehicle_risk_agent.evaluation.provenance import sha256_bytes
 from vehicle_risk_agent.evaluation.retrieval import RetrievalQueryLabel
+
+
+def _complete_live_metric(
+    scenario_id: str,
+    mode: ComparativeMode,
+    repeat: int,
+    **overrides: Any,
+) -> ComparativeMetric:
+    values: dict[str, Any] = {
+        "scenario_id": scenario_id,
+        "mode": mode,
+        "repeat": repeat,
+        "quality_passed": True,
+        "deterministic_risk_passed": True,
+        "retrieval_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "retrieval_mrr": 1.0,
+        "retrieval_applicable": False,
+        "citation_grounding": 1.0,
+        "citation_grounding_applicable": False,
+        "claim_support": 1.0,
+        "claim_support_applicable": False,
+        "abstention_correct": True,
+        "abstention_applicable": False,
+        "useful_tool_selection": 1.0,
+        "useful_tool_selection_applicable": False,
+        "deterministic_risk_applicable": False,
+        "draft_latency_seconds": 1.0,
+        "input_tokens": 10,
+        "output_tokens": 10,
+        "estimated_cost_usd": 0.001,
+        "provider_marker": True,
+        "mcp_marker": True,
+        "usage_known": True,
+    }
+    values.update(overrides)
+    return ComparativeMetric(**values)
 
 
 def test_offline_report_covers_all_held_out_scenarios_and_is_blocked() -> None:
@@ -55,12 +96,163 @@ def test_semantic_gate_requires_eight_first_repeat_human_judgments() -> None:
             missed_findings=0,
             false_positive_citations=0,
             reviewer_id="operator",
+            evaluation_input_sha256="a" * 64,
         )
         for overlay in config.comparable_shared_inputs
         for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
     ]
     assert len(judgments) == 8
-    assert semantic_gate_passes(judgments, config) is True
+    assert semantic_gate_passes(judgments, config, evaluation_input_sha256="a" * 64) is True
+
+
+def test_semantic_gate_rejects_judgments_bound_to_another_input() -> None:
+    config = load_e12_evaluation_config()
+    judgments = [
+        SemanticJudgment(
+            scenario_id=overlay.scenario_id,
+            mode=mode,
+            repeat=1,
+            claim_support=1.0,
+            missed_findings=0,
+            false_positive_citations=0,
+            reviewer_id="operator",
+            evaluation_input_sha256="a" * 64,
+        )
+        for overlay in config.comparable_shared_inputs
+        for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
+    ]
+
+    assert (
+        semantic_gate_passes(
+            judgments,
+            config,
+            evaluation_input_sha256="a" * 64,
+        )
+        is True
+    )
+    assert (
+        semantic_gate_passes(
+            judgments,
+            config,
+            evaluation_input_sha256="b" * 64,
+        )
+        is False
+    )
+
+
+def test_report_hashes_supplied_judgment_values() -> None:
+    config = load_e12_evaluation_config()
+    judgments = (
+        SemanticJudgment(
+            scenario_id="sc-clean-01",
+            mode=ComparativeMode.LIVE_DRAFTING,
+            repeat=1,
+            claim_support=1.0,
+            missed_findings=0,
+            false_positive_citations=0,
+            reviewer_id="operator",
+        ),
+    )
+
+    report = build_comparative_report(
+        config,
+        (),
+        semantic_judgments=judgments,
+        execution_mode="BLOCKED",
+    )
+    expected_digest = sha256_bytes(
+        json.dumps(
+            [item.model_dump(mode="json") for item in judgments],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+    assert report.judgments_sha256 == expected_digest
+
+
+def test_report_rejects_fabricated_provenance_inputs() -> None:
+    config = load_e12_evaluation_config()
+
+    with pytest.raises(ValueError, match="config digest"):
+        build_comparative_report(config, (), config_sha256="a" * 64)
+    with pytest.raises(ValueError, match="judgment digest"):
+        build_comparative_report(config, (), judgments_sha256="b" * 64)
+    with pytest.raises(ValueError, match="source commit"):
+        build_comparative_report(config, (), source_commit="c" * 40)
+
+
+def test_duplicate_applicable_metric_rows_block_live_verdict() -> None:
+    config = load_e12_evaluation_config()
+    metrics = [
+        _complete_live_metric(
+            scenario_id,
+            ComparativeMode.OFFLINE_BASELINE,
+            0,
+            claim_support_applicable=True,
+            deterministic_risk_applicable=True,
+        )
+        for scenario_id in config.held_out_scenario_ids
+    ]
+    for overlay in config.comparable_shared_inputs:
+        for repeat in range(1, config.repeats + 1):
+            retrieval_applicable = overlay.retrieval_query_id is not None
+            metrics.append(
+                _complete_live_metric(
+                    overlay.scenario_id,
+                    ComparativeMode.LIVE_DRAFTING,
+                    repeat,
+                    claim_support_applicable=True,
+                    deterministic_risk_applicable=True,
+                    retrieval_applicable=retrieval_applicable,
+                    citation_grounding_applicable=retrieval_applicable,
+                    abstention_applicable=retrieval_applicable,
+                )
+            )
+            metrics.append(
+                _complete_live_metric(
+                    overlay.scenario_id,
+                    ComparativeMode.LIVE_INVESTIGATION,
+                    repeat,
+                    deterministic_risk_passed=False,
+                    useful_tool_selection_applicable=True,
+                )
+            )
+
+    metrics.append(
+        _complete_live_metric(
+            config.held_out_scenario_ids[0],
+            ComparativeMode.OFFLINE_BASELINE,
+            0,
+            claim_support_applicable=True,
+            deterministic_risk_applicable=True,
+        )
+    )
+    preliminary = build_comparative_report(config, metrics, execution_mode="LIVE")
+    binding = [
+        SemanticJudgment(
+            scenario_id=overlay.scenario_id,
+            mode=mode,
+            repeat=1,
+            claim_support=1.0,
+            missed_findings=0,
+            false_positive_citations=0,
+            reviewer_id="operator",
+            evaluation_input_sha256=preliminary.evaluation_input_sha256,
+        )
+        for overlay in config.comparable_shared_inputs
+        for mode in (ComparativeMode.LIVE_DRAFTING, ComparativeMode.LIVE_INVESTIGATION)
+    ]
+    report = build_comparative_report(
+        config,
+        metrics,
+        semantic_judgments=binding,
+        execution_mode="LIVE",
+        source_commit=preliminary.source_commit,
+        config_sha256=preliminary.config_sha256,
+    )
+
+    assert report.verdict_passed is False
 
 
 def test_unlabelled_report_metrics_are_not_treated_as_quality_failures() -> None:
