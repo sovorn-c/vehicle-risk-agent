@@ -11,7 +11,7 @@ from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     compute_report_run_hash,
 )
-from vehicle_risk_agent.evaluation.provenance import sha256_bytes, sha256_file
+from vehicle_risk_agent.evaluation.provenance import sha256_bytes
 
 
 class E12Publication(BaseModel):
@@ -38,10 +38,16 @@ class E12Publication(BaseModel):
 def publication_from_report(
     report: ComparativeReport,
     *,
-    report_bytes_sha256: str | None = None,
+    report_bytes: bytes | None = None,
 ) -> E12Publication:
     """Copy only non-sensitive identity and verdict fields from a report."""
-    digest = report_bytes_sha256 or sha256_bytes(report.model_dump_json(indent=2).encode("utf-8"))
+    canonical_bytes = report.model_dump_json(indent=2).encode("utf-8")
+    if report_bytes is None:
+        digest = sha256_bytes(canonical_bytes)
+    else:
+        if ComparativeReport.model_validate_json(report_bytes) != report:
+            raise ValueError("report bytes do not match the validated report")
+        digest = sha256_bytes(report_bytes)
     return E12Publication(
         report_id=report.report_id,
         config_id=report.config_id,
@@ -67,7 +73,7 @@ def write_publication(
     report = ComparativeReport.load_from_file(report_path)
     publication = publication_from_report(
         report,
-        report_bytes_sha256=sha256_file(report_path),
+        report_bytes=Path(report_path).read_bytes(),
     )
     target = Path(publication_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -81,12 +87,13 @@ def validate_publication(
 ) -> E12Publication:
     """Reject a publication pointer that does not match its report artifact."""
     report = ComparativeReport.load_from_file(report_path)
+    report_bytes = Path(report_path).read_bytes()
     publication = E12Publication.model_validate_json(
         Path(publication_path).read_text(encoding="utf-8")
     )
     expected = publication_from_report(
         report,
-        report_bytes_sha256=sha256_file(report_path),
+        report_bytes=report_bytes,
     )
     if publication != expected:
         raise ValueError("e12 publication does not match the referenced report artifact")

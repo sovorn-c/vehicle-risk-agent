@@ -74,6 +74,8 @@ class InvestigationDispatcher:
             )
 
         assert typed.action is not None
+        if typed.action == InvestigationAction.GET_VEHICLE_HISTORY and current_revision is None:
+            return self._limited_result(typed.action, "INVALID_RESULT")
         try:
             if typed.action == InvestigationAction.EXPLAIN_VEHICLE_FIELD:
                 field_arguments = typed.arguments

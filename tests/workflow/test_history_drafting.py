@@ -126,3 +126,51 @@ async def test_history_revisions_reach_drafting_as_bounded_attributable_items() 
     assert any(
         "Historical revision" in kf for kf in offline_draft.sections.executive_summary.key_findings
     )
+
+
+@pytest.mark.asyncio
+async def test_drafting_rejects_conflicting_history_revision_numbers() -> None:
+    current = _revision("rev-current", 3, ppsr_result="MATCH")
+    snapshot_history = _revision("rev-snapshot", 1, ppsr_result="NO_MATCH")
+    supplementary_history = _revision("rev-conflict", 1, ppsr_result="PENDING")
+    snapshot = create_evidence_snapshot(
+        "assessment-history-conflict",
+        1,
+        current,
+        history=(snapshot_history,),
+    )
+
+    with pytest.raises(ValueError, match="conflicting revision numbers"):
+        await node_drafting_report(
+            {
+                "assessment_id": "assessment-history-conflict",
+                "run_number": 1,
+                "vin": current.vin,
+                "context": AssessmentContext(sale_type=SaleType.DEALER),
+                "phase": AssessmentRunPhase.EVALUATING_RISK,
+                "visited_phases": [],
+                "events": [],
+                "evidence_snapshot": snapshot,
+                "risk_result": RiskResult(
+                    assessment_id="assessment-history-conflict",
+                    run_number=1,
+                    policy_id="risk-policy-v1",
+                    policy_version="v1",
+                    score=30,
+                    band=RiskBand.MEDIUM,
+                    raw_score=30,
+                    outcome=AssessmentOutcome.SCORED,
+                ),
+                "investigation_result": InvestigationResult(
+                    action=InvestigationAction.GET_VEHICLE_HISTORY,
+                    summary="Conflicting history returned.",
+                    references=("rev-conflict",),
+                    evidence_result=VehicleHistoryResult(
+                        vin=current.vin,
+                        revisions=(supplementary_history,),
+                    ),
+                    completed=True,
+                    dispatched=True,
+                ),
+            }
+        )

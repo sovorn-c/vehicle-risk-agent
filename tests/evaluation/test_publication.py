@@ -45,6 +45,13 @@ def test_publication_helper_binds_canonical_report_bytes() -> None:
     assert publication.report_bytes_sha256 == expected_digest
 
 
+def test_publication_helper_rejects_bytes_for_another_report() -> None:
+    report = asyncio.run(build_offline_comparative_report())
+
+    with pytest.raises(ValueError, match="validation error"):
+        publication_from_report(report, report_bytes=b"{}")
+
+
 def test_loading_rejects_tampered_report_with_stale_hash(tmp_path: Path) -> None:
     report_path = tmp_path / "e12-report.json"
     report = asyncio.run(build_offline_comparative_report())

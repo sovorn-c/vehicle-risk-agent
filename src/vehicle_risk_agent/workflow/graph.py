@@ -741,9 +741,14 @@ def _history_revisions(
             revisions.extend(evidence_result.revisions)
         elif isinstance(evidence_result, VehicleRevisionResponse):
             revisions.append(evidence_result)
-    unique = {revision.revision_id: revision for revision in revisions}
+    unique_by_number: dict[int, VehicleRevisionResponse] = {}
+    for revision in revisions:
+        existing = unique_by_number.get(revision.revision_number)
+        if existing is not None and existing != revision:
+            raise ValueError("vehicle history contains conflicting revision numbers")
+        unique_by_number[revision.revision_number] = revision
     return tuple(
-        sorted(unique.values(), key=lambda item: item.revision_number, reverse=True)[
+        sorted(unique_by_number.values(), key=lambda item: item.revision_number, reverse=True)[
             :_HISTORY_EVIDENCE_CAP
         ]
     )
