@@ -10,6 +10,7 @@ import pytest
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
     build_offline_comparative_report,
+    compute_report_run_hash,
 )
 from vehicle_risk_agent.evaluation.provenance import resolve_source_commit, sha256_bytes
 from vehicle_risk_agent.evaluation.publication import (
@@ -52,6 +53,32 @@ def test_publication_helper_rejects_report_with_forged_run_hash() -> None:
 
     with pytest.raises(ValueError, match="run_hash"):
         publication_from_report(forged_report)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["source_commit", "config_sha256", "judgments_sha256", "evaluation_input_sha256"],
+)
+def test_publication_helper_rejects_forged_provenance(
+    field_name: str,
+) -> None:
+    report = asyncio.run(build_offline_comparative_report())
+    forged = report.model_copy(
+        update={field_name: "0" * (40 if field_name == "source_commit" else 64)}
+    )
+    forged = forged.model_copy(update={"run_hash": compute_report_run_hash(forged)})
+
+    with pytest.raises(ValueError, match="provenance|digest|source"):
+        publication_from_report(forged)
+
+
+def test_publication_helper_rejects_inconsistent_blocked_verdict() -> None:
+    report = asyncio.run(build_offline_comparative_report())
+    forged = report.model_copy(update={"release_verdict": "PASS", "verdict_passed": True})
+    forged = forged.model_copy(update={"run_hash": compute_report_run_hash(forged)})
+
+    with pytest.raises(ValueError, match="verdict"):
+        publication_from_report(forged)
 
 
 def test_publication_helper_rejects_bytes_for_another_report() -> None:

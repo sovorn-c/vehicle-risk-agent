@@ -63,3 +63,28 @@ def test_e12_config_rejects_duplicate_held_out_ids() -> None:
 
     with pytest.raises(ValueError, match="unique"):
         E12EvaluationConfig.model_validate(payload)
+
+
+def test_comparable_overlays_use_the_same_labelled_vehicle_fixtures() -> None:
+    config = load_e12_evaluation_config()
+    scenarios = {item.scenario_id: item for item in get_e12_held_out_scenarios(config)}
+
+    assert {
+        scenario_id: scenarios[scenario_id].vin
+        for scenario_id in (
+            "sc-clean-01",
+            "sc-risk-compound-05",
+            "sc-conflict-ppsr-01",
+            "sc-temporal-multi-rev-02",
+        )
+    } == {
+        "sc-clean-01": "1HGCR2F85HA000000",
+        "sc-risk-compound-05": "1FA6P8CF8H5000000",
+        "sc-conflict-ppsr-01": "WAUZZZ8K7BA000000",
+        "sc-temporal-multi-rev-02": "1HGCR2F85HA000000",
+    }
+
+    for overlay in config.comparable_shared_inputs:
+        live_labels = overlay.live_expected_labels
+        if live_labels is not None:
+            assert scenarios[overlay.scenario_id].expected_labels == live_labels
