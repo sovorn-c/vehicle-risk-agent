@@ -1,13 +1,16 @@
 """Contracts for the e12 comparative report and fail-closed verdict."""
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from vehicle_risk_agent.evaluation.comparative import (
+    ComparativeReport,
     ComparativeMetric,
     ComparativeMode,
     SemanticJudgment,
+    build_blocked_report,
     build_comparative_report,
     build_offline_comparative_report,
     deterministic_labels_match,
@@ -30,6 +33,14 @@ def test_offline_report_covers_all_held_out_scenarios_and_is_blocked() -> None:
     assert report.verdict_passed is False
     assert len(report.held_out_scenario_ids) == 30
     assert report.synthetic_vehicle_evidence is True
+
+
+def test_prerequisite_blocked_report_can_be_published(tmp_path: Path) -> None:
+    report_path = tmp_path / "blocked-report.json"
+    report = build_blocked_report(reason="LiveEvaluationCorpusError")
+    report.save_to_file(report_path)
+
+    assert ComparativeReport.load_from_file(report_path) == report
 
 
 def test_semantic_gate_requires_eight_first_repeat_human_judgments() -> None:

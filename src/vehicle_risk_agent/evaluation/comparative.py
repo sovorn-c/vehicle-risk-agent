@@ -866,13 +866,8 @@ def build_comparative_report(
         "restricted_register_access": config.restricted_register_access,
         "e11_gemini_live_validation": config.e11_gemini_live_validation,
     }
-    hash_base = {
-        **base,
-        "metrics": [item.model_dump(mode="json") for item in rows],
-        "semantic_judgments": [item.model_dump(mode="json") for item in semantic],
-        "thresholds": config.thresholds.model_dump(mode="json"),
-    }
-    return ComparativeReport.model_validate({**base, "run_hash": _report_hash_payload(hash_base)})
+    report = ComparativeReport.model_validate({**base, "run_hash": "0" * 64})
+    return report.model_copy(update={"run_hash": compute_report_run_hash(report)})
 
 
 async def build_offline_comparative_report(
