@@ -16,6 +16,7 @@ from vehicle_risk_agent.evaluation.live import (
     LiveEvaluationCorpusError,
     LiveEvaluationCredentialsError,
     LiveEvaluationRunner,
+    main,
 )
 
 
@@ -88,6 +89,28 @@ def test_security_isolation_no_key_leaked_in_repr_or_errors() -> None:
 
     dump = config.model_dump_json()
     assert sensitive_key not in dump
+
+
+def test_cli_sanitizes_unexpected_live_execution_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import asyncio
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(LiveEvaluationRunner, "validate_readiness", lambda _runner: None)
+
+    def fail_without_leaking(coro: object) -> object:
+        if hasattr(coro, "close"):
+            coro.close()
+        raise RuntimeError("provider secret and stack details")
+
+    monkeypatch.setattr(asyncio, "run", fail_without_leaking)
+
+    assert main(["--enable-live-eval", "--no-require-neural-corpus"]) == 1
+
+    captured = capsys.readouterr()
+    assert "LIVE_EXECUTION_FAILED" in captured.err
+    assert "provider secret" not in captured.err
 
 
 def test_e12_config_defaults_to_gemini_without_changing_general_defaults() -> None:

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -109,3 +110,21 @@ def test_source_commit_environment_value_must_match_checked_out_revision(
     monkeypatch.setenv("SOURCE_COMMIT", "0" * 40)
 
     assert resolve_source_commit() == "unknown"
+
+
+def test_source_commit_resolution_is_independent_of_process_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for variable in ("SOURCE_COMMIT", "GIT_COMMIT", "COMMIT_SHA"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    expected = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+
+    assert resolve_source_commit() == expected
