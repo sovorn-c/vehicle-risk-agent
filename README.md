@@ -228,7 +228,7 @@ curl -f http://localhost:8001/ready
 
 The versioned e12 evaluation compares the deterministic offline baseline with live drafting and bounded live investigation on 30 held-out scenarios. The live suite uses four comparable inputs, three repeats, both live modes, a USD 15.00 suite-local cap, and eight required human semantic judgments. Missing credentials, MCP, corpus, pricing, or judgments produce `BLOCKED`; they are never treated as a successful offline run.
 
-All vehicle evidence remains synthetic and the e11 Gemini live-validation waiver is verified. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `e471c0c687736cac51316dc7d91ccaf78f738cc01b03eea1a02a00f873da85fb`.
+All vehicle evidence remains synthetic and the e11 Gemini live-validation gate remains a separate release blocker. E12 defaults to the paid Gemini provider (`gemini-3.1-flash-lite`); Anthropic is available only with an explicit provider selection. The current published control state is deliberately negative: `e12-eval-v1` is `BLOCKED` until real live evidence and the required human judgments exist. The frozen configuration hash is `447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad`.
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |

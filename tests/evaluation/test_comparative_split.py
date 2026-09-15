@@ -1,6 +1,9 @@
 """Contracts for the frozen e12 held-out comparative split."""
 
+import pytest
+
 from vehicle_risk_agent.evaluation.comparative import (
+    E12EvaluationConfig,
     get_e12_held_out_scenarios,
     load_e12_evaluation_config,
     validate_e12_split,
@@ -49,3 +52,14 @@ def test_e12_config_freezes_held_out_split_and_overlays() -> None:
         "MATCH",
         "STATUTORY",
     }
+
+
+def test_e12_config_rejects_duplicate_held_out_ids() -> None:
+    config = load_e12_evaluation_config()
+    duplicated = list(config.held_out_scenario_ids)
+    duplicated[-1] = duplicated[0]
+    payload = config.model_dump(by_alias=True)
+    payload["held_out_scenario_ids"] = tuple(duplicated)
+
+    with pytest.raises(ValueError, match="unique"):
+        E12EvaluationConfig.model_validate(payload)

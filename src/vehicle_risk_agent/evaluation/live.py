@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from vehicle_risk_agent.evaluation.comparative import ComparativeReport
+from vehicle_risk_agent.evaluation.provenance import resolve_source_commit
 
 
 class LiveEvaluationConsentError(Exception):
@@ -178,7 +179,7 @@ class LiveEvaluationRecord(BaseModel):
         index_version: str = "pgvector-hnsw-v1",
         policy_version: str = "nz-vehicle-risk-v1",
         grader_version: str = "grader-2026.1",
-        code_version: str = "0.1.0",
+        code_version: str | None = None,
         pricing_provenance: str = "anthropic-published-2026.1",
         execution_mode: str = "LIVE",
         suite_version: str = "general-v1",
@@ -192,6 +193,7 @@ class LiveEvaluationRecord(BaseModel):
         provider: str = "anthropic",
     ) -> LiveEvaluationRecord:
         """Aggregate per-scenario metrics into an immutable record with release verdict."""
+        resolved_code_version = code_version or resolve_source_commit()
         latencies = [m.draft_latency_seconds for m in scenario_metrics]
         p95_latency = compute_p95_latency(latencies)
         p50_latency = compute_p50_latency(latencies)
@@ -223,7 +225,7 @@ class LiveEvaluationRecord(BaseModel):
             "index_version": index_version,
             "policy_version": policy_version,
             "grader_version": grader_version,
-            "code_version": code_version,
+            "code_version": resolved_code_version,
             "suite_version": suite_version,
             "pricing_provenance": pricing_provenance,
             "input_price_per_million": input_price_per_million,
@@ -256,7 +258,7 @@ class LiveEvaluationRecord(BaseModel):
             index_version=index_version,
             policy_version=policy_version,
             grader_version=grader_version,
-            code_version=code_version,
+            code_version=resolved_code_version,
             suite_version=suite_version,
             pricing_provenance=pricing_provenance,
             input_price_per_million=input_price_per_million,
@@ -819,7 +821,7 @@ class LiveEvaluationRunner:
                 corpus_version="corpus-offline",
                 policy_version="policy-offline",
                 grader_version="grader-e11-v1",
-                code_version="0.1.0",
+                code_version=resolve_source_commit(),
                 pricing_provenance=self.pricing.provenance,
                 execution_mode="OFFLINE",
                 p95_latency_threshold=self.config.p95_latency_threshold,
@@ -1295,7 +1297,7 @@ class LiveEvaluationRunner:
             index_version="pgvector-hnsw-v1",
             policy_version="nz-vehicle-risk-v1",
             grader_version="grader-2026.1",
-            code_version="0.1.0",
+            code_version=resolve_source_commit(),
             pricing_provenance=self.pricing.provenance,
             execution_mode=execution_mode,
             p95_latency_threshold=self.config.p95_latency_threshold,

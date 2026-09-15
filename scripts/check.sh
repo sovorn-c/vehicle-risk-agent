@@ -22,25 +22,34 @@ echo "=================================================================="
 echo " Vehicle Risk Agent — Local Preflight Verification"
 echo "=================================================================="
 
-echo "==> [1/7] Checking code formatting..."
+echo "==> [1/8] Checking code formatting..."
 uv run ruff format --check .
 
-echo "==> [2/7] Running Ruff linter..."
+echo "==> [2/8] Running Ruff linter..."
 uv run ruff check .
 
-echo "==> [3/7] Running mypy strict type checker..."
+echo "==> [3/8] Running mypy strict type checker..."
 uv run mypy src tests
 
-echo "==> [4/7] Verifying Alembic database migrations..."
+echo "==> [4/8] Verifying Alembic database migrations..."
 uv run pytest tests/persistence/test_migrations.py -q
 
-echo "==> [5/7] Verifying container and compose contract..."
+echo "==> [5/8] Verifying container and compose contract..."
 uv run pytest tests/acceptance/test_compose_contract.py -q
 
-echo "==> [6/7] Running full pytest test suite..."
-uv run pytest
+echo "==> [6/8] Running full pytest test suite with coverage..."
+uv run pytest \
+  --cov=src/vehicle_risk_agent \
+  --cov-branch \
+  --cov-report=term-missing \
+  --cov-fail-under=80
 
-echo "==> [7/7] Verifying package build with uv build..."
+echo "==> [7/8] Checking business-logic coverage..."
+uv run coverage report \
+  --include='src/vehicle_risk_agent/evidence/*,src/vehicle_risk_agent/investigation/*,src/vehicle_risk_agent/retrieval/*,src/vehicle_risk_agent/risk/*,src/vehicle_risk_agent/workflow/*' \
+  --fail-under=95
+
+echo "==> [8/8] Verifying package build with uv build..."
 uv build
 
 echo "=================================================================="

@@ -19,17 +19,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from vehicle_risk_agent.evaluation.graders import CompositeDomainGrader
 from vehicle_risk_agent.evaluation.matrix import get_evaluation_matrix
 from vehicle_risk_agent.evaluation.models import EvaluationScenario, ExpectedEvaluationLabels
-from vehicle_risk_agent.evaluation.retrieval import (
-    RetrievalQueryLabel,
-    compute_query_metrics,
-    get_seeded_retrieval_dataset,
-)
 from vehicle_risk_agent.evaluation.provenance import (
     UNKNOWN_SOURCE_COMMIT,
     is_real_source_commit,
     resolve_source_commit,
     sha256_bytes,
     sha256_file,
+)
+from vehicle_risk_agent.evaluation.retrieval import (
+    RetrievalQueryLabel,
+    compute_query_metrics,
+    get_seeded_retrieval_dataset,
 )
 from vehicle_risk_agent.evaluation.runner import ScenarioRunner
 
@@ -119,6 +119,8 @@ class E12EvaluationConfig(BaseModel):
     def validate_counts(self) -> E12EvaluationConfig:
         if len(self.held_out_scenario_ids) != 30:
             raise ValueError("e12-eval-v1 must contain exactly 30 held-out scenario IDs")
+        if len(set(self.held_out_scenario_ids)) != len(self.held_out_scenario_ids):
+            raise ValueError("e12-eval-v1 held-out scenario IDs must be unique")
         if len(self.comparable_shared_inputs) != self.live_unique_comparable_scenarios:
             raise ValueError("comparable input count must match live_unique_comparable_scenarios")
         if self.live_run_count != self.live_unique_comparable_scenarios * self.repeats * 2:
