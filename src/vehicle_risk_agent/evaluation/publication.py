@@ -59,9 +59,7 @@ def write_publication(
     """Validate a report, bind its identity, and write a redacted pointer."""
     report = ComparativeReport.load_from_file(report_path)
     publication = publication_from_report(report)
-    publication = publication.model_copy(
-        update={"report_bytes_sha256": sha256_file(report_path)}
-    )
+    publication = publication.model_copy(update={"report_bytes_sha256": sha256_file(report_path)})
     target = Path(publication_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(publication.model_dump_json(indent=2), encoding="utf-8")

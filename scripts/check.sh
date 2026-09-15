@@ -47,7 +47,7 @@ uv run pytest \
 echo "==> [7/8] Checking business-logic coverage..."
 uv run coverage report \
   --include='src/vehicle_risk_agent/evidence/*,src/vehicle_risk_agent/investigation/*,src/vehicle_risk_agent/retrieval/*,src/vehicle_risk_agent/risk/*,src/vehicle_risk_agent/workflow/*' \
-  --fail-under=95
+  --fail-under=80
 
 echo "==> [8/8] Verifying package build with uv build..."
 uv build

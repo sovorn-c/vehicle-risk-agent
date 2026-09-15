@@ -29,7 +29,7 @@ def test_docs_is_a_branded_workflow_entrypoint() -> None:
         "e12-eval-v1",
         "BLOCKED",
         "PostgreSQL full-text search",
-        "e11 Gemini live-validation waiver",
+        "e11 Gemini live-validation gate",
         "/openapi.json",
         "/reference",
     ):
