@@ -55,6 +55,7 @@ def _complete_live_metric(
         "input_tokens": 10,
         "output_tokens": 10,
         "estimated_cost_usd": 0.001,
+        "provider": "gemini",
         "provider_marker": True,
         "mcp_marker": True,
         "usage_known": True,
@@ -324,6 +325,26 @@ def test_claim_support_rejects_unknown_risk_factor_references() -> None:
         all_policy_citation_refs=(),
         all_claims=(claim,),
         all_risk_factor_refs=("NOT_A_REAL_FACTOR",),
+    )
+
+    metrics = measure_report_draft_labels({}, "", draft)
+
+    assert metrics["claim_support"] == 0.0
+
+
+def test_claim_support_rejects_untriggered_risk_factor_references() -> None:
+    claim = SimpleNamespace(
+        evidence_refs=(),
+        policy_citation_refs=(),
+        risk_factor_refs=("REPAIRABLE",),
+    )
+    draft = SimpleNamespace(
+        all_policy_citation_refs=(),
+        all_claims=(claim,),
+        all_risk_factor_refs=("REPAIRABLE",),
+        sections=SimpleNamespace(
+            risk_score_and_band=SimpleNamespace(risk_factor_refs=("MATCH",)),
+        ),
     )
 
     metrics = measure_report_draft_labels({}, "", draft)

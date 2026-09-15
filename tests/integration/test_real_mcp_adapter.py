@@ -144,6 +144,21 @@ async def test_streamable_http_adapter_rejects_response_for_another_vin(
     assert exc_info.value.category == SafeErrorCategory.PIPELINE_CONTRACT_ERROR
 
 
+def test_streamable_http_adapter_rejects_unexpected_server_identity() -> None:
+    adapter = StreamableHttpVehicleMcpAdapter(
+        server_url="http://mcp:8000/mcp",
+        timeout_seconds=1,
+        max_retries=0,
+    )
+
+    with pytest.raises(McpAdapterError) as exc_info:
+        adapter.validate_server_identity(
+            types.Implementation(name="unexpected-server", version="0.3.0")
+        )
+
+    assert exc_info.value.category == SafeErrorCategory.PIPELINE_CONTRACT_ERROR
+
+
 @pytest.mark.asyncio
 async def test_streamable_http_adapter_enforces_call_timeout(
     monkeypatch: pytest.MonkeyPatch,

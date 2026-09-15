@@ -10,6 +10,7 @@ from vehicle_risk_agent.evaluation.live import (
     LiveEvaluationConfig,
     LiveEvaluationCredentialsError,
     LiveEvaluationRunner,
+    ModelPricingConfig,
 )
 
 
@@ -81,6 +82,26 @@ def test_e12_defaults_to_gemini_and_allows_explicit_anthropic_alternate(
         anthropic.validate_readiness()
         assert anthropic.pricing.input_token_cost_per_million == 3.0
         assert anthropic.pricing.output_token_cost_per_million == 15.0
+
+
+def test_e12_readiness_rejects_forged_pricing_provenance(
+    active_corpus: SimpleNamespace,
+) -> None:
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test", "MCP_SERVER_URL": "http://mcp"}):
+        runner = LiveEvaluationRunner(
+            LiveEvaluationConfig(
+                suite="e12-comparative",
+                enable_live_eval=True,
+                provider="gemini",
+                max_budget_usd=15.0,
+                max_scenarios=4,
+            ),
+            pricing=ModelPricingConfig(provenance="forged"),
+            active_corpus=active_corpus,
+        )
+
+        with pytest.raises(LiveEvaluationBudgetError, match="pricing"):
+            runner.validate_readiness()
 
 
 def test_e12_rejects_caps_above_suite_limits(active_corpus: SimpleNamespace) -> None:
