@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from vehicle_risk_agent.evaluation.comparative import (
-    ComparativeReport,
     ComparativeMetric,
     ComparativeMode,
+    ComparativeReport,
     SemanticJudgment,
     build_blocked_report,
     build_comparative_report,
