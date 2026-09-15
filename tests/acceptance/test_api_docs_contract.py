@@ -26,10 +26,10 @@ def test_docs_is_a_branded_workflow_entrypoint() -> None:
         "Deterministic risk",
         "Human approval",
         "Synthetic demonstration data",
-        "e12-eval-v1",
+        "comparative evaluation report",
         "BLOCKED",
         "PostgreSQL full-text search",
-        "e11 Gemini live-validation gate",
+        "Live model validation",
         "/openapi.json",
         "/reference",
     ):
