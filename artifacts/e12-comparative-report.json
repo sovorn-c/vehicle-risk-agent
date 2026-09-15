@@ -1,12 +1,12 @@
 {
-  "report_id": "e12-comparative-2026-09-15-25093",
-  "created_at": "2026-09-15T03:32:02.570178+00:00",
+  "report_id": "e12-comparative-2026-09-15-64058",
+  "created_at": "2026-09-15T03:52:04.183236+00:00",
   "config_id": "e12-eval-v1",
   "config_hash": "447fd9fb970ac51de11c203ecf61b4ef818b8972e2e8c2590508faee026060ad",
-  "source_commit": "bf8154c86556127da46e70bde3ead6f177657d23",
+  "source_commit": "7fe75ed197b10b46d493ba12e6ccd9fe6d0425af",
   "config_sha256": "18bbd4634baebb1a0d99b7bed83577d2b2966a2e823019fbdfb2be89b6180efd",
   "judgments_sha256": "6ae639422eb27612a3314a60f36cfee000e4f756c2bd7e5cef22f0d561edb996",
-  "evaluation_input_sha256": "2bf881793db0ef1d661bc5852b1f2f7ca7198a398d8af34ac730872719d449b3",
+  "evaluation_input_sha256": "86673300e36d795c7e003a366cbf70e8af8ad4701bb48bf836a236fef7c6f9a4",
   "provider": "gemini",
   "model": "gemini-3.1-flash-lite",
   "execution_mode": "BLOCKED",
@@ -99,5 +99,5 @@
   "synthetic_vehicle_evidence": true,
   "restricted_register_access": false,
   "e11_gemini_live_validation": "deferred-release-blocking",
-  "run_hash": "78277cb54cb0343ee32ef5ea86971251dd44b2b945fa26bc1927e0e16e10ef07"
+  "run_hash": "983e70eba1e06dd88caf666d76e8f9a5e62bcf8ff95fa0aa416bb16410a5ecf4"
 }
