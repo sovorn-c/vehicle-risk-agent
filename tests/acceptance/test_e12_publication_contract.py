@@ -34,5 +34,14 @@ def test_public_copy_publishes_only_the_current_blocked_control_state() -> None:
         assert "PostgreSQL full-text search" in document
         assert "e11 Gemini live-validation" in document
         assert publication["config_hash"] in document
+        for binding in (
+            "source_commit",
+            "config_sha256",
+            "judgments_sha256",
+            "evaluation_input_sha256",
+            "report_bytes_sha256",
+            "report_hash",
+        ):
+            assert publication[binding] in document
         assert "e471c0c687736cac51316dc7d91ccaf78f738cc01b03eea1a02a00f873da85fb" not in document
         assert "BM25" not in document
