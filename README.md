@@ -226,14 +226,14 @@ curl -f http://localhost:8001/ready
 
 ## Measured AI quality
 
-To evaluate real-world agent reliability, the benchmark suite (`e12-eval-v1`) compares three operational modes across 30 held-out scenarios:
+To evaluate real-world agent reliability, the benchmark suite compares three operational modes across 30 held-out scenarios:
 1. **Deterministic Offline Baseline:** Verifies rule-based scoring and fallback safety without external network or LLM dependencies.
 2. **Live Grounded Drafting:** Tests LLM analytical drafting with citation grounding and schema adherence.
 3. **Bounded Live Investigation:** Tests multi-step MCP tool use, budget enforcement, and supplementary policy retrieval.
 
 The live benchmark executes across 24 runs (4 representative scenarios across 3 repeats) with an enforced USD 15.00 budget ceiling and requires 8 audited human semantic judgments. The system enforces strict epistemic honesty: missing credentials, unavailable neural corpus, or incomplete human sign-offs produce an explicit `BLOCKED` verdict — preventing accidental or silent false-passes.
 
-Live drafting defaults to Google Gemini (`gemini-3.1-flash-lite`), with Anthropic (`claude-sonnet-4-6`) supported as an explicit alternate. All vehicle data used in evaluation remains synthetic, and the live model validation pipeline (e11 Gemini live-validation gate) requires explicit credentials.
+Live drafting defaults to Google Gemini (`gemini-3.1-flash-lite`), with Anthropic (`claude-sonnet-4-6`) supported as an explicit alternate. All vehicle data used in evaluation remains synthetic, and live model validation requires explicit credentials.
 
 <details>
 <summary><b>Cryptographic provenance & reproducibility hashes</b> (click to expand)</summary>
@@ -251,8 +251,8 @@ The published baseline control artifact is cryptographically bound to prevent un
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
-| `e12-eval-v1` offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — not live evidence |
-| `e12-eval-v1` live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
+| Benchmark offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — not live evidence |
+| Benchmark live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
 
 Run the real, credential-gated walkthrough only when the operator has approved paid execution:
 
@@ -404,7 +404,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 - All PPSR, stolen, write-off, dealer, and assessment outcomes are synthetic.
 - The system does not connect to live NZTA, PPSR, Police, insurer, dealer, or other restricted-register services.
 - Hosted MCP availability has no SLA; full-local Compose is the authoritative evaluation path.
-- Offline drafting is the default for ordinary assessments. E12 live drafting defaults to Gemini; explicit live Anthropic drafting remains optional and neither provider owns scoring or workflow transitions.
+- Offline drafting is the default for ordinary assessments. Live model drafting defaults to Gemini; explicit live Anthropic drafting remains optional and neither provider owns scoring or workflow transitions.
 
 ## Troubleshooting
 
@@ -413,7 +413,7 @@ Coverage includes workflow transitions, MCP contract failures, evidence integrit
 | Hosted MCP probe fails | Run `bash scripts/smoke-local.sh` with the full-local Compose stack |
 | `pgvector` extension is missing | Verify the database container uses `pgvector/pgvector:pg16` |
 | Port `54329` is occupied | Free the port or update `.env` and the Compose mapping |
-| Report uses offline drafting | Set the selected provider credential only when live drafting is required (`GEMINI_API_KEY` for E12 by default) |
+| Report uses offline drafting | Set the selected provider credential only when live drafting is required (`GEMINI_API_KEY` by default) |
 | Agent API is unhealthy | Run `docker compose logs agent-api` and verify migrations and dependency health |
 
 ## Cleanup

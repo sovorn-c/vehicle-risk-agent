@@ -29,10 +29,10 @@ def test_public_copy_publishes_only_the_current_blocked_control_state() -> None:
     )
 
     for document in (readme, docs):
-        assert "e12-eval-v1" in document
+        assert "benchmark" in document.lower() or "comparative" in document.lower()
         assert publication["release_verdict"] in document
         assert "PostgreSQL full-text search" in document
-        assert "e11 Gemini live-validation" in document
+        assert "live model validation" in document.lower()
         assert publication["config_hash"] in document
         for binding in (
             "source_commit",
