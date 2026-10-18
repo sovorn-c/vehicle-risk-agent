@@ -226,14 +226,43 @@ curl -f http://localhost:8001/ready
 
 ## Measured AI quality
 
-To evaluate real-world agent reliability, the benchmark suite compares three operational modes across 30 held-out scenarios:
+To evaluate real-world agent reliability, the benchmark suite evaluates three operational modes across held-out scenarios:
 1. **Deterministic Offline Baseline:** Verifies rule-based scoring and fallback safety without external network or LLM dependencies.
 2. **Live Grounded Drafting:** Tests LLM analytical drafting with citation grounding and schema adherence.
 3. **Bounded Live Investigation:** Tests multi-step MCP tool use, budget enforcement, and supplementary policy retrieval.
 
-The live benchmark executes across 24 runs (4 representative scenarios across 3 repeats) with an enforced USD 15.00 budget ceiling and requires 8 audited human semantic judgments. The system enforces strict epistemic honesty: missing credentials, unavailable neural corpus, or incomplete human sign-offs produce an explicit `BLOCKED` verdict — preventing accidental or silent false-passes.
+### Verdict semantics & release invariants
+
+The benchmark enforces strict epistemic honesty through explicit release verdicts:
+- **`BLOCKED`**: The evaluation is **not yet verifiable**. Preconditions are unmet: missing consent or credentials, unseeded or non-neural corpus, unrun suite, or human judgments that are missing, incomplete (<8), or unbound (`evaluation_input_sha256` mismatch). The offline baseline is also `BLOCKED` by design because deterministic rules cannot authorize live model release.
+- **`FAIL`**: The evaluation was **verified below the bar**. All live scenarios completed and all 8 human reviews were bound to the run's exact inputs, but one or more quality thresholds failed (e.g. `claim_support < 1.0`, `missed_findings > 0`, `false_positive_citations > 0`, latency, or risk mismatch).
+- **`PASS`**: The evaluation was verified and meets or exceeds all quality thresholds, cost constraints, and human semantic review criteria.
 
 Live drafting defaults to Google Gemini (`gemini-3.1-flash-lite`), with Anthropic (`claude-sonnet-4-6`) supported as an explicit alternate. All vehicle data used in evaluation remains synthetic, and live model validation requires explicit credentials.
+
+### Two-stage evaluation workflow
+
+The benchmark separates non-deterministic live execution from human review through cryptographic binding:
+
+1. **Live evaluation run:** Execute the 24 live runs (4 scenarios × 3 repeats) under an enforced USD 15.00 budget ceiling. This records all metrics, token counts, and latencies, and computes a unique `evaluation_input_sha256` digest:
+   ```bash
+   GEMINI_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \
+     bash scripts/demo-measured-quality.sh
+   # Optional explicit alternate:
+   E12_PROVIDER=anthropic ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \
+     bash scripts/demo-measured-quality.sh
+   ```
+2. **Human semantic review:** The operator inspects the 8 required first-repeat runs (4 drafting, 4 investigation) and records judgments in YAML, binding each judgment to the run's exact `evaluation_input_sha256`:
+   - `claim_support >= 1.0` (all claims verified against evidence)
+   - `missed_findings: 0` (no critical findings overlooked)
+   - `false_positive_citations: 0` (no invented or hallucinated citations)
+3. **No-network re-score and publication:** Re-score the saved report with the operator's signed judgments. This command calls no external providers, MCP, or database; it verifies input hash equivalence and outputs the regenerated report with the updated verdict:
+   ```bash
+   uv run python -m vehicle_risk_agent.evaluation.rescore \
+     --report artifacts/e12-comparative-report.json \
+     --judgments artifacts/e12/e12-semantic-judgments.yaml \
+     --publication-file artifacts/e12-comparative-report.publication.json
+   ```
 
 <details>
 <summary><b>Cryptographic provenance & reproducibility hashes</b> (click to expand)</summary>
@@ -251,24 +280,14 @@ The published baseline control artifact is cryptographically bound to prevent un
 
 | Versioned artifact | Coverage | Published verdict |
 | --- | --- | --- |
-| Benchmark offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — not live evidence |
+| Benchmark offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — by design (control baseline, cannot authorize release) |
 | Benchmark live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
-
-Run the real, credential-gated walkthrough only when the operator has approved paid execution:
-
-```bash
-GEMINI_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
-  bash scripts/demo-measured-quality.sh
-# Optional explicit alternate:
-E12_PROVIDER=anthropic ANTHROPIC_API_KEY=... MCP_SERVER_URL=http://localhost:8080/mcp \\
-  bash scripts/demo-measured-quality.sh
-```
 
 For a deterministic control artifact, use the explicit offline command. It intentionally exits non-zero and writes `release_verdict: BLOCKED`:
 
 ```bash
-uv run python -m vehicle_risk_agent.evaluation.live \\
-  --suite e12-comparative --offline \\
+uv run python -m vehicle_risk_agent.evaluation.live \
+  --suite e12-comparative --offline \
   --output-file artifacts/e12-offline-control.json
 ```
 
