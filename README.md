@@ -283,6 +283,13 @@ The published baseline control artifact is cryptographically bound to prevent un
 | Benchmark offline control | 30 held-out scenarios; deterministic control only | `BLOCKED` — by design (control baseline, cannot authorize release) |
 | Benchmark live comparison | 24 live runs; 8 semantic judgments required | `BLOCKED` — not run in this checkout |
 
+### Known limitations
+
+- The live evaluation harness, cost guard, semantic gate (`BLOCKED` vs `FAIL`), and no-network rescore are implemented and tested across 611 tests.
+- The live evaluation executes end-to-end on Gemini `gemini-3.1-flash-lite` at approximately $0.01 across 24 runs.
+- The seeded policy corpus is a 2-passage stub without real embeddings, so retrieval-grounded quality is not yet measured. No `PASS` is claimed.
+- Next step: ingest a sourced NZ policy corpus with real embeddings, followed by human semantic review.
+
 For a deterministic control artifact, use the explicit offline command. It intentionally exits non-zero and writes `release_verdict: BLOCKED`:
 
 ```bash

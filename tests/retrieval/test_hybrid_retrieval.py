@@ -256,13 +256,14 @@ async def test_hybrid_retrieval_drops_distant_compound_query_matches() -> None:
 
 
 def test_neural_adapters_reuse_cached_model_instances(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify SentenceTransformers and CrossEncoder adapters cache model instances across adapter creations."""
+    """Verify adapters cache model instances across creations."""
     from unittest.mock import MagicMock
+
     from vehicle_risk_agent.retrieval.adapters import (
-        SentenceTransformersEmbeddingAdapter,
-        CrossEncoderRerankerAdapter,
-        _SENTENCE_TRANSFORMER_CACHE,
         _CROSS_ENCODER_CACHE,
+        _SENTENCE_TRANSFORMER_CACHE,
+        CrossEncoderRerankerAdapter,
+        SentenceTransformersEmbeddingAdapter,
     )
 
     mock_st_class = MagicMock()

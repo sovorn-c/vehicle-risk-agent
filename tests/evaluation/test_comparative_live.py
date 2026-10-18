@@ -138,8 +138,8 @@ def test_e12_rejects_caps_above_suite_limits(active_corpus: SimpleNamespace) -> 
             ).validate_readiness()
 
 
-def test_e12_subrunners_suppress_output_file(active_corpus: SimpleNamespace) -> None:
-    """Sub-runners in e12 comparative must have output_file set to None so they do not clobber target report."""
+def test_e12_subrunners_suppress_output_file() -> None:
+    """Sub-runners in comparative evaluation must have output_file set to None."""
     parent_config = LiveEvaluationConfig(
         suite="e12-comparative",
         enable_live_eval=True,
@@ -148,10 +148,20 @@ def test_e12_subrunners_suppress_output_file(active_corpus: SimpleNamespace) -> 
         output_file="artifacts/e12-comparative-report.json",
     )
     draft_sub = parent_config.model_copy(
-        update={"suite": "general", "max_scenarios": 1, "max_budget_usd": 5.0, "output_file": None}
+        update={
+            "suite": "general",
+            "max_scenarios": 1,
+            "max_budget_usd": 5.0,
+            "output_file": None,
+        }
     )
     investigation_sub = parent_config.model_copy(
-        update={"suite": "e11-investigation", "max_scenarios": 1, "max_budget_usd": 3.0, "output_file": None}
+        update={
+            "suite": "e11-investigation",
+            "max_scenarios": 1,
+            "max_budget_usd": 3.0,
+            "output_file": None,
+        }
     )
     assert draft_sub.output_file is None
     assert investigation_sub.output_file is None
