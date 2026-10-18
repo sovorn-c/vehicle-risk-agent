@@ -89,6 +89,10 @@ class FakeRerankerAdapter:
         return scores
 
 
+_SENTENCE_TRANSFORMER_CACHE: dict[tuple[str, str], Any] = {}
+_CROSS_ENCODER_CACHE: dict[tuple[str, str], Any] = {}
+
+
 class SentenceTransformersEmbeddingAdapter:
     """Production SentenceTransformers embedding adapter with async thread pool execution."""
 
@@ -101,16 +105,18 @@ class SentenceTransformersEmbeddingAdapter:
         self.model_name = model_name
         self.revision = revision
         self.dimensions = dimensions
-        self._model: Any = None
 
     def _get_model(self) -> Any:
-        if self._model is None:
+        key = (self.model_name, self.revision)
+        if key not in _SENTENCE_TRANSFORMER_CACHE:
             from sentence_transformers import (  # type: ignore[import-not-found,unused-ignore]
                 SentenceTransformer,
             )
 
-            self._model = SentenceTransformer(self.model_name, revision=self.revision)
-        return self._model
+            _SENTENCE_TRANSFORMER_CACHE[key] = SentenceTransformer(
+                self.model_name, revision=self.revision
+            )
+        return _SENTENCE_TRANSFORMER_CACHE[key]
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Compute dense vector embeddings in worker thread."""
@@ -137,14 +143,16 @@ class CrossEncoderRerankerAdapter:
     ) -> None:
         self.model_name = model_name
         self.revision = revision
-        self._model: Any = None
 
     def _get_model(self) -> Any:
-        if self._model is None:
+        key = (self.model_name, self.revision)
+        if key not in _CROSS_ENCODER_CACHE:
             from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name, revision=self.revision)
-        return self._model
+            _CROSS_ENCODER_CACHE[key] = CrossEncoder(
+                self.model_name, revision=self.revision
+            )
+        return _CROSS_ENCODER_CACHE[key]
 
     async def rerank(self, query: str, texts: list[str]) -> list[float]:
         """Compute cross-encoder relevance scores normalized via sigmoid."""

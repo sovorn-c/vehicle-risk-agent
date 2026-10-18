@@ -253,3 +253,43 @@ async def test_hybrid_retrieval_drops_distant_compound_query_matches() -> None:
     )
 
     assert [citation.passage_id for citation in result.citations] == ["snap-virm:p002"]
+
+
+def test_neural_adapters_reuse_cached_model_instances(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify SentenceTransformers and CrossEncoder adapters cache model instances across adapter creations."""
+    from unittest.mock import MagicMock
+    from vehicle_risk_agent.retrieval.adapters import (
+        SentenceTransformersEmbeddingAdapter,
+        CrossEncoderRerankerAdapter,
+        _SENTENCE_TRANSFORMER_CACHE,
+        _CROSS_ENCODER_CACHE,
+    )
+
+    mock_st_class = MagicMock()
+    mock_st_instance = MagicMock()
+    mock_st_class.return_value = mock_st_instance
+
+    mock_ce_class = MagicMock()
+    mock_ce_instance = MagicMock()
+    mock_ce_class.return_value = mock_ce_instance
+
+    # Clear caches for test keys
+    test_st_key = ("test-st-model", "test-rev")
+    test_ce_key = ("test-ce-model", "test-rev")
+    _SENTENCE_TRANSFORMER_CACHE.pop(test_st_key, None)
+    _CROSS_ENCODER_CACHE.pop(test_ce_key, None)
+
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", mock_st_class, raising=False)
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", mock_ce_class, raising=False)
+
+    a1 = SentenceTransformersEmbeddingAdapter(model_name="test-st-model", revision="test-rev")
+    a2 = SentenceTransformersEmbeddingAdapter(model_name="test-st-model", revision="test-rev")
+    assert a1._get_model() is mock_st_instance
+    assert a2._get_model() is mock_st_instance
+    assert mock_st_class.call_count == 1
+
+    c1 = CrossEncoderRerankerAdapter(model_name="test-ce-model", revision="test-rev")
+    c2 = CrossEncoderRerankerAdapter(model_name="test-ce-model", revision="test-rev")
+    assert c1._get_model() is mock_ce_instance
+    assert c2._get_model() is mock_ce_instance
+    assert mock_ce_class.call_count == 1
