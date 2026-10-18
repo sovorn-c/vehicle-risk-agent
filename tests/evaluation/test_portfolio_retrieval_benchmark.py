@@ -146,3 +146,21 @@ def test_portfolio_retrieval_summary_requires_complete_evaluation_denominators()
     assert failed.unsupported_correct_abstention_count == 4
     assert failed.unsupported_abstention_rate is None
     assert failed.target_status == "not_evaluable"
+
+
+
+def test_empty_portfolio_retrieval_run_is_partial_not_a_pass() -> None:
+    from vehicle_risk_agent.evaluation.portfolio_retrieval import summarize_portfolio_results
+
+    root = Path(__file__).parents[2]
+    corpus = load_portfolio_corpus(root / "docs/benchmarks/e12/corpus/manifest.json")
+    dataset = load_portfolio_retrieval_dataset(
+        root / "docs/benchmarks/e12/retrieval/dataset-v1.json", corpus
+    )
+
+    summary = summarize_portfolio_results("keyword", dataset, [])
+
+    assert summary.execution_status == "partial"
+    assert summary.expected_query_count == 20
+    assert summary.completed_query_count == 0
+    assert summary.target_status == "not_evaluable"
