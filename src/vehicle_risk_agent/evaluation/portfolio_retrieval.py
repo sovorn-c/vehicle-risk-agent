@@ -252,3 +252,153 @@ def score_portfolio_query(
         false_abstention=false_abstention,
         citation_identity_valid=citation_identity_valid,
     )
+
+
+class PortfolioMethodSummary(BaseModel):
+    """Method-level metrics with fixed denominators and a separate target verdict."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    method: Literal["keyword", "hybrid"]
+    execution_status: Literal["complete", "partial"]
+    target_status: Literal["met", "missed", "not_evaluable"]
+    expected_query_count: int
+    completed_query_count: int
+    technical_failure_count: int
+    answerable_denominator: int
+    answerable_completed_count: int
+    unsupported_denominator: int
+    unsupported_completed_count: int
+    recall_at_5: float | None
+    mrr_at_5: float | None
+    precision_at_5: float | None
+    precision_at_5_ceiling: float
+    false_abstention_count: int
+    false_abstention_rate: float | None
+    unsupported_correct_abstention_count: int
+    unsupported_abstention_rate: float | None
+    citation_identity_pass_count: int
+    citation_identity_denominator: int
+    citation_identity_rate: float | None
+
+
+def summarize_portfolio_results(
+    method: Literal["keyword", "hybrid"],
+    dataset: PortfolioRetrievalDataset,
+    query_scores: Sequence[PortfolioQueryScore],
+) -> PortfolioMethodSummary:
+    """Aggregate evaluation rows; incomplete execution cannot receive a target verdict."""
+    evaluation_queries = tuple(query for query in dataset.queries if query.split == "evaluation")
+    expected = {query.id: query for query in evaluation_queries}
+    scores_by_id: dict[str, PortfolioQueryScore] = {}
+
+    for score in query_scores:
+        label = expected.get(score.query_id)
+        if label is None:
+            raise ValueError(f"Unexpected evaluation result query id: {score.query_id}")
+        if score.query_id in scores_by_id:
+            raise ValueError(f"Duplicate evaluation result query id: {score.query_id}")
+        if score.split != label.split or score.answerable != bool(label.relevant_passage_ids):
+            raise ValueError(f"Evaluation result does not match frozen label: {score.query_id}")
+        if score.relevant_passage_ids != label.relevant_passage_ids:
+            raise ValueError(f"Evaluation result labels changed: {score.query_id}")
+        if score.technical_error is None:
+            if score.is_abstention is None or score.citation_identity_valid is None:
+                raise ValueError(
+                    f"Successful result is missing identity or abstention data: {score.query_id}"
+                )
+            if score.answerable and any(
+                metric is None
+                for metric in (
+                    score.recall_at_5,
+                    score.precision_at_5,
+                    score.reciprocal_rank_at_5,
+                )
+            ):
+                raise ValueError(
+                    f"Successful result is missing retrieval metrics: {score.query_id}"
+                )
+            if not score.answerable and score.correct_abstention is None:
+                raise ValueError(
+                    f"Successful unsupported result lacks abstention data: {score.query_id}"
+                )
+        scores_by_id[score.query_id] = score
+
+    all_rows_present = scores_by_id.keys() == expected.keys()
+    technical_failure_count = sum(
+        score.technical_error is not None for score in scores_by_id.values()
+    )
+    execution_complete = all_rows_present and technical_failure_count == 0
+    answerable_queries = [query for query in evaluation_queries if query.relevant_passage_ids]
+    unsupported_queries = [query for query in evaluation_queries if not query.relevant_passage_ids]
+    answerable_scores = [scores_by_id[q.id] for q in answerable_queries if q.id in scores_by_id]
+    unsupported_scores = [scores_by_id[q.id] for q in unsupported_queries if q.id in scores_by_id]
+    completed_answerable = [score for score in answerable_scores if score.technical_error is None]
+    completed_unsupported = [score for score in unsupported_scores if score.technical_error is None]
+    false_abstention_count = sum(score.false_abstention is True for score in completed_answerable)
+    unsupported_correct_count = sum(
+        score.correct_abstention is True for score in completed_unsupported
+    )
+    citation_identity_pass_count = sum(
+        score.citation_identity_valid is True
+        for score in scores_by_id.values()
+        if score.technical_error is None
+    )
+
+    if execution_complete:
+        raw_recall_at_5 = sum(score.recall_at_5 or 0.0 for score in answerable_scores) / len(
+            answerable_queries
+        )
+        raw_mrr_at_5 = sum(score.reciprocal_rank_at_5 or 0.0 for score in answerable_scores) / len(
+            answerable_queries
+        )
+        raw_precision_at_5 = sum(score.precision_at_5 or 0.0 for score in answerable_scores) / len(
+            answerable_queries
+        )
+        recall_at_5 = round(raw_recall_at_5, 4)
+        mrr_at_5 = round(raw_mrr_at_5, 4)
+        precision_at_5 = round(raw_precision_at_5, 4)
+        false_abstention_rate = round(false_abstention_count / len(answerable_queries), 4)
+        unsupported_abstention_rate = round(unsupported_correct_count / len(unsupported_queries), 4)
+        citation_identity_rate = round(citation_identity_pass_count / len(evaluation_queries), 4)
+        targets_met = (
+            raw_recall_at_5 >= dataset.targets.recall_at_5_min
+            and raw_mrr_at_5 >= dataset.targets.mrr_at_5_min
+            and unsupported_abstention_rate >= dataset.targets.unsupported_abstention_min
+            and citation_identity_rate >= dataset.targets.citation_identity_min
+        )
+        target_status: Literal["met", "missed", "not_evaluable"] = (
+            "met" if targets_met else "missed"
+        )
+    else:
+        recall_at_5 = None
+        mrr_at_5 = None
+        precision_at_5 = None
+        false_abstention_rate = None
+        unsupported_abstention_rate = None
+        citation_identity_rate = None
+        target_status = "not_evaluable"
+
+    return PortfolioMethodSummary(
+        method=method,
+        execution_status="complete" if execution_complete else "partial",
+        target_status=target_status,
+        expected_query_count=len(evaluation_queries),
+        completed_query_count=sum(score.technical_error is None for score in scores_by_id.values()),
+        technical_failure_count=technical_failure_count,
+        answerable_denominator=len(answerable_queries),
+        answerable_completed_count=len(completed_answerable),
+        unsupported_denominator=len(unsupported_queries),
+        unsupported_completed_count=len(completed_unsupported),
+        recall_at_5=recall_at_5,
+        mrr_at_5=mrr_at_5,
+        precision_at_5=precision_at_5,
+        precision_at_5_ceiling=dataset.precision_at_5_ceiling,
+        false_abstention_count=false_abstention_count,
+        false_abstention_rate=false_abstention_rate,
+        unsupported_correct_abstention_count=unsupported_correct_count,
+        unsupported_abstention_rate=unsupported_abstention_rate,
+        citation_identity_pass_count=citation_identity_pass_count,
+        citation_identity_denominator=len(evaluation_queries),
+        citation_identity_rate=citation_identity_rate,
+    )

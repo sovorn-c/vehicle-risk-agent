@@ -38,7 +38,6 @@ def test_portfolio_retrieval_dataset_is_frozen_and_corpus_bound() -> None:
     assert len(dataset.fingerprint) == 64
 
 
-
 def test_portfolio_retrieval_query_metrics_use_fixed_slots_and_separate_failures() -> None:
     from vehicle_risk_agent.evaluation.portfolio_retrieval import score_portfolio_query
 
@@ -89,7 +88,6 @@ def test_portfolio_retrieval_query_metrics_use_fixed_slots_and_separate_failures
     assert failed.technical_error is not None
     assert failed.correct_abstention is None
     assert failed.recall_at_5 is None
-
 
 
 def test_portfolio_retrieval_summary_requires_complete_evaluation_denominators() -> None:
@@ -148,7 +146,6 @@ def test_portfolio_retrieval_summary_requires_complete_evaluation_denominators()
     assert failed.target_status == "not_evaluable"
 
 
-
 def test_empty_portfolio_retrieval_run_is_partial_not_a_pass() -> None:
     from vehicle_risk_agent.evaluation.portfolio_retrieval import summarize_portfolio_results
 
@@ -164,3 +161,57 @@ def test_empty_portfolio_retrieval_run_is_partial_not_a_pass() -> None:
     assert summary.expected_query_count == 20
     assert summary.completed_query_count == 0
     assert summary.target_status == "not_evaluable"
+
+
+def test_portfolio_retrieval_run_export_is_versioned_and_preserves_per_query_rows(
+    tmp_path: Path,
+) -> None:
+    import csv
+    import json
+
+    from vehicle_risk_agent.evaluation.portfolio_retrieval import (
+        score_portfolio_query,
+        summarize_portfolio_results,
+    )
+    from vehicle_risk_agent.evaluation.portfolio_retrieval_runner import (
+        write_portfolio_retrieval_run,
+    )
+
+    root = Path(__file__).parents[2]
+    corpus = load_portfolio_corpus(root / "docs/benchmarks/e12/corpus/manifest.json")
+    dataset = load_portfolio_retrieval_dataset(
+        root / "docs/benchmarks/e12/retrieval/dataset-v1.json", corpus
+    )
+    known_ids = {passage.id for passage in corpus.passages}
+    evaluation = [query for query in dataset.queries if query.split == "evaluation"]
+    scores = [
+        score_portfolio_query(
+            query,
+            query.relevant_passage_ids,
+            query.relevant_passage_ids,
+            not query.relevant_passage_ids,
+            known_ids,
+        )
+        for query in evaluation
+    ]
+    results = {"keyword": scores, "hybrid": scores}
+    summaries = {
+        "keyword": summarize_portfolio_results("keyword", dataset, scores),
+        "hybrid": summarize_portfolio_results("hybrid", dataset, scores),
+    }
+    run_dir = tmp_path / "run-001"
+
+    json_path, csv_path = write_portfolio_retrieval_run(
+        run_dir, corpus, dataset, results, summaries
+    )
+
+    document = json.loads(json_path.read_text(encoding="utf-8"))
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert document["dataset_fingerprint"] == dataset.fingerprint
+    assert document["corpus_fingerprint"] == corpus.fingerprint
+    assert len(document["methods"]["keyword"]["queries"]) == 20
+    assert len(document["methods"]["hybrid"]["queries"]) == 20
+    assert len(rows) == 40
+    assert {row["method"] for row in rows} == {"keyword", "hybrid"}
+    assert len({row["query_id"] for row in rows if row["method"] == "keyword"}) == 20
