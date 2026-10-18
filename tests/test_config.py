@@ -1,7 +1,7 @@
 """Tests for vehicle-risk-agent configuration and role Principal mapping."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from vehicle_risk_agent.auth import Role, authenticate_bearer_token
 from vehicle_risk_agent.config import Settings
@@ -62,7 +62,7 @@ def test_mcp_server_url_normalizes_to_mcp_endpoint() -> None:
 
 def test_settings_gemini_api_key_field() -> None:
     """Settings must accept gemini_api_key without validation error."""
-    settings = Settings(gemini_api_key="test-key-123")
+    settings = Settings(gemini_api_key=SecretStr("test-key-123"))
     assert settings.gemini_api_key is not None
     assert settings.gemini_api_key.get_secret_value() == "test-key-123"
 

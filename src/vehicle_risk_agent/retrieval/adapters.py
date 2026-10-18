@@ -149,9 +149,7 @@ class CrossEncoderRerankerAdapter:
         if key not in _CROSS_ENCODER_CACHE:
             from sentence_transformers import CrossEncoder
 
-            _CROSS_ENCODER_CACHE[key] = CrossEncoder(
-                self.model_name, revision=self.revision
-            )
+            _CROSS_ENCODER_CACHE[key] = CrossEncoder(self.model_name, revision=self.revision)
         return _CROSS_ENCODER_CACHE[key]
 
     async def rerank(self, query: str, texts: list[str]) -> list[float]:
