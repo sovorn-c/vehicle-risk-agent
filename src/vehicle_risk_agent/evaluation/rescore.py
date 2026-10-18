@@ -8,6 +8,7 @@ from pathlib import Path
 
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
+    RescoreProvenance,
     _evaluation_input_digest,
     build_comparative_report,
     load_e12_evaluation_config,
@@ -83,6 +84,12 @@ def rescore_report(
                 f"got {item.evaluation_input_sha256}"
             )
 
+    rescored_from = RescoreProvenance(
+        report_id=report.report_id,
+        run_hash=report.run_hash,
+        created_at=report.created_at,
+    )
+
     rescored = build_comparative_report(
         config,
         report.metrics,
@@ -90,6 +97,7 @@ def rescore_report(
         execution_mode="LIVE",
         source_commit=report.source_commit,
         config_sha256=report.config_sha256,
+        rescored_from=rescored_from,
     )
 
     out_path = Path(output_file or report_path)

@@ -51,6 +51,16 @@ class SemanticStatus(StrEnum):
     PASSED = "PASSED"
 
 
+class RescoreProvenance(BaseModel):
+    """Provenance tracking for a report that was rescored from an earlier run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    report_id: str
+    run_hash: str
+    created_at: str
+
+
 class ComparativeThresholds(BaseModel):
     """Frozen thresholds that determine comparative quality gates."""
 
@@ -461,6 +471,7 @@ class ComparativeReport(BaseModel):
     semantic_judgments_required: int
     semantic_gate_passed: bool
     semantic_status: SemanticStatus = SemanticStatus.UNBOUND
+    rescored_from: RescoreProvenance | None = None
     deterministic_risk_match: float
     live_deterministic_risk_match: float
     retrieval_relevance: float
@@ -682,13 +693,11 @@ def compute_report_run_hash(report: ComparativeReport) -> str:
     """Recompute the report hash from its validated, serialized contents."""
     payload = report.model_dump(mode="json")
     payload.pop("run_hash", None)
-    computed = _report_hash_payload(payload)
-    if report.run_hash == "9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff":
-        legacy_payload = dict(payload)
-        legacy_payload.pop("semantic_status", None)
-        if _report_hash_payload(legacy_payload) == report.run_hash:
-            return report.run_hash
-    return computed
+    if "semantic_status" not in report.model_fields_set:
+        payload.pop("semantic_status", None)
+    if "rescored_from" not in report.model_fields_set or report.rescored_from is None:
+        payload.pop("rescored_from", None)
+    return _report_hash_payload(payload)
 
 
 def _label(labels: Any, name: str, default: Any = None) -> Any:
@@ -878,6 +887,7 @@ def build_comparative_report(
     source_commit: str | None = None,
     config_sha256: str | None = None,
     judgments_sha256: str | None = None,
+    rescored_from: RescoreProvenance | None = None,
 ) -> ComparativeReport:
     """Aggregate metrics and apply the fail-closed comparative verdict rules."""
     _validate_frozen_config(config)
@@ -1090,6 +1100,7 @@ def build_comparative_report(
         "semantic_judgments_required": config.semantic_judgments_required,
         "semantic_gate_passed": semantic_passed,
         "semantic_status": semantic_status,
+        **({"rescored_from": rescored_from} if rescored_from is not None else {}),
         "deterministic_risk_match": round(deterministic_match, 4),
         "live_deterministic_risk_match": round(live_deterministic_match, 4),
         "retrieval_relevance": round(retrieval, 4),

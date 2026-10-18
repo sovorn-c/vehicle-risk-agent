@@ -310,3 +310,76 @@ def test_rescoring_is_deterministic(tmp_path: Path) -> None:
     assert res1.release_verdict == res2.release_verdict == "PASS"
     assert res1.semantic_status == res2.semantic_status == "PASSED"
     assert res1.judgments_sha256 == res2.judgments_sha256
+
+
+def test_rescore_populates_rescored_from_and_preserves_original_report_on_disk(
+    tmp_path: Path,
+) -> None:
+    config = load_e12_evaluation_config()
+    metrics = _complete_live_metrics(config)
+    report = build_comparative_report(config, metrics, execution_mode="LIVE")
+
+    report_path = tmp_path / "original-live-report.json"
+    report.save_to_file(report_path)
+    original_bytes = report_path.read_bytes()
+
+    judgments_path = tmp_path / "judgments.yaml"
+    _write_judgments_file(judgments_path, _valid_judgments(report, config))
+
+    rescored_report_path = tmp_path / "rescored-report.json"
+    publication_path = tmp_path / "rescored-report.publication.json"
+
+    rescored_report, publication = rescore_report(
+        report_path=report_path,
+        judgments_path=judgments_path,
+        output_file=rescored_report_path,
+        publication_file=publication_path,
+    )
+
+    # 1. Original file on disk is completely untouched
+    assert report_path.read_bytes() == original_bytes
+
+    # 2. rescored_from is populated on the rescored report
+    assert rescored_report.rescored_from is not None
+    assert rescored_report.rescored_from.report_id == report.report_id
+    assert rescored_report.rescored_from.run_hash == report.run_hash
+    assert rescored_report.rescored_from.created_at == report.created_at
+
+    # 3. rescored_from is populated on the matching publication
+    assert publication is not None
+    assert publication.rescored_from is not None
+    assert publication.rescored_from.report_id == report.report_id
+    assert publication.rescored_from.run_hash == report.run_hash
+    assert publication.rescored_from.created_at == report.created_at
+
+
+def test_rescore_succeeds_with_sockets_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import socket
+
+    def blocked_socket(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("Network/socket calls are strictly forbidden during re-scoring!")
+
+    monkeypatch.setattr(socket, "socket", blocked_socket)
+
+    config = load_e12_evaluation_config()
+    metrics = _complete_live_metrics(config)
+    report = build_comparative_report(config, metrics, execution_mode="LIVE")
+
+    report_path = tmp_path / "live-report.json"
+    report.save_to_file(report_path)
+
+    judgments_path = tmp_path / "judgments.yaml"
+    _write_judgments_file(judgments_path, _valid_judgments(report, config))
+
+    pub_path = tmp_path / "publication.json"
+    rescored, pub = rescore_report(
+        report_path=report_path,
+        judgments_path=judgments_path,
+        publication_file=pub_path,
+    )
+
+    assert rescored.release_verdict == "PASS"
+    assert rescored.semantic_status == "PASSED"
+    assert pub is not None

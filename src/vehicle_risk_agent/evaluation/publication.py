@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeReport,
+    RescoreProvenance,
     compute_report_run_hash,
     validate_report_integrity,
 )
@@ -34,6 +35,7 @@ class E12Publication(BaseModel):
     release_verdict: str
     verdict_passed: bool
     synthetic_vehicle_evidence: bool
+    rescored_from: RescoreProvenance | None = None
 
 
 def publication_from_report(
@@ -66,6 +68,7 @@ def publication_from_report(
         release_verdict=report.release_verdict,
         verdict_passed=report.verdict_passed,
         synthetic_vehicle_evidence=report.synthetic_vehicle_evidence,
+        rescored_from=report.rescored_from,
     )
 
 
