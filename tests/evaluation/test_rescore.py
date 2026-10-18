@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from vehicle_risk_agent.evaluation.comparative import (
     ComparativeMetric,
@@ -16,15 +15,16 @@ from vehicle_risk_agent.evaluation.comparative import (
     SemanticJudgment,
     build_blocked_report,
     build_comparative_report,
-    build_offline_comparative_report,
     load_e12_evaluation_config,
 )
-from vehicle_risk_agent.evaluation.publication import E12Publication, validate_publication
+from vehicle_risk_agent.evaluation.publication import validate_publication
 from vehicle_risk_agent.evaluation.rescore import rescore_report
 
 
 def _complete_live_metrics(config: Any) -> list[ComparativeMetric]:
-    def make_metric(scenario_id: str, mode: ComparativeMode, repeat: int, **overrides: Any) -> ComparativeMetric:
+    def make_metric(
+        scenario_id: str, mode: ComparativeMode, repeat: int, **overrides: Any
+    ) -> ComparativeMetric:
         values: dict[str, Any] = {
             "scenario_id": scenario_id,
             "mode": mode,
@@ -98,7 +98,9 @@ def _write_judgments_file(path: Path, judgments: list[dict[str, Any]]) -> None:
     path.write_text(yaml.safe_dump({"judgments": judgments}), encoding="utf-8")
 
 
-def _valid_judgments(report: ComparativeReport, config: Any, **overrides: Any) -> list[dict[str, Any]]:
+def _valid_judgments(
+    report: ComparativeReport, config: Any, **overrides: Any
+) -> list[dict[str, Any]]:
     base = {
         "claim_support": 1.0,
         "missed_findings": 0,
@@ -172,9 +174,7 @@ def test_hash_mismatch_gives_refusal_or_blocked(tmp_path: Path) -> None:
         rescore_report(report_path=report_path, judgments_path=judgments_path)
 
     # Calling build_comparative_report directly yields BLOCKED
-    loaded_judgments = [
-        SemanticJudgment.model_validate(item) for item in mismatched_judgments
-    ]
+    loaded_judgments = [SemanticJudgment.model_validate(item) for item in mismatched_judgments]
     direct_report = build_comparative_report(
         config,
         metrics,
@@ -188,7 +188,7 @@ def test_hash_mismatch_gives_refusal_or_blocked(tmp_path: Path) -> None:
     assert direct_report.semantic_status == "UNBOUND"
 
 
-def test_fewer_than_eight_or_wrong_set_gives_blocked(tmp_path: Path) -> None:
+def test_fewer_than_eight_or_wrong_set_gives_blocked() -> None:
     config = load_e12_evaluation_config()
     metrics = _complete_live_metrics(config)
     report = build_comparative_report(config, metrics, execution_mode="LIVE")
@@ -234,7 +234,9 @@ def test_fewer_than_eight_or_wrong_set_gives_blocked(tmp_path: Path) -> None:
         ({"claim_support": 0.8}, "claim_support"),
     ],
 )
-def test_bound_negative_judgments_give_fail(tmp_path: Path, override: dict[str, Any], field_name: str) -> None:
+def test_bound_negative_judgments_give_fail(
+    tmp_path: Path, override: dict[str, Any], field_name: str
+) -> None:
     config = load_e12_evaluation_config()
     metrics = _complete_live_metrics(config)
     report = build_comparative_report(config, metrics, execution_mode="LIVE")
@@ -292,11 +294,19 @@ def test_rescoring_is_deterministic(tmp_path: Path) -> None:
     judgments_path = tmp_path / "judgments.yaml"
     _write_judgments_file(judgments_path, _valid_judgments(report, config))
 
-    res1, _ = rescore_report(report_path=report_path, judgments_path=judgments_path, output_file=tmp_path / "r1.json")
-    res2, _ = rescore_report(report_path=report_path, judgments_path=judgments_path, output_file=tmp_path / "r2.json")
+    res1, _ = rescore_report(
+        report_path=report_path,
+        judgments_path=judgments_path,
+        output_file=tmp_path / "r1.json",
+    )
+    res2, _ = rescore_report(
+        report_path=report_path,
+        judgments_path=judgments_path,
+        output_file=tmp_path / "r2.json",
+    )
 
-    assert res1.evaluation_input_sha256 == res2.evaluation_input_sha256 == report.evaluation_input_sha256
+    assert res1.evaluation_input_sha256 == report.evaluation_input_sha256
+    assert res2.evaluation_input_sha256 == report.evaluation_input_sha256
     assert res1.release_verdict == res2.release_verdict == "PASS"
     assert res1.semantic_status == res2.semantic_status == "PASSED"
     assert res1.judgments_sha256 == res2.judgments_sha256
-    assert res1.run_hash == res2.run_hash

@@ -1,4 +1,4 @@
-"""No-network re-score command for updating a LIVE comparative report with human semantic judgments."""
+"""No-network re-score command for updating a LIVE comparative report with human judgments."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def rescore_report(
     output_file: str | Path | None = None,
     publication_file: str | Path | None = None,
 ) -> tuple[ComparativeReport, E12Publication | None]:
-    """Re-score an existing LIVE comparative report using operator semantic judgments without network calls."""
+    """Re-score an existing LIVE report with operator semantic judgments without network calls."""
     target_report = Path(report_path)
     if not target_report.is_file():
         raise FileNotFoundError(f"Report file not found: {target_report}")

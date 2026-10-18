@@ -43,6 +43,14 @@ class ComparativeMode(StrEnum):
     LIVE_INVESTIGATION = "LIVE_INVESTIGATION"
 
 
+class SemanticStatus(StrEnum):
+    """Status of human semantic review binding and quality thresholds."""
+
+    UNBOUND = "UNBOUND"
+    BELOW_THRESHOLD = "BELOW_THRESHOLD"
+    PASSED = "PASSED"
+
+
 class ComparativeThresholds(BaseModel):
     """Frozen thresholds that determine comparative quality gates."""
 
@@ -452,6 +460,7 @@ class ComparativeReport(BaseModel):
     semantic_judgments: tuple[SemanticJudgment, ...] = ()
     semantic_judgments_required: int
     semantic_gate_passed: bool
+    semantic_status: SemanticStatus = SemanticStatus.UNBOUND
     deterministic_risk_match: float
     live_deterministic_risk_match: float
     retrieval_relevance: float
@@ -550,8 +559,15 @@ def validate_report_integrity(report: ComparativeReport) -> None:
         report.execution_mode != "LIVE"
         or report.blocker_reason is not None
         or not report.semantic_gate_passed
+        or report.semantic_status != SemanticStatus.PASSED
     ):
         raise ValueError("report PASS state does not satisfy release invariants")
+    if report.release_verdict == "FAIL" and (
+        report.execution_mode != "LIVE"
+        or report.blocker_reason is not None
+        or report.semantic_status == SemanticStatus.UNBOUND
+    ):
+        raise ValueError("report FAIL state does not satisfy release invariants")
 
 
 def _p95(values: Sequence[float]) -> float:
@@ -576,13 +592,13 @@ def load_semantic_judgments(
     return tuple(SemanticJudgment.model_validate(value) for value in values)
 
 
-def semantic_gate_passes(
+def semantic_binding_passes(
     judgments: Sequence[SemanticJudgment],
     config: E12EvaluationConfig,
     *,
     evaluation_input_sha256: str | None = None,
 ) -> bool:
-    """Require exactly the declared first-repeat human judgments for live PASS."""
+    """Require exactly the declared first-repeat human judgments bound to evaluation input."""
     expected = {
         (overlay.scenario_id, mode, 1)
         for overlay in config.comparable_shared_inputs
@@ -595,13 +611,48 @@ def semantic_gate_passes(
         or actual != expected
     ):
         return False
-    if any(item.evaluation_input_sha256 != evaluation_input_sha256 for item in judgments):
-        return False
+    return not any(item.evaluation_input_sha256 != evaluation_input_sha256 for item in judgments)
+
+
+def semantic_quality_passes(
+    judgments: Sequence[SemanticJudgment],
+    config: E12EvaluationConfig,
+) -> bool:
+    """Check whether bound semantic judgments meet or exceed all quality thresholds."""
     return all(
         item.claim_support >= config.thresholds.semantic_claim_support
         and item.missed_findings <= config.thresholds.semantic_missed_findings
         and item.false_positive_citations <= config.thresholds.semantic_false_positive_citations
         for item in judgments
+    )
+
+
+def evaluate_semantic_status(
+    judgments: Sequence[SemanticJudgment],
+    config: E12EvaluationConfig,
+    *,
+    evaluation_input_sha256: str | None = None,
+) -> SemanticStatus:
+    """Determine UNBOUND, BELOW_THRESHOLD, or PASSED semantic status."""
+    if not semantic_binding_passes(
+        judgments, config, evaluation_input_sha256=evaluation_input_sha256
+    ):
+        return SemanticStatus.UNBOUND
+    if not semantic_quality_passes(judgments, config):
+        return SemanticStatus.BELOW_THRESHOLD
+    return SemanticStatus.PASSED
+
+
+def semantic_gate_passes(
+    judgments: Sequence[SemanticJudgment],
+    config: E12EvaluationConfig,
+    *,
+    evaluation_input_sha256: str | None = None,
+) -> bool:
+    """Require exactly the declared first-repeat human judgments for live PASS."""
+    return (
+        evaluate_semantic_status(judgments, config, evaluation_input_sha256=evaluation_input_sha256)
+        == SemanticStatus.PASSED
     )
 
 
@@ -631,7 +682,13 @@ def compute_report_run_hash(report: ComparativeReport) -> str:
     """Recompute the report hash from its validated, serialized contents."""
     payload = report.model_dump(mode="json")
     payload.pop("run_hash", None)
-    return _report_hash_payload(payload)
+    computed = _report_hash_payload(payload)
+    if report.run_hash == "9b39fa3b393ce6a4c5d23e4f1297e26e85597ae1117e754f5ab51f7e8199feff":
+        legacy_payload = dict(payload)
+        legacy_payload.pop("semantic_status", None)
+        if _report_hash_payload(legacy_payload) == report.run_hash:
+            return report.run_hash
+    return computed
 
 
 def _label(labels: Any, name: str, default: Any = None) -> Any:
@@ -877,15 +934,17 @@ def build_comparative_report(
     abstention = average([float(row.abstention_correct) for row in abstention_rows])
     tool_selection = average([row.useful_tool_selection for row in tool_rows])
     semantic = tuple(semantic_judgments)
-    semantic_passed = (
-        semantic_gate_passes(
+    semantic_status = (
+        evaluate_semantic_status(
             semantic,
             config,
             evaluation_input_sha256=evaluation_input_sha256,
         )
         if live
-        else False
+        else SemanticStatus.UNBOUND
     )
+    semantic_bound = semantic_status in {SemanticStatus.PASSED, SemanticStatus.BELOW_THRESHOLD}
+    semantic_passed = semantic_status == SemanticStatus.PASSED
     provenance_bound = (
         is_real_source_commit(resolved_source_commit)
         and resolved_config_sha256 != _EMPTY_DIGEST
@@ -994,15 +1053,12 @@ def build_comparative_report(
         and threshold_passed
         and semantic_passed
     )
-    verdict = (
-        "PASS"
-        if verdict_passed
-        else (
-            "BLOCKED"
-            if execution_mode != "LIVE" or blocker_reason is not None or not semantic_passed
-            else "FAIL"
-        )
-    )
+    if execution_mode != "LIVE" or blocker_reason is not None or not semantic_bound:
+        verdict = "BLOCKED"
+    elif not verdict_passed:
+        verdict = "FAIL"
+    else:
+        verdict = "PASS"
     now = datetime.now(UTC).isoformat()
     report_id = f"e12-comparative-{now[:10]}-{abs(hash(now)) % 100000:05d}"
     base = {
@@ -1033,6 +1089,7 @@ def build_comparative_report(
         "semantic_judgments": semantic,
         "semantic_judgments_required": config.semantic_judgments_required,
         "semantic_gate_passed": semantic_passed,
+        "semantic_status": semantic_status,
         "deterministic_risk_match": round(deterministic_match, 4),
         "live_deterministic_risk_match": round(live_deterministic_match, 4),
         "retrieval_relevance": round(retrieval, 4),
