@@ -41,7 +41,16 @@ async def benchmark_client() -> AsyncIterator[tuple[AsyncClient, FastAPI]]:
         await connection.run_sync(Base.metadata.drop_all)
         await connection.run_sync(Base.metadata.create_all)
 
-    app = create_app(Settings(database_url=TEST_DB_URL, retrieval_mode="live"))
+    manifest_path = Path(__file__).parents[2] / "docs/benchmarks/e12/corpus/manifest.json"
+    retrieval_config = json.loads(manifest_path.read_text(encoding="utf-8"))["retrieval_config"]
+    app = create_app(
+        Settings(
+            database_url=TEST_DB_URL,
+            retrieval_mode="live",
+            embedding_revision=retrieval_config["embedding_revision"],
+            reranker_revision=retrieval_config["reranker_revision"],
+        )
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as test_client:
         yield test_client, app
 

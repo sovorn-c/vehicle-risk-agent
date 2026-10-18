@@ -56,8 +56,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     embedding_adapter: EmbeddingAdapter
     reranker_adapter: RerankerAdapter
     if settings.retrieval_mode == "live" or settings.environment.lower() == "production":
-        embedding_adapter = SentenceTransformersEmbeddingAdapter()
-        reranker_adapter = CrossEncoderRerankerAdapter()
+        embedding_adapter = SentenceTransformersEmbeddingAdapter(
+            revision=settings.embedding_revision
+        )
+        reranker_adapter = CrossEncoderRerankerAdapter(revision=settings.reranker_revision)
     else:
         embedding_adapter = FakeEmbeddingAdapter()
         reranker_adapter = FakeRerankerAdapter()
