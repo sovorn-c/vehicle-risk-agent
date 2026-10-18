@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     mcp_initial_backoff: float = Field(default=0.05, gt=0)
     snapshot_integrity_secret: SecretStr = SecretStr(DEFAULT_SNAPSHOT_INTEGRITY_SECRET)
     retrieval_mode: str = "offline"
+    embedding_revision: str = "main"
+    reranker_revision: str = "main"
     drafting_mode: str = "offline"
     drafting_model: str = "claude-sonnet-4-6"
     drafting_max_tokens: int = Field(default=2048, gt=0, le=4096)

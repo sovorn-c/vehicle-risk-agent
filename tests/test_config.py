@@ -106,3 +106,18 @@ def test_settings_drafting_mode_live_validation() -> None:
     )
     assert valid_live.drafting_mode == "live"
     assert valid_live.enable_live_drafting is True
+
+
+def test_live_retrieval_uses_configured_model_revisions() -> None:
+    """Policy ingestion and retrieval use the operator's model revision pins."""
+    from vehicle_risk_agent.api.app import create_app
+
+    app = create_app(
+        Settings(
+            retrieval_mode="live",
+            embedding_revision="embedding-pinned-revision",
+            reranker_revision="reranker-pinned-revision",
+        )
+    )
+    assert app.state.embedding_adapter.revision == "embedding-pinned-revision"
+    assert app.state.reranker_adapter.revision == "reranker-pinned-revision"

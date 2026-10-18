@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "dataset_id": "nz-vehicle-policy-retrieval-v1",
+  "dataset_version": "1.0.0",
+  "label_author": "project author",
+  "label_review": "Labels were checked against the listed corpus passages by the project author; no independent legal or subject-matter review is claimed.",
+  "corpus_fingerprint": "2a7956982b946b057d5a72694e9f85aaf12f92eccb6ddd4134880856079afd8a",
+  "top_k": 5,
+  "retrieval_config": {
+    "profile": "neural",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_revision": "8b3219a92973c328a8e22fadcfa821b5dc75636a",
+    "embedding_dimensions": 384,
+    "normalize_embeddings": true,
+    "dense_candidates": 20,
+    "keyword_candidates": 20,
+    "fusion": "reciprocal-rank-fusion",
+    "rrf_k": 60,
+    "fused_candidate_cap": 40,
+    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "reranker_revision": "739bce82df32cacea8ff0edf73ab49ae315e5a5f",
+    "reranker_activation": "sigmoid",
+    "rerank_candidate_cap": 20,
+    "final_passage_cap": 5,
+    "minimum_reranker_score": 0.35,
+    "minimum_relative_reranker_score": 0.8
+  },
+  "targets": {
+    "recall_at_5_min": 0.9,
+    "mrr_at_5_min": 0.8,
+    "unsupported_abstention_min": 0.8,
+    "citation_identity_min": 1.0
+  },
+  "queries": [
+    {
+      "id": "dev-01",
+      "split": "development",
+      "query": "What guarantee applies to the quality of consumer goods?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"],
+      "expected_proposition": "Section 6 is headed as the guarantee as to acceptable quality.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "dev-02",
+      "split": "development",
+      "query": "How does the Act define acceptable quality?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"],
+      "expected_proposition": "Section 7 is headed as the meaning of acceptable quality.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "dev-03",
+      "split": "development",
+      "query": "Which Fair Trading Act section concerns unsubstantiated representations?",
+      "relevant_passage_ids": ["nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"],
+      "expected_proposition": "Section 12A is headed as unsubstantiated representations.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "dev-04",
+      "split": "development",
+      "query": "Where is the used vehicle notice requirement identified in the Motor Vehicle Sales Act?",
+      "relevant_passage_ids": ["nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"],
+      "expected_proposition": "Section 14 is headed as particulars about a used motor vehicle that must be displayed.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "dev-05",
+      "split": "development",
+      "query": "What does New Zealand law require to register a statutory write-off?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus contains no statutory write-off or vehicle registration provisions."
+    },
+    {
+      "id": "dev-06",
+      "split": "development",
+      "query": "What is the current warrant of fitness inspection standard?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus contains no warrant of fitness inspection standard."
+    },
+    {
+      "id": "eval-01",
+      "split": "evaluation",
+      "query": "Which section gives the acceptable quality guarantee for supplied goods?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"],
+      "expected_proposition": "Section 6 is headed as the guarantee as to acceptable quality.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-02",
+      "split": "evaluation",
+      "query": "How does the Consumer Guarantees Act describe acceptable quality?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"],
+      "expected_proposition": "Section 7 is headed as the meaning of acceptable quality.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-03",
+      "split": "evaluation",
+      "query": "Does the acceptable quality provision refer to goods that are safe and durable?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"],
+      "expected_proposition": "Section 7 lists safety and durability among its acceptable quality criteria.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-04",
+      "split": "evaluation",
+      "query": "What consumer rights are described for representations made by a dealer?",
+      "relevant_passage_ids": ["nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"],
+      "expected_proposition": "Section 45 concerns liability for representations made by a dealer.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-05",
+      "split": "evaluation",
+      "query": "Which Fair Trading Act section covers misleading or deceptive conduct generally?",
+      "relevant_passage_ids": ["nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"],
+      "expected_proposition": "Section 9 is headed as misleading and deceptive conduct generally.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-06",
+      "split": "evaluation",
+      "query": "Where does the Act prohibit unsubstantiated representations in trade?",
+      "relevant_passage_ids": ["nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"],
+      "expected_proposition": "Section 12A concerns unsubstantiated representations.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-07",
+      "split": "evaluation",
+      "query": "Which provision concerns false or misleading representations about a good's history or previous use?",
+      "relevant_passage_ids": ["nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"],
+      "expected_proposition": "Section 13 covers false or misleading representations, including a good's history or previous use.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-08",
+      "split": "evaluation",
+      "query": "Does the Fair Trading Act address misleading conduct as well as false representations?",
+      "relevant_passage_ids": [
+        "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+        "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+      ],
+      "expected_proposition": "Sections 9 and 13 address misleading conduct generally and false or misleading representations, respectively.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-09",
+      "split": "evaluation",
+      "query": "What particulars about a used motor vehicle must be displayed under section 14?",
+      "relevant_passage_ids": ["nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"],
+      "expected_proposition": "Section 14 is headed as particulars about a used motor vehicle that must be displayed; the corpus has only its heading.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-10",
+      "split": "evaluation",
+      "query": "Which section heading refers to a notice attached to a used motor vehicle?",
+      "relevant_passage_ids": ["nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"],
+      "expected_proposition": "Section 15 concerns particulars that must be contained in a notice attached to a used motor vehicle; the corpus has only its heading.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-11",
+      "split": "evaluation",
+      "query": "Where does the Motor Vehicle Sales Act mention acknowledgment of receiving a notice copy?",
+      "relevant_passage_ids": ["nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"],
+      "expected_proposition": "Section 16 is headed as a written acknowledgment that the buyer received a copy of the notice; the corpus has only its heading.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-12",
+      "split": "evaluation",
+      "query": "Which Motor Vehicle Sales Act section is about keeping records of sale contracts?",
+      "relevant_passage_ids": ["nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"],
+      "expected_proposition": "Section 21 is headed as requiring a motor vehicle trader to keep records of contracts for sale; the corpus has only its heading.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-13",
+      "split": "evaluation",
+      "query": "Which section heading describes a buyer or lessee taking a motor vehicle free of a security interest?",
+      "relevant_passage_ids": ["nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"],
+      "expected_proposition": "Section 58 has that heading; the corpus has only its heading and does not encode its conditions.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-14",
+      "split": "evaluation",
+      "query": "Where is the effect of a security interest disclosure notice referenced in the used vehicle provisions?",
+      "relevant_passage_ids": [
+        "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+        "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+      ],
+      "expected_proposition": "The section 15 heading mentions a statement about the effect of PPSA section 58, whose heading concerns a buyer or lessee taking a vehicle free of a security interest.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-15",
+      "split": "evaluation",
+      "query": "Does acceptable quality include safety and durability, and what provision names that guarantee?",
+      "relevant_passage_ids": [
+        "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+        "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+      ],
+      "expected_proposition": "Section 6 names the acceptable quality guarantee, and section 7 lists safety and durability as criteria.",
+      "unsupported_reason": null
+    },
+    {
+      "id": "eval-16",
+      "split": "evaluation",
+      "query": "What process checks whether a vehicle has been reported stolen?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus has no stolen vehicle register or status-check procedure."
+    },
+    {
+      "id": "eval-17",
+      "split": "evaluation",
+      "query": "What rules determine whether a car has a current warrant of fitness?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus has no warrant of fitness rules or current vehicle facts."
+    },
+    {
+      "id": "eval-18",
+      "split": "evaluation",
+      "query": "How can a buyer search the register for outstanding vehicle finance?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus does not include PPSR search instructions or a vehicle's register result."
+    },
+    {
+      "id": "eval-19",
+      "split": "evaluation",
+      "query": "Does this vehicle have hidden mechanical damage after a crash?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus contains no vehicle-specific inspection evidence."
+    },
+    {
+      "id": "eval-20",
+      "split": "evaluation",
+      "query": "What steps must a buyer take to transfer ownership of a vehicle?",
+      "relevant_passage_ids": [],
+      "expected_proposition": null,
+      "unsupported_reason": "The corpus contains no ownership transfer procedure."
+    }
+  ]
+}
