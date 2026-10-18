@@ -280,8 +280,12 @@ def test_neural_adapters_reuse_cached_model_instances(monkeypatch: pytest.Monkey
     _SENTENCE_TRANSFORMER_CACHE.pop(test_st_key, None)
     _CROSS_ENCODER_CACHE.pop(test_ce_key, None)
 
-    monkeypatch.setattr("sentence_transformers.SentenceTransformer", mock_st_class, raising=False)
-    monkeypatch.setattr("sentence_transformers.CrossEncoder", mock_ce_class, raising=False)
+    import sys
+
+    mock_module = MagicMock()
+    mock_module.SentenceTransformer = mock_st_class
+    mock_module.CrossEncoder = mock_ce_class
+    monkeypatch.setitem(sys.modules, "sentence_transformers", mock_module)
 
     a1 = SentenceTransformersEmbeddingAdapter(model_name="test-st-model", revision="test-rev")
     a2 = SentenceTransformersEmbeddingAdapter(model_name="test-st-model", revision="test-rev")
