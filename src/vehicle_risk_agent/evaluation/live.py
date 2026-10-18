@@ -1409,6 +1409,7 @@ class LiveEvaluationRunner:
                             "suite": "general",
                             "max_scenarios": 1,
                             "max_budget_usd": 5.0,
+                            "output_file": None,
                         }
                     ),
                     active_corpus=self.active_corpus,
@@ -1491,6 +1492,7 @@ class LiveEvaluationRunner:
                             "suite": "e11-investigation",
                             "max_scenarios": 1,
                             "max_budget_usd": 3.0,
+                            "output_file": None,
                         }
                     ),
                     active_corpus=self.active_corpus,
