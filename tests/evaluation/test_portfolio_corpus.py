@@ -36,3 +36,12 @@ def test_portfolio_corpus_rejects_modified_source_content(tmp_path: Path) -> Non
     )
     with pytest.raises(ValueError, match="hash"):
         load_portfolio_corpus(tmp_path / "manifest.json")
+
+
+
+def test_portfolio_corpus_loader_rejects_unknown_schema(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text('{"schema_version": 999}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema"):
+        load_portfolio_corpus(manifest_path)
