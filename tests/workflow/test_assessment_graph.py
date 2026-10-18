@@ -156,6 +156,7 @@ async def test_graph_execution_emits_progress_events_to_state(
         assert len(evt.safe_message) > 0
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_graph_execution_persists_events_to_event_store_when_configured(
     fake_mcp_adapter: FakeVehicleMcpAdapter,

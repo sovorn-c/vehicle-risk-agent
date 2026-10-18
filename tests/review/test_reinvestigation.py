@@ -56,6 +56,8 @@ from vehicle_risk_agent.risk.models import (
 )
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:

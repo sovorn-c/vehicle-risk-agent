@@ -23,6 +23,8 @@ from vehicle_risk_agent.events.broadcaster import ProgressEventBroadcaster
 from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.models import Base
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def app_client() -> AsyncIterator[AsyncClient]:

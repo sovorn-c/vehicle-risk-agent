@@ -8,6 +8,8 @@ from sqlalchemy.engine import make_url
 from tests import database
 from tests.database import TEST_DB_URL
 
+pytestmark = pytest.mark.db
+
 
 def test_tests_use_a_dedicated_database() -> None:
     """Test cleanup must target a dedicated database, never the runtime database."""

@@ -14,6 +14,8 @@ from vehicle_risk_agent.api.deps import intake_rate_limiter
 from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.persistence.models import Base
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def app_client() -> AsyncIterator[AsyncClient]:

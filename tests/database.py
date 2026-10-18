@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from functools import cache
 
 import psycopg
 from psycopg import sql
@@ -42,3 +43,18 @@ def ensure_test_database() -> None:
             connection.execute(
                 sql.SQL("CREATE DATABASE {}\n").format(sql.Identifier(test_database))
             )
+
+
+@cache
+def is_postgres_reachable() -> bool:
+    """Check if the PostgreSQL test database host and port can be reached."""
+    import socket
+
+    test_url = make_url(TEST_DB_URL)
+    host = test_url.host or "localhost"
+    port = test_url.port or 5432
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False

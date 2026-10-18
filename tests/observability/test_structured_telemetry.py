@@ -188,6 +188,7 @@ def test_metrics_recording(
     assert len(resource_metrics) > 0
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_app_telemetry_wiring_and_readiness(
     memory_telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader, TelemetryManager],

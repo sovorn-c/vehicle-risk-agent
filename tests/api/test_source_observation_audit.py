@@ -28,6 +28,8 @@ from vehicle_risk_agent.evidence.snapshot import (
 )
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 
+pytestmark = pytest.mark.db
+
 OBSERVATION_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
 

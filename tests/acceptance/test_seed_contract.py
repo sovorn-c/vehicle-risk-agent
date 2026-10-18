@@ -25,6 +25,8 @@ from vehicle_risk_agent.persistence.models import (
     RiskPolicyRecord,
 )
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def clean_engine() -> AsyncIterator[AsyncEngine]:

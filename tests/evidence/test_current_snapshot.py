@@ -23,6 +23,8 @@ from vehicle_risk_agent.evidence.snapshot import (
 )
 from vehicle_risk_agent.persistence.models import Base
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:

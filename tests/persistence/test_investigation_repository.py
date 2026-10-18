@@ -27,6 +27,8 @@ from vehicle_risk_agent.investigation.repository import (
 from vehicle_risk_agent.persistence.models import AssessmentRecord, Base
 from vehicle_risk_agent.policy.models import PolicyCitation
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:

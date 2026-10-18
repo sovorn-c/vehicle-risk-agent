@@ -71,6 +71,7 @@ def test_incomplete_assessment_report_prohibits_score_and_band() -> None:
         )
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_persist_and_retrieve_incomplete_evidence_findings(
     session_factory: async_sessionmaker[AsyncSession],

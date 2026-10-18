@@ -1,9 +1,12 @@
 """Acceptance contract for the branded public API documentation surface."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
+
+pytestmark = pytest.mark.db
 
 
 def _client() -> TestClient:

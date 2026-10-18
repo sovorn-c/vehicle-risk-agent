@@ -271,6 +271,7 @@ def test_accepts_when_all_live_prerequisites_valid() -> None:
     runner.validate_readiness()
 
 
+@pytest.mark.db
 def test_cli_main_offline_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """CLI --offline executes deterministically without credentials and records OFFLINE mode."""
 

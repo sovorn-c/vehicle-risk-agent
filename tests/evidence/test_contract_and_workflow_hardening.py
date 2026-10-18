@@ -58,6 +58,8 @@ from vehicle_risk_agent.persistence.event_store import EventStore
 from vehicle_risk_agent.persistence.models import Base, VehicleEvidenceSnapshotRecord
 from vehicle_risk_agent.workflow.runner import AssessmentRunner
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:

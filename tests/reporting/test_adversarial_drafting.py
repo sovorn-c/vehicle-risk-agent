@@ -134,6 +134,7 @@ def _make_dummy_sections(
 # =============================================================================
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_repo_exact_duplicate_resave_is_idempotent(db_session: AsyncSession) -> None:
     """Test that saving identical draft multiple times returns exact domain object without error."""
@@ -170,6 +171,7 @@ async def test_repo_exact_duplicate_resave_is_idempotent(db_session: AsyncSessio
     assert retrieved == draft
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_repo_conflicting_save_fields_trigger_rollback_and_error(
     db_session: AsyncSession,
@@ -217,6 +219,7 @@ async def test_repo_conflicting_save_fields_trigger_rollback_and_error(
     assert retrieved.band == RiskBand.LOW
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_repo_subtle_metadata_difference_detected_as_conflict(
     db_session: AsyncSession,
@@ -258,6 +261,7 @@ async def test_repo_subtle_metadata_difference_detected_as_conflict(
         await repo.save_draft(draft2)
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_repo_transition_assessment_with_conflicting_draft_rolls_back_state(
     db_session: AsyncSession,
@@ -716,6 +720,7 @@ async def test_offline_adapter_handles_extreme_unicode_in_vehicle_identity() -> 
     assert deserialized.sections.vehicle_identity.model == unicode_model
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_offline_adapter_handles_massive_text_payload(db_session: AsyncSession) -> None:
     """Verify large text payloads (e.g. 500KB) draft and hash without memory corruption."""
@@ -864,6 +869,7 @@ async def test_offline_adapter_non_integer_year_coercion() -> None:
     assert draft.sections.vehicle_identity.make == "Toyota"
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_timezone_preservation_and_comparison_in_repository(db_session: AsyncSession) -> None:
     """Verify non-UTC timezone timestamps on ReportDraft serialize without equality failure."""
@@ -899,6 +905,7 @@ async def test_timezone_preservation_and_comparison_in_repository(db_session: As
     assert resaved is not None
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_concurrent_identical_saves_succeed(db_session: AsyncSession) -> None:
     """Verify concurrent saves of identical draft succeed idempotently without deadlocking."""

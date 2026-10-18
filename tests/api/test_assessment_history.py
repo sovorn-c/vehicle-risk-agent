@@ -35,6 +35,8 @@ from vehicle_risk_agent.reporting.repository import ReportDraftRepository
 from vehicle_risk_agent.risk.models import AssessmentOutcome, RiskBand, build_risk_policy_v1
 from vehicle_risk_agent.risk.repository import RiskPolicyRepository
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def app_client() -> AsyncIterator[AsyncClient]:

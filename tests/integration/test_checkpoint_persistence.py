@@ -23,6 +23,8 @@ from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.workflow.runner import AssessmentWorkflowRunner
 from vehicle_risk_agent.workflow.state import AssessmentGraphState
 
+pytestmark = pytest.mark.db
+
 
 @pytest.fixture
 def fake_mcp_adapter() -> FakeVehicleMcpAdapter:

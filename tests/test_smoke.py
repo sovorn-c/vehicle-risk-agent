@@ -15,8 +15,11 @@ from vehicle_risk_agent.persistence.models import IdempotencyRecord
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def clean_database_for_smoke() -> AsyncIterator[None]:
+async def clean_database_for_smoke(request: pytest.FixtureRequest) -> AsyncIterator[None]:
     """Ensure a clean database schema before running smoke migrations and seed."""
+    if not request.node.get_closest_marker("db"):
+        yield
+        return
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
@@ -29,6 +32,7 @@ def test_package_version() -> None:
     assert __version__ == "0.1.0"
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_smoke_verification_leaves_no_residual_records() -> None:
     """run_smoke must clean up assessments, idempotency records, and checkpoints cleanly."""

@@ -20,6 +20,8 @@ from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter, FakeRera
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
 from vehicle_risk_agent.retrieval.service import HybridRetrievalService
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:

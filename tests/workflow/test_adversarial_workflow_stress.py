@@ -151,6 +151,7 @@ def _build_complete_vehicle_revision(
 # =============================================================================
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_workflow_full_pipeline_multi_risk_evaluation_and_draft_persistence(
     session: AsyncSession,
@@ -258,6 +259,7 @@ async def test_workflow_full_pipeline_multi_risk_evaluation_and_draft_persistenc
 # =============================================================================
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_workflow_routing_incomplete_missing_stolen_and_writeoff(
     session: AsyncSession,
@@ -372,6 +374,7 @@ async def test_workflow_routing_incomplete_missing_stolen_and_writeoff(
     await engine.dispose()
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_workflow_routing_incomplete_unresolved_conflicts(
     session: AsyncSession,
@@ -774,6 +777,7 @@ def test_runner_thread_id_format_and_bounds() -> None:
     assert len(thread_id) < 255
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_runner_requires_assessment_id_and_run_number() -> None:
     """AssessmentWorkflowRunner.run raises ValueError if assessment_id or run_number is missing."""
@@ -796,6 +800,7 @@ async def test_runner_requires_assessment_id_and_run_number() -> None:
 # =============================================================================
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_workflow_collects_full_vehicle_history_for_multi_revision(
     session: AsyncSession,
@@ -856,6 +861,7 @@ async def test_workflow_collects_full_vehicle_history_for_multi_revision(
     await engine.dispose()
 
 
+@pytest.mark.db
 @pytest.mark.asyncio
 async def test_workflow_multi_run_isolation_on_same_assessment(
     session: AsyncSession,

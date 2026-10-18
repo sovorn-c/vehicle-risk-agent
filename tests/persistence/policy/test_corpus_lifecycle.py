@@ -24,6 +24,8 @@ from vehicle_risk_agent.policy.models import (
 )
 from vehicle_risk_agent.retrieval.adapters import FakeEmbeddingAdapter
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:

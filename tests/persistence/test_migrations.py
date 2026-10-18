@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from alembic import command
 from tests.database import TEST_DB_URL
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def clean_engine() -> AsyncIterator[AsyncEngine]:

@@ -14,6 +14,8 @@ from vehicle_risk_agent.domain.errors import IdempotencyConflictError
 from vehicle_risk_agent.persistence.models import Base
 from vehicle_risk_agent.persistence.repository import AssessmentRepository
 
+pytestmark = pytest.mark.db
+
 
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:
