@@ -13,9 +13,9 @@ from tests.database import TEST_DB_URL, ensure_test_database, is_postgres_reacha
 def pytest_sessionstart(session: pytest.Session) -> None:
     """Create the isolated test database before database fixtures run."""
     _ = session
-    os.environ["DATABASE_URL"] = TEST_DB_URL
     if is_postgres_reachable():
         ensure_test_database()
+    os.environ["DATABASE_URL"] = TEST_DB_URL
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
