@@ -59,6 +59,13 @@ def test_mcp_server_url_normalizes_to_mcp_endpoint() -> None:
     settings = Settings(mcp_server_url="http://localhost:8080")
     assert settings.mcp_server_url == "http://localhost:8080/mcp"
 
+
+def test_settings_gemini_api_key_field() -> None:
+    """Settings must accept gemini_api_key without validation error."""
+    settings = Settings(gemini_api_key="test-key-123")
+    assert settings.gemini_api_key is not None
+    assert settings.gemini_api_key.get_secret_value() == "test-key-123"
+
     settings_already_mcp = Settings(mcp_server_url="http://localhost:8080/mcp")
     assert settings_already_mcp.mcp_server_url == "http://localhost:8080/mcp"
 

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     drafting_timeout_seconds: float = Field(default=30.0, gt=0)
     drafting_max_repairs: int = Field(default=1, ge=0, le=2)
     anthropic_api_key: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None
     live_budget_usd: float = Field(default=5.0, gt=0)
     enable_live_drafting: bool = False
 
