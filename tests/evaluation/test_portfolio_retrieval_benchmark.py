@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from vehicle_risk_agent.evaluation.portfolio_retrieval import (
+    PortfolioRetrievalQuery,
     load_portfolio_retrieval_dataset,
 )
 
@@ -36,3 +37,56 @@ def test_portfolio_retrieval_dataset_is_frozen_and_corpus_bound() -> None:
     )
     assert dataset.top_k == 5
     assert len(dataset.fingerprint) == 64
+
+
+
+def test_portfolio_retrieval_query_metrics_use_fixed_slots_and_separate_failures() -> None:
+    from vehicle_risk_agent.evaluation.portfolio_retrieval import score_portfolio_query
+
+    answerable = PortfolioRetrievalQuery(
+        id="metric-supported",
+        split="evaluation",
+        query="Find the labeled passages.",
+        relevant_passage_ids=("p1", "p2"),
+        expected_proposition="Both passages support the proposition.",
+    )
+    scored = score_portfolio_query(
+        answerable,
+        retrieved_passage_ids=["p3", "p2", "p1"],
+        citation_passage_ids=["p3", "p2", "p1"],
+        is_abstention=False,
+        known_passage_ids={"p1", "p2", "p3"},
+    )
+
+    assert scored.recall_at_5 == 1.0
+    assert scored.precision_at_5 == 0.4
+    assert scored.reciprocal_rank_at_5 == 0.5
+    assert scored.false_abstention is False
+    assert scored.citation_identity_valid is True
+
+    unsupported = PortfolioRetrievalQuery(
+        id="metric-unsupported",
+        split="evaluation",
+        query="Ask for an absent topic.",
+        unsupported_reason="The topic is not present in the corpus.",
+    )
+    abstained = score_portfolio_query(
+        unsupported,
+        retrieved_passage_ids=[],
+        citation_passage_ids=[],
+        is_abstention=True,
+        known_passage_ids={"p1", "p2", "p3"},
+    )
+    assert abstained.correct_abstention is True
+
+    failed = score_portfolio_query(
+        unsupported,
+        retrieved_passage_ids=[],
+        citation_passage_ids=[],
+        is_abstention=None,
+        known_passage_ids={"p1", "p2", "p3"},
+        technical_error="database unavailable",
+    )
+    assert failed.technical_failure is True
+    assert failed.correct_abstention is None
+    assert failed.recall_at_5 is None
