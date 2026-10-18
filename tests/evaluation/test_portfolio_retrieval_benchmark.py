@@ -1,11 +1,10 @@
 from pathlib import Path
 
+from vehicle_risk_agent.evaluation.portfolio_corpus import load_portfolio_corpus
 from vehicle_risk_agent.evaluation.portfolio_retrieval import (
     PortfolioRetrievalQuery,
     load_portfolio_retrieval_dataset,
 )
-
-from vehicle_risk_agent.evaluation.portfolio_corpus import load_portfolio_corpus
 
 
 def test_portfolio_retrieval_dataset_is_frozen_and_corpus_bound() -> None:
@@ -87,6 +86,63 @@ def test_portfolio_retrieval_query_metrics_use_fixed_slots_and_separate_failures
         known_passage_ids={"p1", "p2", "p3"},
         technical_error="database unavailable",
     )
-    assert failed.technical_failure is True
+    assert failed.technical_error is not None
     assert failed.correct_abstention is None
     assert failed.recall_at_5 is None
+
+
+
+def test_portfolio_retrieval_summary_requires_complete_evaluation_denominators() -> None:
+    from vehicle_risk_agent.evaluation.portfolio_retrieval import (
+        load_portfolio_retrieval_dataset,
+        score_portfolio_query,
+        summarize_portfolio_results,
+    )
+
+    root = Path(__file__).parents[2]
+    corpus = load_portfolio_corpus(root / "docs/benchmarks/e12/corpus/manifest.json")
+    dataset = load_portfolio_retrieval_dataset(
+        root / "docs/benchmarks/e12/retrieval/dataset-v1.json", corpus
+    )
+    known_passage_ids = {passage.id for passage in corpus.passages}
+    evaluation_queries = [query for query in dataset.queries if query.split == "evaluation"]
+    scores = [
+        score_portfolio_query(
+            query,
+            retrieved_passage_ids=query.relevant_passage_ids,
+            citation_passage_ids=query.relevant_passage_ids,
+            is_abstention=not query.relevant_passage_ids,
+            known_passage_ids=known_passage_ids,
+        )
+        for query in evaluation_queries
+    ]
+
+    complete = summarize_portfolio_results("hybrid", dataset, scores)
+    assert complete.execution_status == "complete"
+    assert complete.answerable_denominator == 15
+    assert complete.unsupported_denominator == 5
+    assert complete.recall_at_5 == 1.0
+    assert complete.mrr_at_5 == 1.0
+    assert complete.precision_at_5 == dataset.precision_at_5_ceiling
+    assert complete.unsupported_abstention_rate == 1.0
+    assert complete.target_status == "met"
+
+    partial = summarize_portfolio_results("hybrid", dataset, scores[:-1])
+    assert partial.execution_status == "partial"
+    assert partial.completed_query_count == 19
+    assert partial.recall_at_5 is None
+    assert partial.target_status == "not_evaluable"
+
+    failed_score = score_portfolio_query(
+        evaluation_queries[-1],
+        retrieved_passage_ids=[],
+        citation_passage_ids=[],
+        is_abstention=None,
+        known_passage_ids=known_passage_ids,
+        technical_error="database unavailable",
+    )
+    failed = summarize_portfolio_results("hybrid", dataset, [*scores[:-1], failed_score])
+    assert failed.technical_failure_count == 1
+    assert failed.unsupported_correct_abstention_count == 4
+    assert failed.unsupported_abstention_rate is None
+    assert failed.target_status == "not_evaluable"
