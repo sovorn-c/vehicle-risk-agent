@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -149,3 +150,105 @@ def load_portfolio_retrieval_dataset(
         raise ValueError("Evaluation split must contain 15 answerable queries")
 
     return dataset
+
+
+class PortfolioQueryScore(BaseModel):
+    """Per-query retrieval scores with technical failures kept distinct."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    query_id: str
+    split: Literal["development", "evaluation"]
+    answerable: bool
+    relevant_passage_ids: tuple[str, ...]
+    retrieved_passage_ids: tuple[str, ...]
+    citation_passage_ids: tuple[str, ...]
+    is_abstention: bool | None
+    technical_error: str | None
+    recall_at_5: float | None
+    precision_at_5: float | None
+    reciprocal_rank_at_5: float | None
+    correct_abstention: bool | None
+    false_abstention: bool | None
+    citation_identity_valid: bool | None
+
+
+def score_portfolio_query(
+    query: PortfolioRetrievalQuery,
+    retrieved_passage_ids: Sequence[str],
+    citation_passage_ids: Sequence[str],
+    is_abstention: bool | None,
+    known_passage_ids: set[str],
+    technical_error: str | None = None,
+    top_k: int = 5,
+) -> PortfolioQueryScore:
+    """Score one response using fixed top-k slots and explicit failure states."""
+    if top_k <= 0:
+        raise ValueError("top_k must be positive")
+
+    ranked_ids = tuple(retrieved_passage_ids[:top_k])
+    cited_ids = tuple(citation_passage_ids[:top_k])
+    answerable = bool(query.relevant_passage_ids)
+
+    if technical_error is not None:
+        return PortfolioQueryScore(
+            query_id=query.id,
+            split=query.split,
+            answerable=answerable,
+            relevant_passage_ids=query.relevant_passage_ids,
+            retrieved_passage_ids=(),
+            citation_passage_ids=(),
+            is_abstention=None,
+            technical_error=technical_error,
+            recall_at_5=None,
+            precision_at_5=None,
+            reciprocal_rank_at_5=None,
+            correct_abstention=None,
+            false_abstention=None,
+            citation_identity_valid=None,
+        )
+
+    if is_abstention is None:
+        raise ValueError("Successful retrieval outcomes must specify abstention state")
+
+    relevant_ids = set(query.relevant_passage_ids)
+    retrieved_relevant = len(set(ranked_ids) & relevant_ids)
+    if answerable:
+        recall = retrieved_relevant / len(relevant_ids)
+        precision = retrieved_relevant / top_k
+        reciprocal_rank = 0.0
+        for rank, passage_id in enumerate(ranked_ids, start=1):
+            if passage_id in relevant_ids:
+                reciprocal_rank = 1.0 / rank
+                break
+        correct_abstention = None
+        false_abstention = is_abstention
+    else:
+        recall = None
+        precision = None
+        reciprocal_rank = None
+        correct_abstention = is_abstention and not ranked_ids
+        false_abstention = None
+
+    citation_identity_valid = (
+        ranked_ids == cited_ids
+        and len(ranked_ids) == len(set(ranked_ids))
+        and all(passage_id in known_passage_ids for passage_id in ranked_ids)
+    )
+
+    return PortfolioQueryScore(
+        query_id=query.id,
+        split=query.split,
+        answerable=answerable,
+        relevant_passage_ids=query.relevant_passage_ids,
+        retrieved_passage_ids=ranked_ids,
+        citation_passage_ids=cited_ids,
+        is_abstention=is_abstention,
+        technical_error=None,
+        recall_at_5=recall,
+        precision_at_5=precision,
+        reciprocal_rank_at_5=reciprocal_rank,
+        correct_abstention=correct_abstention,
+        false_abstention=false_abstention,
+        citation_identity_valid=citation_identity_valid,
+    )
