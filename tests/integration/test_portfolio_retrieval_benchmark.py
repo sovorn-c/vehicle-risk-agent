@@ -19,6 +19,7 @@ from vehicle_risk_agent.config import Settings
 from vehicle_risk_agent.evaluation.portfolio_corpus import load_portfolio_corpus
 from vehicle_risk_agent.evaluation.portfolio_retrieval import load_portfolio_retrieval_dataset
 from vehicle_risk_agent.evaluation.portfolio_retrieval_runner import (
+    capture_source_provenance,
     create_run_directory,
     run_portfolio_retrieval_comparison,
     write_portfolio_retrieval_run,
@@ -64,6 +65,8 @@ async def test_portfolio_retrieval_benchmark_runs_and_exports_every_evaluation_q
 ) -> None:
     client, app = benchmark_client
     root = Path(__file__).parents[2]
+    provenance = capture_source_provenance(root)
+    assert not provenance["dirty"], "Commit source changes before running the benchmark"
     corpus = load_portfolio_corpus(root / "docs/benchmarks/e12/corpus/manifest.json")
     dataset = load_portfolio_retrieval_dataset(
         root / "docs/benchmarks/e12/retrieval/dataset-v1.json", corpus
@@ -118,17 +121,19 @@ async def test_portfolio_retrieval_benchmark_runs_and_exports_every_evaluation_q
     async with session_factory() as session:
         results, summaries = await run_portfolio_retrieval_comparison(session, corpus, dataset)
 
-    assert set(results) == {"keyword", "hybrid"}
+    assert set(results) == {"keyword", "keyword_or", "hybrid"}
     assert all(len(scores) == 20 for scores in results.values())
     assert all(summary.expected_query_count == 20 for summary in summaries.values())
 
     output_directory = create_run_directory(root / "docs/benchmarks/e12/retrieval/runs")
     json_path, csv_path = write_portfolio_retrieval_run(
-        output_directory, corpus, dataset, results, summaries
+        output_directory, corpus, dataset, results, summaries, source_provenance=provenance
     )
     run_document = json.loads(json_path.read_text(encoding="utf-8"))
-    assert run_document["execution_status"] in {"complete", "partial"}
+    assert run_document["execution_status"] == "complete"
+    assert run_document["source_provenance"] == provenance
+    assert all(s.technical_failure_count == 0 for s in summaries.values())
     assert run_document["corpus_fingerprint"] == corpus.fingerprint
     assert len(run_document["methods"]["keyword"]["queries"]) == 20
     assert len(run_document["methods"]["hybrid"]["queries"]) == 20
-    assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 41
+    assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 61

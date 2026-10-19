@@ -259,7 +259,7 @@ class PortfolioMethodSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    method: Literal["keyword", "hybrid"]
+    method: Literal["keyword", "keyword_or", "hybrid"]
     execution_status: Literal["complete", "partial"]
     target_status: Literal["met", "missed", "not_evaluable"]
     expected_query_count: int
@@ -283,7 +283,7 @@ class PortfolioMethodSummary(BaseModel):
 
 
 def summarize_portfolio_results(
-    method: Literal["keyword", "hybrid"],
+    method: Literal["keyword", "keyword_or", "hybrid"],
     dataset: PortfolioRetrievalDataset,
     query_scores: Sequence[PortfolioQueryScore],
 ) -> PortfolioMethodSummary:
