@@ -6,9 +6,10 @@ import csv
 import json
 import os
 import platform
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,34 @@ from vehicle_risk_agent.retrieval.adapters import (
 )
 from vehicle_risk_agent.retrieval.postgres_index import PostgresPolicyIndex
 from vehicle_risk_agent.retrieval.service import HybridRetrievalService
+
+
+class SourceProvenance(TypedDict):
+    commit_sha: str
+    dirty: bool
+    captured_at: str
+
+
+def capture_source_provenance(repository: Path) -> SourceProvenance:
+    """Capture source identity before measurement and before creating run artifacts.
+
+    Git must be available; ignored local files are outside the tracked source tree.
+    """
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repository), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+
+    return {
+        "commit_sha": git("rev-parse", "HEAD"),
+        "dirty": bool(git("status", "--porcelain", "--untracked-files=all")),
+        "captured_at": datetime.now(UTC).isoformat(),
+    }
 
 
 def _environment_fingerprint() -> dict[str, str]:
@@ -64,34 +93,37 @@ async def run_portfolio_retrieval_comparison(
     )
     hybrid_service = HybridRetrievalService(index=index, reranker=reranker, config=config)
     known_passage_ids = {passage.id for passage in corpus.passages}
-    results: dict[str, list[PortfolioQueryScore]] = {"keyword": [], "hybrid": []}
+    results: dict[str, list[PortfolioQueryScore]] = {"keyword": [], "keyword_or": [], "hybrid": []}
 
     for query in (item for item in dataset.queries if item.split == "evaluation"):
-        try:
-            keyword = await index.search_keyword(query.query, top_k=dataset.top_k)
-            keyword_ids = [candidate.passage_id for candidate in keyword]
-            results["keyword"].append(
-                score_portfolio_query(
-                    query,
-                    keyword_ids,
-                    keyword_ids,
-                    is_abstention=not keyword_ids,
-                    known_passage_ids=known_passage_ids,
-                    top_k=dataset.top_k,
+        for method in ("keyword", "keyword_or"):
+            try:
+                keyword = await index.search_keyword(
+                    query.query, top_k=dataset.top_k, any_term=method == "keyword_or"
                 )
-            )
-        except Exception as exc:
-            results["keyword"].append(
-                score_portfolio_query(
-                    query,
-                    [],
-                    [],
-                    is_abstention=None,
-                    known_passage_ids=known_passage_ids,
-                    technical_error=type(exc).__name__,
-                    top_k=dataset.top_k,
+                keyword_ids = [candidate.passage_id for candidate in keyword]
+                results[method].append(
+                    score_portfolio_query(
+                        query,
+                        keyword_ids,
+                        keyword_ids,
+                        is_abstention=not keyword_ids,
+                        known_passage_ids=known_passage_ids,
+                        top_k=dataset.top_k,
+                    )
                 )
-            )
+            except Exception as exc:
+                results[method].append(
+                    score_portfolio_query(
+                        query,
+                        [],
+                        [],
+                        is_abstention=None,
+                        known_passage_ids=known_passage_ids,
+                        technical_error=type(exc).__name__,
+                        top_k=dataset.top_k,
+                    )
+                )
 
         try:
             hybrid = await hybrid_service.retrieve(query.query)
@@ -122,7 +154,7 @@ async def run_portfolio_retrieval_comparison(
 
     summaries = {
         method: summarize_portfolio_results(method, dataset, results[method])
-        for method in ("keyword", "hybrid")
+        for method in ("keyword", "keyword_or", "hybrid")
     }
     return results, summaries
 
@@ -133,11 +165,13 @@ def write_portfolio_retrieval_run(
     dataset: PortfolioRetrievalDataset,
     results: dict[str, list[PortfolioQueryScore]],
     summaries: dict[str, PortfolioMethodSummary],
+    *,
+    source_provenance: SourceProvenance,
 ) -> tuple[Path, Path]:
     """Write an immutable per-run JSON bundle and flat per-query CSV."""
     output_directory.mkdir(parents=True, exist_ok=False)
     run_document = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": output_directory.name,
         "created_at": datetime.now(UTC).isoformat(),
         "execution_status": (
@@ -146,6 +180,19 @@ def write_portfolio_retrieval_run(
             else "partial"
         ),
         "corpus_fingerprint": corpus.fingerprint,
+        "source_provenance": source_provenance,
+        "corpus_size": {
+            "source_count": len(corpus.sources),
+            "passage_count": len(corpus.passages),
+            "passage_text_characters": sum(len(p.text) for p in corpus.passages),
+        },
+        "method_definitions": {
+            "keyword": "English plainto_tsquery (all terms), ts_rank_cd, no score threshold",
+            "keyword_or": "English websearch_to_tsquery (quoted words joined by OR), "
+            "ts_rank_cd, no score threshold",
+            "hybrid": "Dense plus conjunctive keyword, RRF, cross-encoder reranking "
+            "and configured abstention thresholds",
+        },
         "dataset_id": dataset.dataset_id,
         "dataset_version": dataset.dataset_version,
         "dataset_fingerprint": dataset.fingerprint,
@@ -192,7 +239,7 @@ def write_portfolio_retrieval_run(
         "technical_error",
     ]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for method, scores in results.items():
             for score in scores:

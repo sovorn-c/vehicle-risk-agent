@@ -1,0 +1,1515 @@
+{
+  "corpus_fingerprint": "2a7956982b946b057d5a72694e9f85aaf12f92eccb6ddd4134880856079afd8a",
+  "corpus_size": {
+    "passage_count": 11,
+    "passage_text_characters": 2989,
+    "source_count": 4
+  },
+  "created_at": "2026-10-19T05:29:09.758383+00:00",
+  "dataset_fingerprint": "06353fcbefb280504584376a137a80c0daedb22fde9d9dbc462693fd86e7dd61",
+  "dataset_id": "nz-vehicle-policy-retrieval-v1",
+  "dataset_version": "1.0.0",
+  "environment": {
+    "implementation": "CPython",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "execution_status": "complete",
+  "limitations": [
+    "Curated 20-query portfolio benchmark; not a statistical significance study.",
+    "Labels were author checked; independent legal review is not claimed."
+  ],
+  "method_definitions": {
+    "hybrid": "Dense plus conjunctive keyword, RRF, cross-encoder reranking and configured abstention thresholds",
+    "keyword": "English plainto_tsquery (all terms), ts_rank_cd, no score threshold",
+    "keyword_or": "English websearch_to_tsquery (quoted words joined by OR), ts_rank_cd, no score threshold"
+  },
+  "methods": {
+    "hybrid": {
+      "queries": [
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-01",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-02",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 0.5,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-03",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-04",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-05",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-06",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-07",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.4,
+          "query_id": "eval-08",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-09",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-10",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-11",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-12",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-13",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-14",
+          "recall_at_5": 0.5,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-15",
+          "recall_at_5": 0.5,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-16",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-17",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-18",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-19",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-20",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        }
+      ],
+      "summary": {
+        "answerable_completed_count": 15,
+        "answerable_denominator": 15,
+        "citation_identity_denominator": 20,
+        "citation_identity_pass_count": 20,
+        "citation_identity_rate": 1.0,
+        "completed_query_count": 20,
+        "execution_status": "complete",
+        "expected_query_count": 20,
+        "false_abstention_count": 0,
+        "false_abstention_rate": 0.0,
+        "method": "hybrid",
+        "mrr_at_5": 0.9667,
+        "precision_at_5": 0.2133,
+        "precision_at_5_ceiling": 0.24,
+        "recall_at_5": 0.9333,
+        "target_status": "met",
+        "technical_failure_count": 0,
+        "unsupported_abstention_rate": 1.0,
+        "unsupported_completed_count": 5,
+        "unsupported_correct_abstention_count": 5,
+        "unsupported_denominator": 5
+      }
+    },
+    "keyword": {
+      "queries": [
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-01",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-02",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-03",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-04",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-05",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-06",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-07",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-08",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-09",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-10",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-11",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-12",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-13",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-14",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": null,
+          "false_abstention": true,
+          "is_abstention": true,
+          "precision_at_5": 0.0,
+          "query_id": "eval-15",
+          "recall_at_5": 0.0,
+          "reciprocal_rank_at_5": 0.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-16",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-17",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-18",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-19",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [],
+          "correct_abstention": true,
+          "false_abstention": null,
+          "is_abstention": true,
+          "precision_at_5": null,
+          "query_id": "eval-20",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [],
+          "split": "evaluation",
+          "technical_error": null
+        }
+      ],
+      "summary": {
+        "answerable_completed_count": 15,
+        "answerable_denominator": 15,
+        "citation_identity_denominator": 20,
+        "citation_identity_pass_count": 20,
+        "citation_identity_rate": 1.0,
+        "completed_query_count": 20,
+        "execution_status": "complete",
+        "expected_query_count": 20,
+        "false_abstention_count": 14,
+        "false_abstention_rate": 0.9333,
+        "method": "keyword",
+        "mrr_at_5": 0.0667,
+        "precision_at_5": 0.0133,
+        "precision_at_5_ceiling": 0.24,
+        "recall_at_5": 0.0667,
+        "target_status": "missed",
+        "technical_failure_count": 0,
+        "unsupported_abstention_rate": 1.0,
+        "unsupported_completed_count": 5,
+        "unsupported_correct_abstention_count": 5,
+        "unsupported_denominator": 5
+      }
+    },
+    "keyword_or": {
+      "queries": [
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-01",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 0.5,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-02",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 0.5,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-03",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-04",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-05",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-06",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 0.5,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-07",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.4,
+          "query_id": "eval-08",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-09",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-10",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-11",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 0.25,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-12",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.2,
+          "query_id": "eval-13",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.4,
+          "query_id": "eval-14",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001"
+          ],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": true,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "correct_abstention": null,
+          "false_abstention": false,
+          "is_abstention": false,
+          "precision_at_5": 0.4,
+          "query_id": "eval-15",
+          "recall_at_5": 1.0,
+          "reciprocal_rank_at_5": 1.0,
+          "relevant_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p001",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p001",
+            "nz-fair-trading-act-1986:a52874cfd4a22eaf:p003"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "correct_abstention": false,
+          "false_abstention": null,
+          "is_abstention": false,
+          "precision_at_5": null,
+          "query_id": "eval-16",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "correct_abstention": false,
+          "false_abstention": null,
+          "is_abstention": false,
+          "precision_at_5": null,
+          "query_id": "eval-17",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "correct_abstention": false,
+          "false_abstention": null,
+          "is_abstention": false,
+          "precision_at_5": null,
+          "query_id": "eval-18",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "correct_abstention": false,
+          "false_abstention": null,
+          "is_abstention": false,
+          "precision_at_5": null,
+          "query_id": "eval-19",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004",
+            "nz-consumer-guarantees-act-1993:2acb08658c7302e3:p002"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        },
+        {
+          "answerable": false,
+          "citation_identity_valid": true,
+          "citation_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "correct_abstention": false,
+          "false_abstention": null,
+          "is_abstention": false,
+          "precision_at_5": null,
+          "query_id": "eval-20",
+          "recall_at_5": null,
+          "reciprocal_rank_at_5": null,
+          "relevant_passage_ids": [],
+          "retrieved_passage_ids": [
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p002",
+            "nz-personal-property-securities-act-1999:756455a4a2df1c1f:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p001",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p003",
+            "nz-motor-vehicle-sales-act-2003:535bc57686c010a4:p004"
+          ],
+          "split": "evaluation",
+          "technical_error": null
+        }
+      ],
+      "summary": {
+        "answerable_completed_count": 15,
+        "answerable_denominator": 15,
+        "citation_identity_denominator": 20,
+        "citation_identity_pass_count": 20,
+        "citation_identity_rate": 1.0,
+        "completed_query_count": 20,
+        "execution_status": "complete",
+        "expected_query_count": 20,
+        "false_abstention_count": 0,
+        "false_abstention_rate": 0.0,
+        "method": "keyword_or",
+        "mrr_at_5": 0.85,
+        "precision_at_5": 0.24,
+        "precision_at_5_ceiling": 0.24,
+        "recall_at_5": 1.0,
+        "target_status": "missed",
+        "technical_failure_count": 0,
+        "unsupported_abstention_rate": 0.0,
+        "unsupported_completed_count": 5,
+        "unsupported_correct_abstention_count": 0,
+        "unsupported_denominator": 5
+      }
+    }
+  },
+  "precision_at_5_ceiling": 0.24,
+  "retrieval_config": {
+    "dense_candidates": 20,
+    "embedding_dimensions": 384,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_revision": "8b3219a92973c328a8e22fadcfa821b5dc75636a",
+    "final_passage_cap": 5,
+    "fused_candidate_cap": 40,
+    "fusion": "reciprocal-rank-fusion",
+    "keyword_candidates": 20,
+    "minimum_relative_reranker_score": 0.8,
+    "minimum_reranker_score": 0.35,
+    "normalize_embeddings": true,
+    "profile": "neural",
+    "rerank_candidate_cap": 20,
+    "reranker_activation": "sigmoid",
+    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "reranker_revision": "739bce82df32cacea8ff0edf73ab49ae315e5a5f",
+    "rrf_k": 60
+  },
+  "run_id": "20261019T052909Z",
+  "schema_version": 2,
+  "source_provenance": {
+    "captured_at": "2026-10-19T05:28:53.537471+00:00",
+    "commit_sha": "4aea76a4719c14c7b1193382031ff01b71247e43",
+    "dirty": false
+  },
+  "targets": {
+    "citation_identity_min": 1.0,
+    "mrr_at_5_min": 0.8,
+    "recall_at_5_min": 0.9,
+    "unsupported_abstention_min": 0.8
+  },
+  "top_k": 5
+}

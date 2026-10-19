@@ -15,23 +15,25 @@ This service owns that decision layer. Typed LangGraph workflows coordinate MCP 
 > [!IMPORTANT]
 > This is a reference implementation for engineering evaluation. It uses synthetic fixtures, does not access live restricted registers, and must not be used for legal, financial, safety, or purchase decisions.
 
-## Measured policy retrieval
+## Policy retrieval pipeline check
 
-On a curated 20-question benchmark using real PostgreSQL retrieval and pinned local models, hybrid retrieval reached **0.9333 Recall@5** and **0.9667 MRR@5**. Both methods used the same corpus and questions, with up to five results per query.
+Exercised PostgreSQL retrieval and pinned local models on 11 passages from four NZ acts (2,989 passage-text characters). Across 15 answerable questions, hybrid retrieval achieved Recall@5 of 0.9333 and MRR@5 of 0.9667. Five further questions tested unsupported-topic abstention.
 
-| Metric | PostgreSQL keyword baseline | Hybrid + reranking |
-| --- | ---: | ---: |
-| Recall@5, 15 answerable questions | 0.0667 | **0.9333** |
-| MRR@5, 15 answerable questions | 0.0667 | **0.9667** |
-| Correct abstentions, 5 unsupported questions | 5/5 | 5/5 |
-| False abstentions, 15 answerable questions | 14/15 | 0/15 |
-| Technical failures, 20 questions | 0 | 0 |
+| Metric | Keyword (AND) | Keyword (OR) | Hybrid + reranking |
+| --- | ---: | ---: | ---: |
+| Recall@5, 15 answerable questions | 0.0667 | 1.0000 | 0.9333 |
+| MRR@5, 15 answerable questions | 0.0667 | 0.8500 | 0.9667 |
+| Correct abstentions, 5 unsupported questions | 5/5 | 0/5 | 5/5 |
+| False abstentions, 15 answerable questions | 14/15 | 0/15 | 0/15 |
+| Technical failures, 20 questions | 0 | 0 | 0 |
 
-The hybrid path combines pgvector and PostgreSQL full-text search through Reciprocal Rank Fusion, then applies cross-encoder reranking. The baseline uses PostgreSQL `plainto_tsquery`, which requires all remaining query terms and often returns nothing for these natural-language questions. This is a comparison with a simple keyword baseline, not every lexical search approach.
+All three methods use identical questions and corpus, with up to five results per query. OR lexical search recovered every labelled passage within the top five, but returned matches for every unsupported question. Hybrid ranked the first relevant passage higher on average and abstained on the unsupported set. Lexical methods have no tuned score threshold; the AND method often returns nothing because it requires all terms.
 
-[Benchmark setup and reproduction](docs/benchmarks/e12/README.md) · [Recorded results](docs/benchmarks/e12/retrieval/runs/20261018T121928Z/results.json) · [Per-question CSV](docs/benchmarks/e12/retrieval/runs/20261018T121928Z/per-query.csv) · [Labelled questions](docs/benchmarks/e12/retrieval/dataset-v1.json)
+This is a small pipeline check: five results can cover 45% of the corpus, and selecting five passages uniformly at random gives expected Recall@5 of 5/11 (about 0.455). Two sources contain section headings only. The result does not establish legal-answer correctness, broad retrieval superiority, or complete assessment quality.
 
-This small, author-labelled benchmark measures passage retrieval. Four official legislative sources supply the corpus, but two contain section headings only. It does not establish legal-answer correctness or end-to-end live assessment quality. Vehicle evidence remains synthetic and reports require human approval.
+[Benchmark setup and reproduction](docs/benchmarks/e12/README.md) · [Recorded results](docs/benchmarks/e12/retrieval/runs/20261019T052909Z/results.json) · [Per-question CSV](docs/benchmarks/e12/retrieval/runs/20261019T052909Z/per-query.csv) · [Labelled questions](docs/benchmarks/e12/retrieval/dataset-v1.json)
+
+The run records clean source commit [`4aea76a`](https://github.com/sovorn-c/vehicle-risk-agent/commit/4aea76a4719c14c7b1193382031ff01b71247e43). Labels are author-reviewed, vehicle evidence remains synthetic, and reports require human approval.
 
 ## Explore the system
 
@@ -305,7 +307,7 @@ The published baseline control artifact is cryptographically bound to prevent un
 
 - The sourced corpus and real-model retrieval benchmark now run against PostgreSQL. The default seeded demonstration remains a separate two-passage fixture.
 - The retrieval corpus is small; the Motor Vehicle Sales Act and Personal Property Securities Act entries contain headings rather than full provisions. Their retrieval does not support claims about the missing statutory text.
-- The keyword baseline uses conjunctive PostgreSQL full-text search. Its 14 false abstentions make it a weak baseline for these natural-language questions; a better lexical query strategy could narrow the gap.
+- The corpus has 11 passages and 2,989 passage-text characters. OR lexical search reaches Recall@5 of 1.0000 on the frozen questions but does not abstain on unsupported topics; hybrid trades some recall for higher MRR and abstention. Lexical score thresholds were not calibrated.
 - The existing Gemini live evaluation previously executed 24 runs at approximately $0.01. Those runs predate this retrieval result and do not establish quality against the new corpus.
 - A new live assessment comparison against the sourced corpus and eight bound human semantic reviews remain pending. No end-to-end release `PASS` is claimed.
 

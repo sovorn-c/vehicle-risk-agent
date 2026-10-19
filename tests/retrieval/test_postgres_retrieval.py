@@ -193,3 +193,23 @@ async def test_postgres_keyword_tsvector_search(
         assert len(results) >= 1
         assert results[0].passage_id == "snap-1:p001"
         assert "Misleading" in results[0].passage.heading
+
+
+@pytest.mark.asyncio
+async def test_postgres_keyword_any_term_preserves_default_and_snapshot_scope(
+    session_factory: async_sessionmaker[AsyncSession],
+    seeded_postgres_passages: list[str],
+) -> None:
+    async with session_factory() as session:
+        index = PostgresPolicyIndex(
+            session=session,
+            embedder=FakeEmbeddingAdapter(dimensions=384),
+            snapshot_ids=seeded_postgres_passages[:1],
+        )
+        query = "misleading repossession nonexistentword"
+        assert await index.search_keyword(query) == []
+        results = await index.search_keyword(query, top_k=5, any_term=True)
+        assert [item.passage_id for item in results] == ["snap-1:p001"]
+        assert results[0].score > 0
+        assert await index.search_keyword("the and or", any_term=True) == []
+        assert await index.search_keyword("  !!! ", any_term=True) == []
