@@ -174,6 +174,7 @@ def test_portfolio_retrieval_run_export_is_versioned_and_preserves_per_query_row
         summarize_portfolio_results,
     )
     from vehicle_risk_agent.evaluation.portfolio_retrieval_runner import (
+        capture_source_provenance,
         write_portfolio_retrieval_run,
     )
 
@@ -194,15 +195,17 @@ def test_portfolio_retrieval_run_export_is_versioned_and_preserves_per_query_row
         )
         for query in evaluation
     ]
-    results = {"keyword": scores, "hybrid": scores}
+    results = {"keyword": scores, "keyword_or": scores, "hybrid": scores}
     summaries = {
         "keyword": summarize_portfolio_results("keyword", dataset, scores),
+        "keyword_or": summarize_portfolio_results("keyword_or", dataset, scores),
         "hybrid": summarize_portfolio_results("hybrid", dataset, scores),
     }
+    provenance = capture_source_provenance(root)
     run_dir = tmp_path / "run-001"
 
     json_path, csv_path = write_portfolio_retrieval_run(
-        run_dir, corpus, dataset, results, summaries
+        run_dir, corpus, dataset, results, summaries, source_provenance=provenance
     )
 
     document = json.loads(json_path.read_text(encoding="utf-8"))
@@ -212,6 +215,52 @@ def test_portfolio_retrieval_run_export_is_versioned_and_preserves_per_query_row
     assert document["corpus_fingerprint"] == corpus.fingerprint
     assert len(document["methods"]["keyword"]["queries"]) == 20
     assert len(document["methods"]["hybrid"]["queries"]) == 20
-    assert len(rows) == 40
-    assert {row["method"] for row in rows} == {"keyword", "hybrid"}
+    assert len(rows) == 60
+    assert {row["method"] for row in rows} == {"keyword", "keyword_or", "hybrid"}
     assert len({row["query_id"] for row in rows if row["method"] == "keyword"}) == 20
+    assert document["schema_version"] == 2
+    assert document["source_provenance"] == provenance
+    assert document["corpus_size"]["passage_count"] == len(corpus.passages)
+    assert document["method_definitions"]["keyword_or"]
+    assert b"\r\n" not in csv_path.read_bytes()
+
+
+def test_source_provenance_detects_clean_tracked_and_untracked_changes(tmp_path: Path) -> None:
+    import subprocess
+
+    from vehicle_risk_agent.evaluation.portfolio_retrieval_runner import (
+        capture_source_provenance,
+    )
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+
+    git("init")
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("original", encoding="utf-8")
+    git("add", "tracked.txt")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "-m",
+        "initial",
+    )
+    clean = capture_source_provenance(tmp_path)
+    assert clean["commit_sha"] == git("rev-parse", "HEAD")
+    assert clean["dirty"] is False
+    tracked.write_text("changed", encoding="utf-8")
+    assert capture_source_provenance(tmp_path)["dirty"] is True
+    tracked.write_text("original", encoding="utf-8")
+    (tmp_path / "untracked.txt").write_text("new", encoding="utf-8")
+    assert capture_source_provenance(tmp_path)["dirty"] is True
