@@ -1,5 +1,7 @@
 """PostgreSQL pgvector dense search and tsvector full-text search index."""
 
+import re
+
 import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,8 +96,10 @@ class PostgresPolicyIndex:
 
         return candidates
 
-    async def search_keyword(self, query: str, top_k: int = 20) -> list[RankedCandidate]:
-        """Search passages using PostgreSQL full-text search with plainto_tsquery."""
+    async def search_keyword(
+        self, query: str, top_k: int = 20, *, any_term: bool = False
+    ) -> list[RankedCandidate]:
+        """Search all terms by default; opt into OR matching for a lexical baseline."""
         if not self._snapshot_ids:
             return []
 
@@ -108,7 +112,13 @@ class PostgresPolicyIndex:
             "english",
             PolicyPassageRecord.heading + " " + PolicyPassageRecord.text,
         )
-        query_expr = func.plainto_tsquery("english", clean_query)
+        if any_term:
+            # Quote individual words so user punctuation cannot become query operators.
+            words = re.findall(r"\w+", clean_query)
+            or_query = " OR ".join(f'"{word}"' for word in words)
+            query_expr = func.websearch_to_tsquery("english", or_query)
+        else:
+            query_expr = func.plainto_tsquery("english", clean_query)
         rank_expr = func.ts_rank_cd(doc_expr, query_expr)
 
         stmt = (
