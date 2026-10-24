@@ -121,3 +121,124 @@ def test_live_retrieval_uses_configured_model_revisions() -> None:
     )
     assert app.state.embedding_adapter.revision == "embedding-pinned-revision"
     assert app.state.reranker_adapter.revision == "reranker-pinned-revision"
+
+
+_AZURE_ENDPOINT = "https://oai-example.openai.azure.com"
+
+
+def _azure_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "drafting_mode": "azure_openai",
+        "enable_live_drafting": True,
+        "azure_openai_endpoint": _AZURE_ENDPOINT,
+        "azure_openai_deployment": "chat",
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)  # type: ignore[arg-type,call-arg]
+
+
+def test_azure_openai_mode_loads_with_endpoint_and_deployment() -> None:
+    settings = _azure_settings()
+
+    assert settings.drafting_mode == "azure_openai"
+    assert settings.azure_openai_endpoint == _AZURE_ENDPOINT
+    assert settings.azure_openai_deployment == "chat"
+    assert settings.azure_client_id is None
+
+
+def test_azure_openai_mode_requires_live_drafting_opt_in() -> None:
+    with pytest.raises(ValidationError, match="ENABLE_LIVE_DRAFTING"):
+        _azure_settings(enable_live_drafting=False)
+
+
+@pytest.mark.parametrize("endpoint", [None, "", "   "])
+def test_azure_openai_mode_requires_endpoint(endpoint: str | None) -> None:
+    with pytest.raises(ValidationError, match="AZURE_OPENAI_ENDPOINT"):
+        _azure_settings(azure_openai_endpoint=endpoint)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://oai-example.openai.azure.com",
+        "https://user:pass@oai-example.openai.azure.com",
+        "https://oai-example.openai.azure.com/?api-version=1",
+        "https://oai-example.openai.azure.com/#frag",
+        "https://oai-example.openai.azure.com/openai/v1",
+        "oai-example.openai.azure.com",
+    ],
+)
+def test_azure_openai_mode_rejects_unsafe_endpoint(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match="AZURE_OPENAI_ENDPOINT"):
+        _azure_settings(azure_openai_endpoint=endpoint)
+
+
+@pytest.mark.parametrize("deployment", [None, "", "  "])
+def test_azure_openai_mode_requires_deployment(deployment: str | None) -> None:
+    with pytest.raises(ValidationError, match="AZURE_OPENAI_DEPLOYMENT"):
+        _azure_settings(azure_openai_deployment=deployment)
+
+
+_PRODUCTION_VALUES: dict[str, object] = {
+    "environment": "production",
+    "mcp_server_url": "http://ca-mcp/mcp",
+    "requester_token": "prod-requester-token-value",
+    "reviewer_token": "prod-reviewer-token-value",
+    "operator_token": "prod-operator-token-value",
+    "maintainer_token": "prod-maintainer-token-value",
+    "snapshot_integrity_secret": "prod-snapshot-integrity-secret-0123456789",
+}
+
+
+def test_azure_openai_mode_requires_client_id_in_production() -> None:
+    with pytest.raises(ValidationError, match="AZURE_CLIENT_ID"):
+        _azure_settings(**_PRODUCTION_VALUES)
+
+    settings = _azure_settings(
+        **_PRODUCTION_VALUES, azure_client_id="00000000-0000-0000-0000-000000000001"
+    )
+    assert settings.azure_client_id == "00000000-0000-0000-0000-000000000001"
+
+
+def test_settings_have_no_azure_openai_api_key_field() -> None:
+    with pytest.raises(ValidationError):
+        _azure_settings(azure_openai_api_key="key")
+
+
+# Mirrors vehicle-intelligence-platform terraform/stack/apps.tf local.agent_env (lines 23-37).
+_TERRAFORM_AGENT_ENV = {
+    "ENVIRONMENT": "production",
+    "MCP_SERVER_URL": "http://ca-mcp/mcp",
+    "DRAFTING_MODE": "azure_openai",
+    "ENABLE_LIVE_DRAFTING": "true",
+    "AZURE_CLIENT_ID": "00000000-0000-0000-0000-000000000001",
+    "AZURE_OPENAI_ENDPOINT": "https://oai-example.openai.azure.com/",
+    "AZURE_OPENAI_DEPLOYMENT": "chat",
+    "DATABASE_URL": "postgresql+psycopg://agent:secret@psql.example:5432/agent",
+    "REQUESTER_TOKEN": "kv-requester-token-value",
+    "REVIEWER_TOKEN": "kv-reviewer-token-value",
+    "OPERATOR_TOKEN": "kv-operator-token-value",
+    "MAINTAINER_TOKEN": "kv-maintainer-token-value",
+    "SNAPSHOT_INTEGRITY_SECRET": "kv-snapshot-integrity-secret-0123456789",
+}
+
+
+def test_settings_load_from_terraform_agent_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings load from exactly the env set ca-agent receives from Terraform.
+
+    Source: vehicle-intelligence-platform terraform/stack/apps.tf local.agent_env,
+    lines 23-37. A field production requires that Terraform does not set would crash
+    ca-agent, job-agent-seed, and job-agent-postdeploy-eval at startup.
+    """
+    for field_name in Settings.model_fields:
+        monkeypatch.delenv(field_name.upper(), raising=False)
+    for name, value in _TERRAFORM_AGENT_ENV.items():
+        monkeypatch.setenv(name, value)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.environment == "production"
+    assert settings.drafting_mode == "azure_openai"
+    assert settings.azure_openai_endpoint == "https://oai-example.openai.azure.com"
+    assert settings.azure_openai_deployment == "chat"
+    assert settings.mcp_server_url == "http://ca-mcp/mcp"
