@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from types import TracebackType
 from typing import Any
 
@@ -84,6 +86,7 @@ class _Drafter:
         self.error = error
         self.delay = delay
         self.contexts: list[ReportDraftingContext] = []
+        self.closed = False
 
     async def draft_report(self, context: ReportDraftingContext) -> Any:
         self.contexts.append(context)
@@ -92,6 +95,50 @@ class _Drafter:
         if self.error is not None:
             raise self.error
         return object()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_drafter_is_closed_after_run() -> None:
+    harness = _Harness()
+
+    assert await harness.run(_settings()) == 0
+
+    assert harness.drafter.closed
+
+
+@pytest.mark.asyncio
+async def test_unusable_database_url_exits_2_without_traceback() -> None:
+    lines: list[dict[str, Any]] = []
+
+    def broken_engine(_url: str) -> Any:
+        raise ModuleNotFoundError("No module named 'psycopg2'")
+
+    exit_code = await postdeploy_eval.run_checks(
+        _settings(),
+        engine_factory=broken_engine,
+        emit=lambda line: lines.append(json.loads(line)),
+    )
+
+    assert exit_code == 2
+    assert lines == [
+        {"check": "config", "status": "fail", "latency_ms": 0, "error_category": "CONFIG_INVALID"}
+    ]
+
+
+def test_module_entrypoint_forwards_arguments() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "vehicle_risk_agent.cli.postdeploy_eval", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout.strip().splitlines()[-1])["error_category"] == "USAGE"
 
 
 class _Harness:

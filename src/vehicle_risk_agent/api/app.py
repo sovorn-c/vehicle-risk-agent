@@ -113,6 +113,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if pending_tasks:
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
                 app.state.workflow_runner = None
+        if isinstance(drafting_adapter, AzureOpenAIDraftingAdapter):
+            await drafting_adapter.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -136,7 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/docs", include_in_schema=False, response_class=HTMLResponse)
     async def documentation() -> HTMLResponse:
-        return HTMLResponse(DOCS_HTML)
+        return HTMLResponse(DOCS_HTML.replace("{version}", __version__))
 
     @app.get("/reference", include_in_schema=False, response_class=HTMLResponse)
     async def documentation_reference() -> HTMLResponse:

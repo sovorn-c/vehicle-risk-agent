@@ -3,6 +3,8 @@
 # story: e13s05
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -81,3 +83,25 @@ def test_dockerfile_declares_azure_extra_and_e12_model_revisions() -> None:
     assert "ARG INSTALL_AZURE=false" in content
     assert f"ARG EMBEDDING_REVISION={E12_EMBEDDING_REVISION}" in content
     assert f"ARG RERANKER_REVISION={E12_RERANKER_REVISION}" in content
+    assert (
+        content.count('if [ "$INSTALL_AZURE" = "true" ]; then extras="$extras --extra azure"') == 2
+    )
+    for runtime_env in (
+        "HF_HUB_OFFLINE=1",
+        "EMBEDDING_REVISION=$EMBEDDING_REVISION",
+        "RERANKER_REVISION=$RERANKER_REVISION",
+    ):
+        assert runtime_env in content
+
+
+def test_core_app_and_gate_import_without_azure_sdks() -> None:
+    """The no-extra install path must not import the optional Azure SDKs."""
+    probe = (
+        "import sys, vehicle_risk_agent.api.app, vehicle_risk_agent.cli.predeploy_eval;"
+        "print(sorted(m for m in ('openai', 'azure.identity') if m in sys.modules))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
+    )
+
+    assert result.stdout.strip() == "[]"

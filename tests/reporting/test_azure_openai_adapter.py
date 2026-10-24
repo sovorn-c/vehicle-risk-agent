@@ -306,3 +306,42 @@ def test_create_app_wires_azure_adapter_without_network() -> None:
     assert adapter.model == DEPLOYMENT
     assert adapter.max_tokens == 1536
     assert adapter.timeout_seconds == 12
+
+
+@pytest.mark.asyncio
+async def test_managed_identity_credential_builds_without_injection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Container Apps managed-identity path must construct a real async credential."""
+    monkeypatch.setenv("IDENTITY_ENDPOINT", "http://127.0.0.1:9/msi/token")
+    monkeypatch.setenv("IDENTITY_HEADER", "test-identity-header")
+    adapter = AzureOpenAIDraftingAdapter(
+        endpoint=ENDPOINT,
+        deployment=DEPLOYMENT,
+        client_id="00000000-0000-0000-0000-000000000000",
+    )
+
+    adapter._get_client()
+
+    await adapter.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aclose_leaves_injected_credential_to_its_owner() -> None:
+    closed: list[bool] = []
+
+    class _TrackedCredential(_FakeCredential):
+        async def close(self) -> None:
+            closed.append(True)
+
+    adapter = AzureOpenAIDraftingAdapter(
+        endpoint=ENDPOINT,
+        deployment=DEPLOYMENT,
+        credential=_TrackedCredential(),
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(_ok)),
+    )
+    await adapter.draft_report(_context())
+
+    await adapter.aclose()
+
+    assert closed == []

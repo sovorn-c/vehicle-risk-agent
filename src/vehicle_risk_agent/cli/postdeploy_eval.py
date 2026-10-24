@@ -19,7 +19,9 @@ drafting mode is not ``azure_openai``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import sys
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -40,6 +42,7 @@ from vehicle_risk_agent.risk.models import (
     RiskResult,
 )
 
+# [UNVERIFIED] until Phase 4: in pipeline phase2 fixtures, not checked against the Azure seed.
 CANARY_VIN = "1HGCR2F85HA000000"
 DATABASE_TIMEOUT_SECONDS = 10.0
 MCP_TIMEOUT_SECONDS = 30.0
@@ -157,7 +160,12 @@ async def run_checks(
     overall_timeout_seconds: float = OVERALL_TIMEOUT_SECONDS,
 ) -> int:
     """Run database, MCP and drafting checks in order; return the exit code."""
-    engine = engine_factory(settings.database_url)
+    try:
+        engine = engine_factory(settings.database_url)
+    except Exception:
+        emit(_line("config", "fail", 0, "CONFIG_INVALID"))
+        return EXIT_CONFIG_INVALID
+    drafters: list[Any] = []
 
     async def database() -> None:
         async with engine.connect() as connection:
@@ -167,7 +175,9 @@ async def run_checks(
         await mcp_factory(settings).lookup_vehicle(CANARY_VIN)
 
     async def drafting() -> None:
-        await drafter_factory(settings).draft_report(CANARY_CONTEXT)
+        drafter = drafter_factory(settings)
+        drafters.append(drafter)
+        await drafter.draft_report(CANARY_CONTEXT)
 
     checks: list[tuple[str, Callable[[], Awaitable[None]], float]] = [
         ("database", database, DATABASE_TIMEOUT_SECONDS),
@@ -194,6 +204,11 @@ async def run_checks(
         passed = False
     finally:
         await engine.dispose()
+        for drafter in drafters:
+            aclose = getattr(drafter, "aclose", None)
+            if aclose is not None:
+                with contextlib.suppress(Exception):
+                    await aclose()
 
     emit(
         _line(
@@ -227,4 +242,4 @@ def main(argv: Sequence[str] | None = None, emit: Emit = print) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

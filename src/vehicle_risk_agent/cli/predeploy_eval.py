@@ -77,8 +77,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the gate and return its exit code."""
     try:
         args = _parse_args(argv)
-    except SystemExit as exc:
-        return exc.code if isinstance(exc.code, int) else EXIT_ERROR
+    except SystemExit:
+        return EXIT_ERROR
 
     if args.force_fail:
         print(FORCED_FAILURE, file=sys.stderr)

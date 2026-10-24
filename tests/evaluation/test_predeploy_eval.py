@@ -127,6 +127,11 @@ def test_unknown_argument_exits_2() -> None:
     assert predeploy_eval.main(["--bogus"]) == 2
 
 
+def test_help_does_not_pass_the_gate(capsys: pytest.CaptureFixture[str]) -> None:
+    assert predeploy_eval.main(["--help"]) == 2
+    assert predeploy_eval.NOTICE not in capsys.readouterr().out
+
+
 def test_output_file_writes_report_json(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, real_report: ComparativeReport
 ) -> None:

@@ -454,6 +454,12 @@ Evaluation commands:
 
 The predeploy gate is offline and credential-free. It evaluates the frozen e12 configuration and deliberately ignores the live-dependent e12 release verdict, printing a notice when it does. The postdeploy check runs a database `SELECT 1`, one MCP `lookup_vehicle`, and one bounded Azure OpenAI draft of a fixed synthetic canary that is never persisted.
 
+Built and tested offline only. Phase 4 still has to confirm the following on Azure:
+- the managed-identity token scope;
+- the endpoint form that serves the `chat` deployment;
+- that the seeded database returns canary VIN `1HGCR2F85HA000000`;
+- that `gh attestation verify` accepts the published image.
+
 ## Audit and safety properties
 
 - Every MCP result is validated, hashed, and stored as an immutable point-in-time evidence snapshot.

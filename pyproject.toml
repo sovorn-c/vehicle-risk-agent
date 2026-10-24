@@ -26,6 +26,7 @@ dependencies = [
 ml = ["sentence-transformers>=3.0.0"]
 live = ["anthropic>=1.4,<2", "google-genai>=1.0,<3"]
 azure = [
+    "aiohttp>=3.9",
     "azure-identity>=1.26.0",
     "openai>=3.37.0",
 ]
@@ -42,6 +43,7 @@ dev = [
     "mypy>=1.10.0",
     "azure-identity>=1.26.0",
     "openai>=3.37.0",
+    "aiohttp>=3.9",
 ]
 
 [build-system]

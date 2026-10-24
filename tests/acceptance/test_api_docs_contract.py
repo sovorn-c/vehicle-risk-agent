@@ -3,6 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from vehicle_risk_agent import __version__
 from vehicle_risk_agent.api.app import create_app
 from vehicle_risk_agent.config import Settings
 
@@ -103,3 +104,10 @@ def test_docs_contract_does_not_add_docs_routes_to_openapi() -> None:
     assert "/openapi.json" not in schema["paths"]
     assert "/api/v1/assessments" in schema["paths"]
     assert "/api/v1/assessments/{assessment_id}/review/approve" in schema["paths"]
+
+
+def test_docs_page_shows_the_package_version() -> None:
+    with _client() as client:
+        response = client.get("/docs")
+
+    assert f"v{__version__}" in response.text

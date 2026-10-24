@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from azure.core.credentials_async import AsyncTokenCredential
     from openai import AsyncOpenAI
 
+# [UNVERIFIED] until Phase 4: whether this account accepts this scope or needs ai.azure.com.
 AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
 
 
@@ -47,6 +48,7 @@ class AzureOpenAIDraftingAdapter(AnthropicDraftingAdapter):
         self._base_url = f"{endpoint.rstrip('/')}/openai/v1/"
         self._client_id = client_id
         self._credential = credential
+        self._owns_credential = credential is None
         self._http_client = http_client
         self._client: AsyncOpenAI | None = None
 
@@ -127,6 +129,15 @@ class AzureOpenAIDraftingAdapter(AnthropicDraftingAdapter):
     @staticmethod
     def _known_int(value: Any) -> bool:
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    async def aclose(self) -> None:
+        """Close the SDK client and any credential this adapter created."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+        if self._owns_credential and self._credential is not None:
+            await self._credential.close()
+            self._credential = None
 
     async def _assemble_draft(
         self,
