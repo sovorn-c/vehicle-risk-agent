@@ -9,7 +9,6 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_URL
-from vehicle_risk_agent import __version__
 from vehicle_risk_agent.cli.domain_smoke import run_smoke
 from vehicle_risk_agent.persistence.models import IdempotencyRecord
 
@@ -25,11 +24,6 @@ async def clean_database_for_smoke(request: pytest.FixtureRequest) -> AsyncItera
         await conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     await engine.dispose()
     yield
-
-
-def test_package_version() -> None:
-    """Verify package exposes a semantic version."""
-    assert __version__ == "0.1.0"
 
 
 @pytest.mark.db

@@ -370,7 +370,7 @@ DOCS_HTML = r"""<!doctype html>
 
     <main id="top">
       <header class="topbar">
-        <div class="crumb"><b>Developer docs</b> / v0.1.0</div>
+        <div class="crumb"><b>Developer docs</b> / v{version}</div>
         <div class="top-actions"><span class="ready" id="ready-status" role="status" aria-live="polite">Checking API…</span><a class="top-link" href="/openapi.json">OpenAPI JSON ↗</a><a class="top-link" href="/reference">Full reference ↗</a></div>
       </header>
 
@@ -428,7 +428,7 @@ DOCS_HTML = r"""<!doctype html>
           <div class="hero-aside"><span class="mono">docker compose up -d --build</span><p>Then open <a href="/docs" style="color:var(--mint)">localhost:8001/docs</a>. Seeded evidence is synthetic demonstration data. It is not live NZTA, PPSR, Police, insurer, owner, or dealer data.</p></div>
         </section>
 
-        <footer class="footer"><span>Vehicle Risk Assessment Agent · API v0.1.0</span><span><a href="/openapi.json">OpenAPI JSON</a> · <a href="/reference">Full reference</a></span></footer>
+        <footer class="footer"><span>Vehicle Risk Assessment Agent · API v{version}</span><span><a href="/openapi.json">OpenAPI JSON</a> · <a href="/reference">Full reference</a></span></footer>
       </div>
     </main>
   </div>

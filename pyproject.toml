@@ -1,6 +1,6 @@
 [project]
 name = "vehicle-risk-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Auditable vehicle risk assessment agent with typed LangGraph workflows"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,6 +25,11 @@ dependencies = [
 [project.optional-dependencies]
 ml = ["sentence-transformers>=3.0.0"]
 live = ["anthropic>=1.4,<2", "google-genai>=1.0,<3"]
+azure = [
+    "aiohttp>=3.9",
+    "azure-identity>=1.26.0",
+    "openai>=3.37.0",
+]
 
 [project.scripts]
 vehicle-risk-agent = "vehicle_risk_agent.__main__:main"
@@ -36,6 +41,9 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.5.0",
     "mypy>=1.10.0",
+    "azure-identity>=1.26.0",
+    "openai>=3.37.0",
+    "aiohttp>=3.9",
 ]
 
 [build-system]

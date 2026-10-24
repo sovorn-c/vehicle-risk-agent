@@ -427,6 +427,39 @@ ANTHROPIC_API_KEY="sk-ant-..." uv run python -m vehicle_risk_agent.evaluation.li
 
 Coverage includes workflow transitions, MCP contract failures, evidence integrity, retrieval abstention, deterministic scoring, grounded drafting, concurrent review actions, checkpoint recovery, authorization, telemetry redaction, Docker delivery, and API contracts.
 
+## Azure deployment contract
+
+Pushing a `v<MAJOR>.<MINOR>.<PATCH>` tag runs `.github/workflows/release.yml`. The workflow checks that the tag matches `pyproject.toml` and `__version__`, runs `scripts/check.sh` and the offline predeploy gate, and only then publishes `ghcr.io/sovorn-c/vehicle-risk-agent:<version>` (no `v`, no `latest`) for `linux/amd64` with build provenance. Verify it with `gh attestation verify oci://ghcr.io/sovorn-c/vehicle-risk-agent:<version> --owner sovorn-c`.
+
+The release image is built with `INSTALL_ML=true` and `INSTALL_AZURE=true`. It bakes `sentence-transformers/all-MiniLM-L6-v2` and `cross-encoder/ms-marco-MiniLM-L-6-v2` at the e12 benchmark revisions and runs with `HF_HUB_OFFLINE=1`, so production never downloads models.
+
+Production drafting environment:
+
+|Variable|Value|
+|---|---|
+|`DRAFTING_MODE`|`azure_openai`|
+|`ENABLE_LIVE_DRAFTING`|`true`|
+|`AZURE_CLIENT_ID`|User-assigned managed identity client ID; no API key is accepted|
+|`AZURE_OPENAI_ENDPOINT`|`https://<resource>.openai.azure.com` (bare HTTPS resource endpoint)|
+|`AZURE_OPENAI_DEPLOYMENT`|Deployment name, for example `chat`|
+
+Production also requires `MCP_SERVER_URL`, `DATABASE_URL`, non-development bearer tokens, and a non-default `SNAPSHOT_INTEGRITY_SECRET`.
+
+Evaluation commands:
+
+|Command|Exit codes|
+|---|---|
+|`bash scripts/predeploy-eval.sh`|`0` pass, `1` check failure, `2` error, `3` `--force-fail`|
+|`python -m vehicle_risk_agent.cli.postdeploy_eval`|`0` pass, `1` check failure (triggers rollback), `2` invalid configuration|
+
+The predeploy gate is offline and credential-free. It evaluates the frozen e12 configuration and deliberately ignores the live-dependent e12 release verdict, printing a notice when it does. The postdeploy check runs a database `SELECT 1`, one MCP `lookup_vehicle`, and one bounded Azure OpenAI draft of a fixed synthetic canary that is never persisted.
+
+Built and tested offline only. Phase 4 still has to confirm the following on Azure:
+- the managed-identity token scope;
+- the endpoint form that serves the `chat` deployment;
+- that the seeded database returns canary VIN `1HGCR2F85HA000000`;
+- that `gh attestation verify` accepts the published image.
+
 ## Audit and safety properties
 
 - Every MCP result is validated, hashed, and stored as an immutable point-in-time evidence snapshot.

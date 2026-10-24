@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     live_budget_usd: float = Field(default=5.0, gt=0)
     enable_live_drafting: bool = False
+    azure_client_id: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_deployment: str | None = None
 
     @field_validator("retrieval_mode")
     @classmethod
@@ -55,8 +58,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_drafting_mode(cls, value: str) -> str:
         cleaned = value.strip().lower()
-        if cleaned not in {"offline", "live"}:
-            raise ValueError("drafting_mode must be 'offline' or 'live'")
+        if cleaned not in {"offline", "live", "azure_openai"}:
+            raise ValueError("drafting_mode must be 'offline', 'live', or 'azure_openai'")
         return cleaned
 
     @field_validator("mcp_server_url")
@@ -82,6 +85,27 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < 32:
             raise ValueError("snapshot_integrity_secret must contain at least 32 characters")
         return value
+
+    @field_validator("azure_openai_endpoint")
+    @classmethod
+    def validate_azure_openai_endpoint(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("AZURE_OPENAI_ENDPOINT must be an https URL")
+        if parsed.username or parsed.password:
+            raise ValueError("AZURE_OPENAI_ENDPOINT must not contain credentials")
+        if parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+            raise ValueError("AZURE_OPENAI_ENDPOINT must be the bare resource endpoint")
+        return f"https://{parsed.netloc}"
+
+    @field_validator("azure_client_id", "azure_openai_deployment")
+    @classmethod
+    def strip_optional(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return value.strip()
 
     @model_validator(mode="after")
     def validate_production_configuration(self) -> "Settings":
@@ -110,4 +134,15 @@ class Settings(BaseSettings):
                 )
             if not self.anthropic_api_key or not self.anthropic_api_key.get_secret_value().strip():
                 raise ValueError("drafting_mode='live' requires anthropic_api_key")
+        if self.drafting_mode == "azure_openai":
+            if not self.enable_live_drafting:
+                raise ValueError("drafting_mode='azure_openai' requires ENABLE_LIVE_DRAFTING=true")
+            if self.azure_openai_endpoint is None:
+                raise ValueError("drafting_mode='azure_openai' requires AZURE_OPENAI_ENDPOINT")
+            if self.azure_openai_deployment is None:
+                raise ValueError("drafting_mode='azure_openai' requires AZURE_OPENAI_DEPLOYMENT")
+            if self.environment.lower() == "production" and self.azure_client_id is None:
+                raise ValueError(
+                    "drafting_mode='azure_openai' requires AZURE_CLIENT_ID in production"
+                )
         return self

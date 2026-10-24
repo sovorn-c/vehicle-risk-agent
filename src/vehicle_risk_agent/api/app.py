@@ -13,7 +13,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent import __version__
 from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
+from vehicle_risk_agent.adapters.azure_openai_drafting import AzureOpenAIDraftingAdapter
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
 from vehicle_risk_agent.api.docs import DOCS_HTML
 from vehicle_risk_agent.api.evidence_routes import router as evidence_router
@@ -77,6 +79,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timeout_seconds=int(settings.drafting_timeout_seconds),
             api_key=api_key,
         )
+    elif settings.drafting_mode == "azure_openai":
+        assert settings.azure_openai_endpoint is not None
+        assert settings.azure_openai_deployment is not None
+        drafting_adapter = AzureOpenAIDraftingAdapter(
+            endpoint=settings.azure_openai_endpoint,
+            deployment=settings.azure_openai_deployment,
+            client_id=settings.azure_client_id,
+            max_tokens=settings.drafting_max_tokens,
+            timeout_seconds=int(settings.drafting_timeout_seconds),
+        )
     else:
         drafting_adapter = OfflineReportDraftingAdapter()
 
@@ -101,11 +113,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if pending_tasks:
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
                 app.state.workflow_runner = None
+        if isinstance(drafting_adapter, AzureOpenAIDraftingAdapter):
+            await drafting_adapter.aclose()
         await engine.dispose()
 
     app = FastAPI(
         title="Vehicle Risk Assessment Agent",
-        version="0.1.0",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -118,12 +132,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.embedding_adapter = embedding_adapter
     app.state.reranker_adapter = reranker_adapter
     app.state.mcp_adapter = mcp_adapter
+    app.state.drafting_adapter = drafting_adapter
     app.state.workflow_tasks = set()
     app.state.scheduled_workflow_runs = set()
 
     @app.get("/docs", include_in_schema=False, response_class=HTMLResponse)
     async def documentation() -> HTMLResponse:
-        return HTMLResponse(DOCS_HTML)
+        return HTMLResponse(DOCS_HTML.replace("{version}", __version__))
 
     @app.get("/reference", include_in_schema=False, response_class=HTMLResponse)
     async def documentation_reference() -> HTMLResponse:
