@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from vehicle_risk_agent import __version__
 from vehicle_risk_agent.adapters.anthropic_drafting import AnthropicDraftingAdapter
 from vehicle_risk_agent.adapters.azure_openai_drafting import AzureOpenAIDraftingAdapter
 from vehicle_risk_agent.adapters.mcp import create_mcp_adapter
@@ -116,7 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Vehicle Risk Assessment Agent",
-        version="0.1.0",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,

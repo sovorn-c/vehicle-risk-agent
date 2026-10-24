@@ -1,6 +1,6 @@
 [project]
 name = "vehicle-risk-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Auditable vehicle risk assessment agent with typed LangGraph workflows"
 readme = "README.md"
 requires-python = ">=3.12"
